@@ -1,5 +1,13 @@
 import cv2
-cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+
+# ``cv2.utils.logging`` is not available in older OpenCV builds. Attempt to
+# suppress logging using whatever API is present so the script works across
+# versions.
+try:
+    cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+except AttributeError:  # pragma: no cover - depends on OpenCV version
+    if hasattr(cv2, "setLogLevel"):
+        cv2.setLogLevel(cv2.LOG_LEVEL_ERROR)
 import time
 import subprocess
 
