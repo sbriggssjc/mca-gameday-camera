@@ -20,7 +20,8 @@ def open_writer(path: str, fps: float, size: tuple[int, int]):
 def monitor(device: str = "/dev/video0", upload: bool = True) -> None:
     cap = cv2.VideoCapture(device)
     if not cap.isOpened():
-        raise RuntimeError(f"Unable to open camera {device}")
+        print(f"Unable to open camera {device}")
+        return
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
@@ -30,14 +31,16 @@ def monitor(device: str = "/dev/video0", upload: bool = True) -> None:
 
     ret, prev = cap.read()
     if not ret:
-        raise RuntimeError("Failed to read initial frame")
+        print("Failed to read initial frame")
+        cap.release()
+        return
     prev_gray = cv2.cvtColor(prev, cv2.COLOR_BGR2GRAY)
 
     recording = False
     writer = None
     record_end = 0.0
     clip_path = ""
-    no_motion_start = time.time()
+    last_highlight = 0.0
     motion_threshold = 25.0
 
     print("Monitoring for motion... Press Ctrl+C to stop.")
@@ -54,7 +57,7 @@ def monitor(device: str = "/dev/video0", upload: bool = True) -> None:
             now = time.time()
 
             if diff_val >= motion_threshold:
-                if not recording and no_motion_start is not None and now - no_motion_start >= 5:
+                if not recording and now - last_highlight >= 5:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     clip_path = f"highlight_{timestamp}.mp4"
                     writer = open_writer(clip_path, fps, (1280, 720))
@@ -64,10 +67,6 @@ def monitor(device: str = "/dev/video0", upload: bool = True) -> None:
                     recording = True
                     record_end = now + 10
                     print(f"Motion detected. Recording started: {clip_path}")
-                no_motion_start = None
-            else:
-                if no_motion_start is None:
-                    no_motion_start = now
 
             if recording:
                 writer.write(frame)
@@ -86,7 +85,7 @@ def monitor(device: str = "/dev/video0", upload: bool = True) -> None:
                             print(result.stderr.strip())
                         else:
                             print("Upload successful.")
-                    no_motion_start = now
+                    last_highlight = now
 
             prev_gray = gray
     except KeyboardInterrupt:
@@ -99,4 +98,7 @@ def monitor(device: str = "/dev/video0", upload: bool = True) -> None:
 
 
 if __name__ == "__main__":
-    monitor()
+    try:
+        monitor()
+    except Exception as exc:
+        print(f"Error: {exc}")
