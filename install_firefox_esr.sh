@@ -31,7 +31,7 @@ if [[ -z "$VERSIONS" ]]; then
     exit 1
 fi
 
-LATEST=$(echo "$VERSIONS" | tail -n 1 | tr -d "/")
+LATEST=$(echo "$VERSIONS" | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?esr$' | tail -n 1)
 FILENAME="firefox-${LATEST}.tar.bz2"
 DOWNLOAD_URL="https://ftp.mozilla.org/pub/firefox/releases/${LATEST}/linux-aarch64/en-US/${FILENAME}"
 BASE_VERSION="${LATEST%esr}"
