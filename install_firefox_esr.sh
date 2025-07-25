@@ -18,7 +18,8 @@ if ! RELEASES=$(curl -fsSL "$BASE_URL"); then
 fi
 
 log "📄 Raw directory listing:"
-echo "$RELEASES" | head -n 20
+echo "$RELEASES" > firefox_listing.html
+echo "🧾 Full HTML saved to firefox_listing.html (view it with 'less' or open in text editor)"
 
 # Parse ESR version directories
 VERSIONS=$(echo "$RELEASES" | sed -n 's/.*href="\/pub\/firefox\/releases\/\([^"]*esr\)\/".*/\1/p' | sort -V)
