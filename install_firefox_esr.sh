@@ -12,30 +12,29 @@ log() {
 }
 
 log "🔍 Fetching Firefox ESR versions..."
-if ! html=$(curl -fsSL "$BASE_URL"); then
+if ! RELEASES=$(curl -fsSL "$BASE_URL"); then
     log "❌ Failed to fetch release directory."
     exit 1
 fi
 
 log "📄 Raw directory listing:"
-echo "$html" | head -n 20
+echo "$RELEASES" | head -n 20
 
 # Parse ESR version directories
-versions=$(echo "$html" | grep -oP '(?<=href=")[0-9]+\.[0-9]+(\.[0-9]+)?esr/')
-versions=$(echo "$versions" | sort -V)
+VERSIONS=$(echo "$RELEASES" | grep -oP '(?<=href="/pub/firefox/releases/)[0-9]+\.[0-9]+(\.[0-9]+)?esr/' | sort -V)
 log "📋 Parsed ESR versions:"
-echo "$versions"
+echo "$VERSIONS"
 
-if [[ -z "$versions" ]]; then
+if [[ -z "$VERSIONS" ]]; then
     log "❌ No ESR versions found. Parsing failed."
     exit 1
 fi
 
-latest=$(echo "$versions" | tail -n 1 | tr -d '/')
-filename="firefox-${latest}.tar.bz2"
-download_url="${BASE_URL}${latest}/${ARCH}/${LANG}/${filename}"
+LATEST=$(echo "$VERSIONS" | tail -n 1 | tr -d '/')
+filename="firefox-${LATEST}.tar.bz2"
+download_url="${BASE_URL}${LATEST}/${ARCH}/${LANG}/${filename}"
 
-log "✅ Latest ESR version detected: $latest"
+log "✅ Latest ESR version detected: $LATEST"
 log "🌐 Downloading: $download_url"
 
 if ! wget -O "$filename" "$download_url"; then
@@ -52,4 +51,4 @@ if ! tar -xjf "$filename"; then
 fi
 rm -f "$filename"
 
-log "🚀 Firefox ESR $latest is ready to run at ./firefox/firefox"
+log "🚀 Firefox ESR $LATEST is ready to run at ./firefox/firefox"
