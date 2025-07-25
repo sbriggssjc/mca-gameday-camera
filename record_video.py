@@ -1,6 +1,7 @@
 import cv2
 cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
 import time
+import subprocess
 
 
 def open_writer(path: str, fps: float, size: tuple[int, int]):
@@ -51,6 +52,16 @@ def record(device: str = "/dev/video0", duration: int = 30) -> None:
         cap.release()
         writer.release()
         print("Recording complete.")
+        result = subprocess.run(
+            ["rclone", "copy", "output.mp4", "gdrive:/MCA/GameDayRecordings/"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print("Upload failed:")
+            print(result.stderr.strip())
+        else:
+            print("Upload successful.")
 
 
 if __name__ == "__main__":
