@@ -11,13 +11,13 @@ log() {
 
 log "🔍 Fetching Firefox ESR versions..."
 if ! html=$(curl -fsSL "$BASE_URL"); then
-    log "❌ Failed to fetch release index."
+    log "❌ Failed to fetch release directory."
     exit 1
 fi
 
-# Extract directories that end in 'esr/'
-releases=$(echo "$html" | grep -oP '(?<=href=")[0-9]+\.[0-9]+(\.[0-9]+)?esr/' | sort -V)
-latest=$(echo "$releases" | tail -n1)
+# Extract version directories that end in 'esr/'
+versions=$(echo "$html" | grep -oE '<a href="[0-9]+[^"]*esr/">' | awk -F'"' '{print $2}' | cut -d'/' -f1 | sort -V)
+latest=$(echo "$versions" | tail -n1)
 
 if [[ -z "$latest" ]]; then
     log "❌ No ESR versions found."
@@ -27,16 +27,14 @@ fi
 log "✅ Latest ESR version detected: $latest"
 archive_url="${BASE_URL}${latest}/linux-aarch64/en-US/firefox-${latest}.tar.bz2"
 archive="firefox-esr.tar.bz2"
-rm -f "$archive"
 
 log "📦 Downloading Firefox archive..."
-if ! wget -qO "$archive" "$archive_url"; then
-    log "❌ Download failed."
+if ! wget -O "$archive" "$archive_url" >/dev/null 2>&1; then
+    log "❌ Download failed or URL not found."
     exit 1
 fi
 
 log "📦 Extracting $archive..."
-# Remove old installation if present
 [ -d firefox ] && rm -rf firefox
 if ! tar -xjf "$archive"; then
     log "❌ Extraction failed."
@@ -45,5 +43,4 @@ if ! tar -xjf "$archive"; then
 fi
 rm -f "$archive"
 
-version_no_suffix=${latest%esr}
-log "🚀 Firefox ESR ${version_no_suffix} is ready to run at ./firefox/firefox"
+log "🚀 Firefox ESR ready to launch at ./firefox/firefox"
