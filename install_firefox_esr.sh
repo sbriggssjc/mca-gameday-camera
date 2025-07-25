@@ -21,7 +21,7 @@ log "📄 Raw directory listing:"
 echo "$RELEASES" | head -n 20
 
 # Parse ESR version directories
-VERSIONS=$(echo "$RELEASES" | grep -oP '(?<=href="/pub/firefox/releases/)[0-9]+\.[0-9]+(\.[0-9]+)?esr/' | sort -V)
+VERSIONS=$(echo "$RELEASES" | sed -n 's/.*href="\/pub\/firefox\/releases\/\([^"]*esr\)\/".*/\1/p' | sort -V)
 log "📋 Parsed ESR versions:"
 echo "$VERSIONS"
 
