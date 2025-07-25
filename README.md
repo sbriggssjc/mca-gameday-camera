@@ -47,3 +47,4 @@ This repository contains simple utilities for analyzing football plays.
 - `play_classifier.py` – provides the `PlayClassifier` class which wraps a
   YOLOv5 model to detect touchdown-like movements or fast exits of a
   player from the frame.
+- `record_video.py` – records 1280x720 video from /dev/video0 to output.mp4
