@@ -30,25 +30,26 @@ if [[ -z "$VERSIONS" ]]; then
     exit 1
 fi
 
-LATEST=$(echo "$VERSIONS" | tail -n 1 | tr -d '/')
-filename="firefox-${LATEST}.tar.bz2"
-download_url="${BASE_URL}${LATEST}/${ARCH}/${LANG}/${filename}"
+LATEST=$(echo "$VERSIONS" | tail -n 1 | tr -d "/")
+FILENAME="firefox-${LATEST}.tar.bz2"
+DOWNLOAD_URL="https://ftp.mozilla.org/pub/firefox/releases/${LATEST}/linux-aarch64/en-US/${FILENAME}"
+BASE_VERSION="${LATEST%esr}"
 
 log "✅ Latest ESR version detected: $LATEST"
-log "🌐 Downloading: $download_url"
+log "🌐 Downloading: $DOWNLOAD_URL"
 
-if ! wget -O "$filename" "$download_url"; then
+if ! wget -O "$FILENAME" "$DOWNLOAD_URL"; then
     log "❌ Download failed."
     exit 1
 fi
 
 log "📦 Extracting..."
 [ -d firefox ] && rm -rf firefox
-if ! tar -xjf "$filename"; then
+if ! tar -xjf "$FILENAME"; then
     log "❌ Extraction failed."
-    rm -f "$filename"
+    rm -f "$FILENAME"
     exit 1
 fi
-rm -f "$filename"
+rm -f "$FILENAME"
 
-log "🚀 Firefox ESR $LATEST is ready to run at ./firefox/firefox"
+log "🚀 Firefox ESR $BASE_VERSION is ready to run at ./firefox/firefox"
