@@ -10,7 +10,7 @@ log() {
 }
 
 log "🔍 Fetching Firefox ESR versions..."
-if ! html=$(wget -qO- "$BASE_URL"); then
+if ! html=$(curl -fsSL "$BASE_URL"); then
     log "❌ Failed to fetch release index."
     exit 1
 fi
