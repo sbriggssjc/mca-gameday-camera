@@ -49,3 +49,7 @@ This repository contains simple utilities for analyzing football plays.
   player from the frame.
 - `record_video.py` – records 1280x720 video from /dev/video0 to output.mp4
 - `highlight_recorder.py` – automatically captures 10-second clips when motion is detected
+
+## update_code.sh
+
+Run `update_code.sh` to pull the latest changes from the remote `main` branch. The script handles errors like missing Git or network issues and prints whether new code was retrieved or if the repository was already current.
