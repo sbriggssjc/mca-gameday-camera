@@ -1,4 +1,6 @@
 import cv2
+import argparse
+import os
 
 # Older OpenCV builds may not expose ``cv2.utils.logging``. Fall back to the
 # top-level ``setLogLevel`` function when necessary so that warnings are
@@ -25,7 +27,7 @@ def open_writer(path: str, fps: float, size: tuple[int, int]):
     return writer
 
 
-def monitor(device: str = "/dev/video0", upload: bool = True) -> None:
+def monitor(device: str = "/dev/video0", *, output_dir: str = ".", upload: bool = True) -> None:
     cap = cv2.VideoCapture(device)
     if not cap.isOpened():
         print(f"Unable to open camera {device}")
@@ -48,6 +50,7 @@ def monitor(device: str = "/dev/video0", upload: bool = True) -> None:
     writer = None
     record_end = 0.0
     clip_path = ""
+    os.makedirs(output_dir, exist_ok=True)
     last_highlight = 0.0
     motion_threshold = 25.0
 
@@ -67,7 +70,7 @@ def monitor(device: str = "/dev/video0", upload: bool = True) -> None:
             if diff_val >= motion_threshold:
                 if not recording and now - last_highlight >= 5:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    clip_path = f"highlight_{timestamp}.mp4"
+                    clip_path = os.path.join(output_dir, f"highlight_{timestamp}.mp4")
                     writer = open_writer(clip_path, fps, (1280, 720))
                     if not writer.isOpened():
                         print("Failed to open video writer")
@@ -106,7 +109,13 @@ def monitor(device: str = "/dev/video0", upload: bool = True) -> None:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Record highlights when motion is detected")
+    parser.add_argument("output_dir", nargs="?", default=os.getenv("HIGHLIGHT_DIR", "."), help="directory to store highlight clips")
+    parser.add_argument("--device", default="/dev/video0", help="video capture device")
+    parser.add_argument("--no-upload", dest="upload", action="store_false", help="disable rclone upload")
+    args = parser.parse_args()
     try:
-        monitor()
+        monitor(device=args.device, output_dir=args.output_dir, upload=args.upload)
     except Exception as exc:
         print(f"Error: {exc}")
+
