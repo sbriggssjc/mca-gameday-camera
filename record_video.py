@@ -3,11 +3,11 @@ import time
 
 
 def open_writer(path: str, fps: float, size: tuple[int, int]):
-    """Attempt to open H.264 writer and fallback to MJPG."""
-    fourcc = cv2.VideoWriter_fourcc(*"H264")
+    """Attempt to open avc1 (H.264) writer and fallback to MJPG."""
+    fourcc = cv2.VideoWriter_fourcc(*"avc1")
     writer = cv2.VideoWriter(path, fourcc, fps, size)
     if not writer.isOpened():
-        print("H.264 codec not available, falling back to MJPG")
+        print("avc1 codec not available, falling back to MJPG")
         fourcc = cv2.VideoWriter_fourcc(*"MJPG")
         writer = cv2.VideoWriter(path, fourcc, fps, size)
     return writer
