@@ -53,3 +53,9 @@ This repository contains simple utilities for analyzing football plays.
 ## update_code.sh
 
 Run `update_code.sh` to pull the latest changes from the remote `main` branch. The script handles errors like missing Git or network issues and prints whether new code was retrieved or if the repository was already current.
+
+## gameday.sh
+
+`gameday.sh` updates the repository and starts `highlight_recorder.py`.
+You can place the script on the Desktop, make it executable with `chmod +x`,
+and then right-click and select **Allow Launching** to use it like a shortcut.
