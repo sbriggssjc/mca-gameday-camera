@@ -31,18 +31,28 @@ if [[ -z "$VERSIONS" ]]; then
     exit 1
 fi
 
-LATEST=$(echo "$VERSIONS" | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?esr$' | tail -n 1)
-FILENAME="firefox-${LATEST}.tar.bz2"
-DOWNLOAD_URL="https://ftp.mozilla.org/pub/firefox/releases/${LATEST}/linux-aarch64/en-US/${FILENAME}"
-BASE_VERSION="${LATEST%esr}"
+log "🧪 Trying ESR versions from newest to oldest..."
 
-log "✅ Latest ESR version detected: $LATEST"
-log "🌐 Downloading: $DOWNLOAD_URL"
+for VERSION in $(echo "$VERSIONS" | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?esr$' | sort -Vr); do
+    FILENAME="firefox-${VERSION}.tar.bz2"
+    DOWNLOAD_URL="${BASE_URL}${VERSION}/linux-aarch64/en-US/${FILENAME}"
+    log "🔎 Testing: $DOWNLOAD_URL"
 
-if ! wget -O "$FILENAME" "$DOWNLOAD_URL"; then
-    log "❌ Download failed."
+    if wget --spider "$DOWNLOAD_URL" 2>/dev/null; then
+        log "✅ Found working version: $VERSION"
+        log "🌐 Downloading: $DOWNLOAD_URL"
+        wget -O "$FILENAME" "$DOWNLOAD_URL"
+        LATEST="$VERSION"
+        break
+    fi
+done
+
+if [ ! -f "$FILENAME" ]; then
+    log "❌ No compatible ARM64 ESR version found."
     exit 1
 fi
+
+BASE_VERSION="${LATEST%esr}"
 
 log "📦 Extracting..."
 [ -d firefox ] && rm -rf firefox
