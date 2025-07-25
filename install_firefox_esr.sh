@@ -4,6 +4,8 @@
 set -euo pipefail
 
 BASE_URL="https://ftp.mozilla.org/pub/firefox/releases/"
+ARCH="linux-aarch64"
+LANG="en-US"
 
 log() {
     echo -e "$1"
@@ -15,32 +17,39 @@ if ! html=$(curl -fsSL "$BASE_URL"); then
     exit 1
 fi
 
-# Extract version directories that end in 'esr/'
-versions=$(echo "$html" | grep -oE '<a href="[0-9]+[^"]*esr/">' | awk -F'"' '{print $2}' | cut -d'/' -f1 | sort -V)
-latest=$(echo "$versions" | tail -n1)
+log "📄 Raw directory listing:"
+echo "$html" | head -n 20
 
-if [[ -z "$latest" ]]; then
-    log "❌ No ESR versions found."
+# Parse ESR version directories
+versions=$(echo "$html" | grep -oP '(?<=href=")[0-9]+\.[0-9]+(\.[0-9]+)?esr/')
+versions=$(echo "$versions" | sort -V)
+log "📋 Parsed ESR versions:"
+echo "$versions"
+
+if [[ -z "$versions" ]]; then
+    log "❌ No ESR versions found. Parsing failed."
     exit 1
 fi
+
+latest=$(echo "$versions" | tail -n 1 | tr -d '/')
+filename="firefox-${latest}.tar.bz2"
+download_url="${BASE_URL}${latest}/${ARCH}/${LANG}/${filename}"
 
 log "✅ Latest ESR version detected: $latest"
-archive_url="${BASE_URL}${latest}/linux-aarch64/en-US/firefox-${latest}.tar.bz2"
-archive="firefox-esr.tar.bz2"
+log "🌐 Downloading: $download_url"
 
-log "📦 Downloading Firefox archive..."
-if ! wget -O "$archive" "$archive_url" >/dev/null 2>&1; then
-    log "❌ Download failed or URL not found."
+if ! wget -O "$filename" "$download_url"; then
+    log "❌ Download failed."
     exit 1
 fi
 
-log "📦 Extracting $archive..."
+log "📦 Extracting..."
 [ -d firefox ] && rm -rf firefox
-if ! tar -xjf "$archive"; then
+if ! tar -xjf "$filename"; then
     log "❌ Extraction failed."
-    rm -f "$archive"
+    rm -f "$filename"
     exit 1
 fi
-rm -f "$archive"
+rm -f "$filename"
 
-log "🚀 Firefox ESR ready to launch at ./firefox/firefox"
+log "🚀 Firefox ESR $latest is ready to run at ./firefox/firefox"
