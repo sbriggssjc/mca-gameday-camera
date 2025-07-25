@@ -1,5 +1,13 @@
 import cv2
-cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+
+# Older OpenCV builds may not expose ``cv2.utils.logging``. Fall back to the
+# top-level ``setLogLevel`` function when necessary so that warnings are
+# suppressed on both new and old versions.
+try:
+    cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+except AttributeError:  # pragma: no cover - depends on OpenCV version
+    if hasattr(cv2, "setLogLevel"):
+        cv2.setLogLevel(cv2.LOG_LEVEL_ERROR)
 import numpy as np
 import time
 from datetime import datetime
