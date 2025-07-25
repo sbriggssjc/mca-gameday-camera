@@ -59,3 +59,21 @@ Run `update_code.sh` to pull the latest changes from the remote `main` branch. T
 `gameday.sh` updates the repository and starts `highlight_recorder.py`.
 You can place the script on the Desktop, make it executable with `chmod +x`,
 and then right-click and select **Allow Launching** to use it like a shortcut.
+
+## youtube_uploader.py
+
+`youtube_uploader.py` uploads a video file to your YouTube channel. The first
+run uses OAuth2 to store credentials in `token.json`.
+
+### One-time setup
+
+1. Enable the **YouTube Data API v3** for your Google Cloud project.
+2. Create OAuth client credentials (Desktop) and download `client_secrets.json`.
+3. Place `client_secrets.json` in this folder.
+
+### Usage
+
+```bash
+python youtube_uploader.py --file path/to/video.mp4 --title "My Title" \
+    --description "Short description" --privacy public
+```
