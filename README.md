@@ -77,3 +77,13 @@ run uses OAuth2 to store credentials in `token.json`.
 python youtube_uploader.py --file path/to/video.mp4 --title "My Title" \
     --description "Short description" --privacy public
 ```
+
+## install_firefox_esr.py
+
+`install_firefox_esr.py` downloads and extracts the latest Firefox ESR build for ARM64 Linux. It automatically detects the newest version from Mozilla's release archive and places Firefox in your home directory.
+
+```bash
+python install_firefox_esr.py
+```
+
+The script prints progress messages and optionally launches Firefox when done. It requires the `requests` package.
