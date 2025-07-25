@@ -15,7 +15,8 @@ if ! html=$(curl -fsSL "$BASE_URL"); then
     exit 1
 fi
 
-releases=$(echo "$html" | grep -oE 'href="[0-9]+(\.[0-9]+)*esr/' | sed 's#href="##;s#/##' | sort -V)
+# Extract directories that end in 'esr/'
+releases=$(echo "$html" | grep -oP '(?<=href=")[0-9]+\.[0-9]+(\.[0-9]+)?esr/' | sort -V)
 latest=$(echo "$releases" | tail -n1)
 
 if [[ -z "$latest" ]]; then
@@ -24,12 +25,12 @@ if [[ -z "$latest" ]]; then
 fi
 
 log "✅ Latest ESR version detected: $latest"
-archive="firefox-${latest}.tar.bz2"
-url="${BASE_URL}${latest}/linux-aarch64/en-US/${archive}"
+archive_url="${BASE_URL}${latest}/linux-aarch64/en-US/firefox-${latest}.tar.bz2"
+archive="firefox-esr.tar.bz2"
 rm -f "$archive"
 
-log "📦 Downloading $archive..."
-if ! wget -q "$url"; then
+log "📦 Downloading Firefox archive..."
+if ! wget -qO "$archive" "$archive_url"; then
     log "❌ Download failed."
     exit 1
 fi
