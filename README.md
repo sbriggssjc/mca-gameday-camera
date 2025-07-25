@@ -48,3 +48,4 @@ This repository contains simple utilities for analyzing football plays.
   YOLOv5 model to detect touchdown-like movements or fast exits of a
   player from the frame.
 - `record_video.py` – records 1280x720 video from /dev/video0 to output.mp4
+- `highlight_recorder.py` – automatically captures 10-second clips when motion is detected
