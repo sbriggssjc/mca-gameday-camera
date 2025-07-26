@@ -33,9 +33,10 @@ STREAM_PID=$!
 log "Starting full game recording..."
 FULLGAME_FILE="$FULL_DIR/fullgame_${TIMESTAMP}.mp4"
 LOG_FILE="$FULL_DIR/fullgame_ffmpeg.log"
-ffmpeg -f v4l2 -framerate 30 -video_size 1280x720 -i /dev/video0 \
-    -c:v libx264 -b:v 1500k -t 03:00:00 -pix_fmt yuv420p "$FULLGAME_FILE" \
-    >"$LOG_FILE" 2>&1 &
+cmd=(ffmpeg -loglevel verbose -f v4l2 -framerate 30 -video_size 1280x720 -i /dev/video0 \
+    -c:v libx264 -b:v 1500k -t 03:00:00 -pix_fmt yuv420p "$FULLGAME_FILE")
+echo "Running FFmpeg command: ${cmd[*]}" | tee "$LOG_FILE"
+"${cmd[@]}" >>"$LOG_FILE" 2>&1 &
 FFMPEG_PID=$!
 
 log "Starting highlight recorder..."
