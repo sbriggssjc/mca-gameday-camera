@@ -284,20 +284,25 @@ def main() -> None:
                 lf.write(f"\nffmpeg exited with code {ret}\n")
                 if ret != 0:
                     print("FFmpeg exited with error:", ret)
-                    lf.write("\nRetrying with direct camera input...\n")
+                    lf.write("\nFFmpeg failed. Running diagnostics...\n")
                     test_cmd = build_v4l2_command(url, (width, height), fps, record_file)
                     lf.write("Running: " + " ".join(test_cmd) + "\n")
                     result = subprocess.run(test_cmd, capture_output=True, text=True)
                     lf.write(result.stdout)
+                    lf.write(result.stderr)
                     print("FFmpeg output:")
                     print(result.stdout)
+                    print(result.stderr)
 
                     lf.write("\nTesting camera by recording locally...\n")
                     file_cmd = build_record_command((width, height), fps, Path("output.mp4"))
                     lf.write("Running: " + " ".join(map(str, file_cmd)) + "\n")
                     record_result = subprocess.run(file_cmd, capture_output=True, text=True)
                     lf.write(record_result.stdout)
+                    lf.write(record_result.stderr)
                     print(record_result.stdout)
+                    print(record_result.stderr)
+                    break
         if ret == 0:
             try:
                 upload_game(str(record_file))
