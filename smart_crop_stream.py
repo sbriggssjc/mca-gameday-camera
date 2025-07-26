@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -48,6 +49,8 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Pa
     width, height = size
     return [
         ensure_ffmpeg(),
+        "-loglevel",
+        "verbose",
         "-y",
         "-f",
         "rawvideo",
@@ -118,7 +121,23 @@ def main() -> None:
         log_dir.mkdir(exist_ok=True)
         log_file = log_dir / f"smart_crop_{timestamp}.log"
         lf = log_file.open("w")
-        process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=lf, stderr=lf)
+        print("Running FFmpeg command:", " ".join(cmd))
+        process = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+
+        def _reader(pipe, logf):
+            for line in pipe:
+                print(line, end="")
+                logf.write(line)
+
+        thread = threading.Thread(target=_reader, args=(process.stdout, lf), daemon=True)
+        thread.start()
         try:
             while True:
                 ret, frame = cap.read()
@@ -133,8 +152,12 @@ def main() -> None:
         finally:
             if process.stdin:
                 process.stdin.close()
-            process.wait()
+            ret = process.wait()
+            thread.join()
+            lf.write(f"\nffmpeg exited with code {ret}\n")
             lf.close()
+            if ret != 0:
+                print("FFmpeg exited with error:", ret)
         # after each run break; change to continue if restart desired
         break
 
