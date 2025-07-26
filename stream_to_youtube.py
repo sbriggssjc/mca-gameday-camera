@@ -145,7 +145,6 @@ def build_v4l2_command(
     output: Path,
     *,
     device: str = "/dev/video0",
-    *,
     filters: str | None = None,
     bitrate: str,
     maxrate: str,
@@ -205,7 +204,6 @@ def build_record_command(
     output: Path,
     *,
     device: str = "/dev/video0",
-    *,
     filters: str | None = None,
     bitrate: str,
     maxrate: str,
@@ -265,6 +263,7 @@ def main() -> None:
         "--output-size",
         default=os.environ.get("OUTPUT_RESOLUTION"),
         help="stream resolution WxH, defaults to camera size or OUTPUT_RESOLUTION env",
+    )
     parser.add_argument(
         "--resolution",
         default="1280x720",
