@@ -32,6 +32,20 @@ if [ ! -e /dev/video0 ]; then
     exit 1
 fi
 
+# Ensure the device isn't in use by another process
+BUSY=""
+if command -v lsof >/dev/null 2>&1; then
+    BUSY="$(lsof /dev/video0 2>/dev/null)"
+elif command -v fuser >/dev/null 2>&1; then
+    BUSY="$(fuser /dev/video0 2>&1)"
+fi
+if [ -n "$BUSY" ]; then
+    echo "/dev/video0 is busy:"
+    echo "$BUSY"
+    echo "Try 'sudo fuser -k /dev/video0' or reboot."
+    exit 1
+fi
+
 echo "Starting stream to $YOUTUBE_URL"
 
 LOG_DIR="livestream_logs"
