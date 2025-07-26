@@ -35,12 +35,19 @@ def test_stream(url: str | None = None, *, duration: int = 5, log_path: str = "t
     ensure_ffmpeg()
 
     log_file = Path(log_path)
-    with log_file.open("w") as log:
+    with log_file.open("w", encoding="utf-8", errors="ignore") as log:
         # Ping YouTube to check network connectivity
         log.write("Pinging youtube.com...\n")
-        ping = subprocess.run(["ping", "-c", "3", "youtube.com"], capture_output=True, text=True)
-        log.write(ping.stdout)
-        log.write(ping.stderr)
+        ping = subprocess.run([
+            "ping",
+            "-c",
+            "3",
+            "youtube.com",
+        ], capture_output=True)
+        stdout = ping.stdout.decode("utf-8", errors="ignore")
+        stderr = ping.stderr.decode("utf-8", errors="ignore")
+        log.write(stdout)
+        log.write(stderr)
         if ping.returncode != 0:
             raise RuntimeError("Ping to youtube.com failed")
 
@@ -54,9 +61,11 @@ def test_stream(url: str | None = None, *, duration: int = 5, log_path: str = "t
             "-f", "flv",
             url,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        log.write(result.stdout)
-        log.write(result.stderr)
+        result = subprocess.run(cmd, capture_output=True)
+        stdout = result.stdout.decode("utf-8", errors="ignore")
+        stderr = result.stderr.decode("utf-8", errors="ignore")
+        log.write(stdout)
+        log.write(stderr)
         if result.returncode != 0:
             raise RuntimeError("ffmpeg test stream failed")
         if "frame=" not in result.stderr:
