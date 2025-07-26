@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -32,6 +33,16 @@ def ensure_ffmpeg() -> str:
     if not path:
         sys.exit("ffmpeg is not installed or not in PATH")
     return path
+
+
+def validate_rtmp_url(url: str) -> None:
+    """Exit if the RTMP URL does not match the expected YouTube pattern."""
+    pattern = r"^rtmp://a\.rtmp\.youtube\.com/live2/[A-Za-z0-9_-]+$"
+    if not re.match(pattern, url):
+        sys.exit(
+            "Invalid YOUTUBE_RTMP_URL. It should look like "
+            "rtmp://a.rtmp.youtube.com/live2/YOUR_STREAM_KEY"
+        )
 
 
 def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Path) -> list[str]:
@@ -85,6 +96,11 @@ def main() -> None:
     url = os.environ.get("YOUTUBE_RTMP_URL")
     if not url:
         sys.exit("Missing YOUTUBE_RTMP_URL environment variable")
+    validate_rtmp_url(url)
+
+    # Check network connectivity
+    if subprocess.call(["ping", "-c", "1", "youtube.com"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
+        sys.exit("Unable to reach youtube.com. Check network connection.")
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -122,6 +138,7 @@ def main() -> None:
         log_file = log_dir / f"stream_{timestamp}.log"
         record_file = output_dir / f"game_{timestamp}.mp4"
         with log_file.open("w") as lf:
+            print(f"\u26a0\ufe0f ffmpeg log: {log_file}")
             process = subprocess.Popen(
                 build_ffmpeg_command(url, (width, height), fps, record_file),
                 stdin=subprocess.PIPE,
