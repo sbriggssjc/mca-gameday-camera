@@ -54,6 +54,12 @@ Run it with:
 python stream_to_youtube.py
 ```
 
+Additional options:
+
+```bash
+python stream_to_youtube.py --output-size 1280x720 --debug
+```
+
 ## Requirements
 
 - Python 3
