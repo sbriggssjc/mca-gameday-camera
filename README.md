@@ -58,6 +58,15 @@ python stream_to_youtube.py
 - [OpenCV](https://opencv.org/)
 - [ffmpeg](https://ffmpeg.org/)
 
+Install FFmpeg on Jetson with:
+
+```bash
+sudo apt-get update && sudo apt-get install ffmpeg
+```
+
+For hardware-accelerated encoding, build FFmpeg with `h264_nvmpi` or
+`h264_nvv4l2enc` support.
+
 This repository contains simple utilities for analyzing football plays.
 
 ## Modules
