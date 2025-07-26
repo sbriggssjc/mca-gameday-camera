@@ -334,27 +334,35 @@ def main() -> None:
             thread_out.start()
             thread_err.start()
             first_frame = True
+            frame_count = 0
             try:
                 while True:
                     ret, frame = cap.read()
-                    if not ret:
-                        break
+                    if not ret or frame is None:
+                        raise RuntimeError("Captured empty frame from camera")
+                    if frame.shape[2] == 2:
+                        frame = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUYV)
+                    elif frame.shape[2] == 1:
+                        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                    if frame.shape[2] != 3 or frame.dtype != np.uint8:
+                        raise ValueError(
+                            f"Unexpected frame shape: {frame.shape} or dtype: {frame.dtype}"
+                        )
                     if first_frame:
                         print("Frame shape:", frame.shape, "dtype:", frame.dtype)
                         cv2.imwrite("debug_frame.jpg", frame)
-                        if frame.shape[0] != height or frame.shape[1] != width:
-                            print(
-                                f"Warning: frame size {frame.shape[1]}x{frame.shape[0]} != {width}x{height}"
-                            )
-                        if frame.dtype != "uint8" or (len(frame.shape) > 2 and frame.shape[2] != 3):
-                            print(f"Warning: frame is not {pix_fmt} format")
                         first_frame = False
+                    print(
+                        f"Frame shape: {frame.shape}, dtype: {frame.dtype}, min: {frame.min()}, max: {frame.max()}"
+                    )
                     if tracker:
                         x, y, w, h = tracker.track(frame)
                         frame = frame[y : y + h, x : x + w]
                         frame = cv2.resize(frame, (width, height))
                     state = state_reader.update(frame)
                     overlay.draw(frame, state)
+                    cv2.imshow("Debug Preview", frame)
+                    cv2.waitKey(1)
                     frame_resized = cv2.resize(frame, (out_width, out_height))
                     print(f"Writing frame of shape {frame_resized.shape} to FFmpeg")
                     try:
@@ -363,6 +371,9 @@ def main() -> None:
                             process.stdin.write(frame_conv.astype(np.uint8).tobytes())
                         else:
                             process.stdin.write(frame_resized.astype(np.uint8).tobytes())
+                        frame_count += 1
+                        if frame_count % 30 == 0:
+                            print(f"Sent {frame_count} frames to FFmpeg")
                     except BrokenPipeError:
                         msg = "FFmpeg closed the pipe unexpectedly. Aborting stream."
                         print(msg)
@@ -376,6 +387,7 @@ def main() -> None:
                 ret = process.wait()
                 thread_out.join()
                 thread_err.join()
+                cv2.destroyAllWindows()
                 if process.stderr:
                     err_output = process.stderr.read().decode("utf-8", errors="ignore")
                     if err_output:
