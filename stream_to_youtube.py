@@ -71,9 +71,20 @@ def validate_rtmp_url(url: str) -> None:
         )
 
 
-def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Path) -> list[str]:
+def build_ffmpeg_command(
+    url: str,
+    size: tuple[int, int],
+    fps: float,
+    output: Path,
+    *,
+    filters: str | None = None,
+    bitrate: str,
+    maxrate: str,
+    bufsize: str,
+
+) -> list[str]:
     width, height = size
-    return [
+    cmd = [
         ensure_ffmpeg(),
         "-loglevel",
         "verbose",
@@ -104,61 +115,16 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Pa
         "veryfast",
         "-pix_fmt",
         "yuv420p",
-        "-b:v",
-        "4500k",
-        "-maxrate",
-        "4500k",
-        "-bufsize",
-        "9000k",
-        "-g",
-        "120",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-f",
-        "tee",
-        f"[f=flv]{url}|[f=mp4]{output}"
     ]
-
-
-def build_v4l2_command(
-    url: str,
-    size: tuple[int, int],
-    fps: float,
-    output: Path,
-    device: str = "/dev/video0",
-) -> list[str]:
-    width, height = size
-    return [
-        ensure_ffmpeg(),
-        "-loglevel",
-        "verbose",
-        "-y",
-        "-f",
-        "v4l2",
-        "-framerate",
-        str(int(fps)),
-        "-video_size",
-        f"{width}x{height}",
-        "-i",
-        device,
-        "-f",
-        "lavfi",
-        "-i",
-        "anullsrc=channel_layout=stereo:sample_rate=44100",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-pix_fmt",
-        "yuv420p",
+    if filters:
+        cmd.extend(["-vf", filters])
+    cmd += [
         "-b:v",
-        "4500k",
+        bitrate,
         "-maxrate",
-        "4500k",
+        maxrate,
         "-bufsize",
-        "9000k",
+        bufsize,
         "-g",
         "120",
         "-c:a",
@@ -169,17 +135,25 @@ def build_v4l2_command(
         "tee",
         f"[f=flv]{url}|[f=mp4]{output}",
     ]
+    return cmd
 
 
-def build_record_command(
+def build_v4l2_command(
+    url: str,
     size: tuple[int, int],
     fps: float,
     output: Path,
+    *,
     device: str = "/dev/video0",
+    *,
+    filters: str | None = None,
+    bitrate: str,
+    maxrate: str,
+    bufsize: str,
+
 ) -> list[str]:
-    """Record from the camera directly to a local MP4 file."""
     width, height = size
-    return [
+    cmd = [
         ensure_ffmpeg(),
         "-loglevel",
         "verbose",
@@ -202,12 +176,76 @@ def build_record_command(
         "veryfast",
         "-pix_fmt",
         "yuv420p",
+    ]
+    if filters:
+        cmd.extend(["-vf", filters])
+    cmd += [
         "-b:v",
-        "4500k",
+        bitrate,
         "-maxrate",
-        "4500k",
+        maxrate,
         "-bufsize",
-        "9000k",
+        bufsize,
+        "-g",
+        "120",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-f",
+        "tee",
+        f"[f=flv]{url}|[f=mp4]{output}",
+    ]
+    return cmd
+
+
+def build_record_command(
+    size: tuple[int, int],
+    fps: float,
+    output: Path,
+    *,
+    device: str = "/dev/video0",
+    *,
+    filters: str | None = None,
+    bitrate: str,
+    maxrate: str,
+    bufsize: str,
+) -> list[str]:
+    """Record from the camera directly to a local MP4 file."""
+    width, height = size
+    cmd = [
+        ensure_ffmpeg(),
+        "-loglevel",
+        "verbose",
+        "-y",
+        "-f",
+        "v4l2",
+        "-framerate",
+        str(int(fps)),
+        "-video_size",
+        f"{width}x{height}",
+        "-i",
+        device,
+        "-f",
+        "lavfi",
+        "-i",
+        "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-pix_fmt",
+        "yuv420p",
+    ]
+    if filters:
+        cmd.extend(["-vf", filters])
+    cmd += [
+        "-b:v",
+        bitrate,
+        "-maxrate",
+        maxrate,
+        "-bufsize",
+        bufsize,
         "-g",
         "120",
         "-c:a",
@@ -216,11 +254,37 @@ def build_record_command(
         "128k",
         str(output),
     ]
+    return cmd
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--test-direct", action="store_true", help="run direct FFmpeg test without OpenCV")
+    parser.add_argument("--debug", action="store_true", help="save a few frames before streaming")
+    parser.add_argument(
+        "--output-size",
+        default=os.environ.get("OUTPUT_RESOLUTION"),
+        help="stream resolution WxH, defaults to camera size or OUTPUT_RESOLUTION env",
+    parser.add_argument(
+        "--resolution",
+        default="1280x720",
+        help="stream resolution WxH, e.g. 1280x720 or 1920x1080",
+    )
+    parser.add_argument(
+        "--bitrate",
+        default="12000k",
+        help="target video bitrate",
+    )
+    parser.add_argument(
+        "--maxrate",
+        default="14000k",
+        help="maximum video bitrate",
+    )
+    parser.add_argument(
+        "--bufsize",
+        default="20000k",
+        help="encoder buffer size",
+    )
     args = parser.parse_args()
 
     load_env()
@@ -242,7 +306,21 @@ def main() -> None:
 
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1280)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 720)
-    out_width, out_height = 640, 480
+    out_width, out_height = width, height
+    if args.output_size:
+        try:
+            out_width, out_height = map(int, args.output_size.lower().split("x"))
+        except Exception:
+            sys.exit("Invalid --output-size format. Use WIDTHxHEIGHT")
+    filter_str = (
+        f"scale={out_width}:{out_height}:force_original_aspect_ratio=decrease,pad={out_width}:{out_height}:(ow-iw)/2:(oh-ih)/2"
+    )
+
+    # parse desired output resolution
+    try:
+        out_width, out_height = map(int, args.resolution.lower().split("x", 1))
+    except Exception:
+        sys.exit(f"Invalid resolution format: {args.resolution}")
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
         fps = 30.0
@@ -270,6 +348,10 @@ def main() -> None:
             fps,
             Path("output_test.mp4"),
             device=device,
+            filters=filter_str,
+            bitrate=args.bitrate,
+            maxrate=args.maxrate,
+            bufsize=args.bufsize,
         )
         print("Running direct FFmpeg test command:", " ".join(test_cmd))
         subprocess.run(test_cmd)
@@ -289,10 +371,17 @@ def main() -> None:
     cap = cv2.VideoCapture(device)
     if not cap.isOpened():
         sys.exit(f"Unable to reopen camera {device}")
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, out_width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, out_height)
     cap.set(cv2.CAP_PROP_FPS, fps)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or out_width)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or out_height)
+    if width != out_width or height != out_height:
+        print(
+            f"Warning: requested resolution {out_width}x{out_height} not supported, using {width}x{height}"
+        )
     print(f"Capture settings: {width}x{height} @ {fps}fps")
+    print(f"Output resolution: {out_width}x{out_height}")
     tracker = None
     try:
         tracker = AutoTracker()
@@ -312,7 +401,25 @@ def main() -> None:
         log_file = log_dir / f"stream_{timestamp}.log"
         record_file = output_dir / f"game_{timestamp}.mp4"
         with log_file.open("w", encoding="utf-8", errors="ignore") as lf:
-            cmd = build_ffmpeg_command(url, (out_width, out_height), fps, record_file)
+
+            lf.write(f"Input resolution: {width}x{height}\n")
+            lf.write(f"Output resolution: {out_width}x{out_height}\n")
+            print(f"Input resolution: {width}x{height}")
+            print(f"Output resolution: {out_width}x{out_height}")
+
+            cmd = build_ffmpeg_command(
+                url,
+                (out_width, out_height),
+                fps,
+                record_file,
+
+                filters=filter_str,
+
+                bitrate=args.bitrate,
+                maxrate=args.maxrate,
+                bufsize=args.bufsize,
+
+            )
             pix_fmt = "bgr24"
             if "-pix_fmt" in cmd:
                 try:
@@ -343,11 +450,28 @@ def main() -> None:
             thread_err.start()
             first_frame = True
             frame_count = 0
+            frame_interval = 1.0 / fps
+            next_frame_time = time.time()
             try:
                 while True:
+                    now = time.time()
+                    if now - next_frame_time > frame_interval * 1.5:
+                        warn = f"Frame delay {now - next_frame_time:.3f}s"
+                        print(warn)
+                        lf.write(warn + "\n")
                     ret, frame = cap.read()
                     if not ret or frame is None:
-                        raise RuntimeError("Captured empty frame from camera")
+                        lf.write("Dropped frame\n")
+                        print("Dropped frame")
+                        next_frame_time += frame_interval
+                        continue
+                    next_frame_time += frame_interval
+                    if frame.shape[0] != height or frame.shape[1] != width:
+                        warn = (
+                            f"Unexpected frame size {frame.shape[1]}x{frame.shape[0]}"
+                        )
+                        print(warn)
+                        lf.write(warn + "\n")
                     if frame.shape[2] == 2:
                         frame = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUYV)
                     elif frame.shape[2] == 1:
@@ -358,7 +482,8 @@ def main() -> None:
                         )
                     if first_frame:
                         print("Frame shape:", frame.shape, "dtype:", frame.dtype)
-                        cv2.imwrite("debug_frame.jpg", frame)
+                        if args.debug:
+                            cv2.imwrite("frame_debug_0.jpg", frame)
                         first_frame = False
                     print(
                         f"Frame shape: {frame.shape}, dtype: {frame.dtype}, min: {frame.min()}, max: {frame.max()}"
@@ -372,6 +497,8 @@ def main() -> None:
                     cv2.imshow("Debug Preview", frame)
                     cv2.waitKey(1)
                     frame_resized = cv2.resize(frame, (out_width, out_height))
+                    if args.debug and frame_count < 5:
+                        cv2.imwrite(f"frame_debug_{frame_count+1}.jpg", frame_resized)
                     if frame_resized.shape != (out_height, out_width, 3) or frame_resized.dtype != np.uint8:
                         raise ValueError(
                             f"Resized frame has shape {frame_resized.shape} and dtype {frame_resized.dtype}"
@@ -391,6 +518,9 @@ def main() -> None:
                         print(msg)
                         lf.write(msg + "\n")
                         break
+                    sleep_time = next_frame_time - time.time()
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
             except KeyboardInterrupt:
                 pass
             finally:
@@ -411,7 +541,20 @@ def main() -> None:
                     lf.write("\nFFmpeg failed. Running diagnostics...\n")
                     cap.release()
                     cv2.destroyAllWindows()
-                    test_cmd = build_v4l2_command(url, (width, height), fps, record_file, device=device)
+                    test_cmd = build_v4l2_command(
+                        url,
+                        (width, height),
+                        fps,
+                        record_file,
+                        device=device,
+
+                        filters=filter_str,
+
+                        bitrate=args.bitrate,
+                        maxrate=args.maxrate,
+                        bufsize=args.bufsize,
+
+                    )
                     lf.write("Running: " + " ".join(test_cmd) + "\n")
                     result = subprocess.run(test_cmd, capture_output=True, text=True)
                     lf.write(result.stdout)
@@ -421,7 +564,19 @@ def main() -> None:
                     print(result.stderr)
 
                     lf.write("\nTesting camera by recording locally...\n")
-                    file_cmd = build_record_command((out_width, out_height), fps, Path("output.mp4"), device=device)
+                    file_cmd = build_record_command(
+                        (out_width, out_height),
+                        fps,
+                        Path("output.mp4"),
+                        device=device,
+
+                        filters=filter_str,
+
+                        bitrate=args.bitrate,
+                        maxrate=args.maxrate,
+                        bufsize=args.bufsize,
+
+                    )
                     lf.write("Running: " + " ".join(map(str, file_cmd)) + "\n")
                     record_result = subprocess.run(file_cmd, capture_output=True, text=True)
                     lf.write(record_result.stdout)
