@@ -15,6 +15,12 @@ if ! git pull origin main; then
     exit 1
 fi
 
+# Ensure ffmpeg is installed
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    log "ffmpeg not found. Please install ffmpeg."
+    exit 1
+fi
+
 TIMESTAMP=$(date +%Y%m%d_%H%M)
 FULL_DIR="$REPO_DIR/full_games/$TIMESTAMP"
 HIGHLIGHT_DIR="$REPO_DIR/highlights/$TIMESTAMP"
@@ -26,8 +32,10 @@ STREAM_PID=$!
 
 log "Starting full game recording..."
 FULLGAME_FILE="$FULL_DIR/fullgame_${TIMESTAMP}.mp4"
+LOG_FILE="$FULL_DIR/fullgame_ffmpeg.log"
 ffmpeg -f v4l2 -framerate 30 -video_size 1280x720 -i /dev/video0 \
-    -c:v libx264 -b:v 1500k -t 03:00:00 -pix_fmt yuv420p "$FULLGAME_FILE" &
+    -c:v libx264 -b:v 1500k -t 03:00:00 -pix_fmt yuv420p "$FULLGAME_FILE" \
+    >"$LOG_FILE" 2>&1 &
 FFMPEG_PID=$!
 
 log "Starting highlight recorder..."
