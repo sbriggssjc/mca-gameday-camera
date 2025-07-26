@@ -127,7 +127,7 @@ def stream(device: int, rtmp_url: str, *, json_path: str = "game_state.json", po
     log_dir = Path("livestream_logs")
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"overlay_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-    lf = log_file.open("w")
+    lf = log_file.open("w", encoding="utf-8", errors="ignore")
     cmd = build_ffmpeg_command(rtmp_url, (width, height), fps)
     print("Running FFmpeg command:", " ".join(cmd))
     process = subprocess.Popen(
@@ -135,14 +135,14 @@ def stream(device: int, rtmp_url: str, *, json_path: str = "game_state.json", po
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
+        text=False,
         bufsize=1,
+        bufsize=0,
     )
 
     def _reader(pipe, logf):
-        for line in pipe:
-            if isinstance(line, bytes):
-                line = line.decode("utf-8", errors="ignore")
+        for raw in pipe:
+            line = raw.decode("utf-8", errors="ignore")
             print(line, end="")
             logf.write(line)
 
