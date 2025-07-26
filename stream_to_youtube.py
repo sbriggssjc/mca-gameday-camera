@@ -78,6 +78,10 @@ def build_ffmpeg_command(
     output: Path,
     *,
     filters: str | None = None,
+    bitrate: str,
+    maxrate: str,
+    bufsize: str,
+
 ) -> list[str]:
     width, height = size
     cmd = [
@@ -116,11 +120,11 @@ def build_ffmpeg_command(
         cmd.extend(["-vf", filters])
     cmd += [
         "-b:v",
-        "4500k",
+        bitrate,
         "-maxrate",
-        "4500k",
+        maxrate,
         "-bufsize",
-        "9000k",
+        bufsize,
         "-g",
         "120",
         "-c:a",
@@ -139,9 +143,14 @@ def build_v4l2_command(
     size: tuple[int, int],
     fps: float,
     output: Path,
+    *,
     device: str = "/dev/video0",
     *,
     filters: str | None = None,
+    bitrate: str,
+    maxrate: str,
+    bufsize: str,
+
 ) -> list[str]:
     width, height = size
     cmd = [
@@ -172,11 +181,11 @@ def build_v4l2_command(
         cmd.extend(["-vf", filters])
     cmd += [
         "-b:v",
-        "4500k",
+        bitrate,
         "-maxrate",
-        "4500k",
+        maxrate,
         "-bufsize",
-        "9000k",
+        bufsize,
         "-g",
         "120",
         "-c:a",
@@ -194,9 +203,13 @@ def build_record_command(
     size: tuple[int, int],
     fps: float,
     output: Path,
+    *,
     device: str = "/dev/video0",
     *,
     filters: str | None = None,
+    bitrate: str,
+    maxrate: str,
+    bufsize: str,
 ) -> list[str]:
     """Record from the camera directly to a local MP4 file."""
     width, height = size
@@ -228,11 +241,11 @@ def build_record_command(
         cmd.extend(["-vf", filters])
     cmd += [
         "-b:v",
-        "4500k",
+        bitrate,
         "-maxrate",
-        "4500k",
+        maxrate,
         "-bufsize",
-        "9000k",
+        bufsize,
         "-g",
         "120",
         "-c:a",
@@ -252,6 +265,25 @@ def main() -> None:
         "--output-size",
         default=os.environ.get("OUTPUT_RESOLUTION"),
         help="stream resolution WxH, defaults to camera size or OUTPUT_RESOLUTION env",
+    parser.add_argument(
+        "--resolution",
+        default="1280x720",
+        help="stream resolution WxH, e.g. 1280x720 or 1920x1080",
+    )
+    parser.add_argument(
+        "--bitrate",
+        default="12000k",
+        help="target video bitrate",
+    )
+    parser.add_argument(
+        "--maxrate",
+        default="14000k",
+        help="maximum video bitrate",
+    )
+    parser.add_argument(
+        "--bufsize",
+        default="20000k",
+        help="encoder buffer size",
     )
     args = parser.parse_args()
 
@@ -283,6 +315,12 @@ def main() -> None:
     filter_str = (
         f"scale={out_width}:{out_height}:force_original_aspect_ratio=decrease,pad={out_width}:{out_height}:(ow-iw)/2:(oh-ih)/2"
     )
+
+    # parse desired output resolution
+    try:
+        out_width, out_height = map(int, args.resolution.lower().split("x", 1))
+    except Exception:
+        sys.exit(f"Invalid resolution format: {args.resolution}")
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
         fps = 30.0
@@ -311,6 +349,9 @@ def main() -> None:
             Path("output_test.mp4"),
             device=device,
             filters=filter_str,
+            bitrate=args.bitrate,
+            maxrate=args.maxrate,
+            bufsize=args.bufsize,
         )
         print("Running direct FFmpeg test command:", " ".join(test_cmd))
         subprocess.run(test_cmd)
@@ -330,9 +371,15 @@ def main() -> None:
     cap = cv2.VideoCapture(device)
     if not cap.isOpened():
         sys.exit(f"Unable to reopen camera {device}")
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, out_width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, out_height)
     cap.set(cv2.CAP_PROP_FPS, fps)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or out_width)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or out_height)
+    if width != out_width or height != out_height:
+        print(
+            f"Warning: requested resolution {out_width}x{out_height} not supported, using {width}x{height}"
+        )
     print(f"Capture settings: {width}x{height} @ {fps}fps")
     print(f"Output resolution: {out_width}x{out_height}")
     tracker = None
@@ -354,16 +401,24 @@ def main() -> None:
         log_file = log_dir / f"stream_{timestamp}.log"
         record_file = output_dir / f"game_{timestamp}.mp4"
         with log_file.open("w", encoding="utf-8", errors="ignore") as lf:
+
             lf.write(f"Input resolution: {width}x{height}\n")
             lf.write(f"Output resolution: {out_width}x{out_height}\n")
             print(f"Input resolution: {width}x{height}")
             print(f"Output resolution: {out_width}x{out_height}")
+
             cmd = build_ffmpeg_command(
                 url,
                 (out_width, out_height),
                 fps,
                 record_file,
+
                 filters=filter_str,
+
+                bitrate=args.bitrate,
+                maxrate=args.maxrate,
+                bufsize=args.bufsize,
+
             )
             pix_fmt = "bgr24"
             if "-pix_fmt" in cmd:
@@ -395,11 +450,28 @@ def main() -> None:
             thread_err.start()
             first_frame = True
             frame_count = 0
+            frame_interval = 1.0 / fps
+            next_frame_time = time.time()
             try:
                 while True:
+                    now = time.time()
+                    if now - next_frame_time > frame_interval * 1.5:
+                        warn = f"Frame delay {now - next_frame_time:.3f}s"
+                        print(warn)
+                        lf.write(warn + "\n")
                     ret, frame = cap.read()
                     if not ret or frame is None:
-                        raise RuntimeError("Captured empty frame from camera")
+                        lf.write("Dropped frame\n")
+                        print("Dropped frame")
+                        next_frame_time += frame_interval
+                        continue
+                    next_frame_time += frame_interval
+                    if frame.shape[0] != height or frame.shape[1] != width:
+                        warn = (
+                            f"Unexpected frame size {frame.shape[1]}x{frame.shape[0]}"
+                        )
+                        print(warn)
+                        lf.write(warn + "\n")
                     if frame.shape[2] == 2:
                         frame = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUYV)
                     elif frame.shape[2] == 1:
@@ -446,6 +518,9 @@ def main() -> None:
                         print(msg)
                         lf.write(msg + "\n")
                         break
+                    sleep_time = next_frame_time - time.time()
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
             except KeyboardInterrupt:
                 pass
             finally:
@@ -472,7 +547,13 @@ def main() -> None:
                         fps,
                         record_file,
                         device=device,
+
                         filters=filter_str,
+
+                        bitrate=args.bitrate,
+                        maxrate=args.maxrate,
+                        bufsize=args.bufsize,
+
                     )
                     lf.write("Running: " + " ".join(test_cmd) + "\n")
                     result = subprocess.run(test_cmd, capture_output=True, text=True)
@@ -488,7 +569,13 @@ def main() -> None:
                         fps,
                         Path("output.mp4"),
                         device=device,
+
                         filters=filter_str,
+
+                        bitrate=args.bitrate,
+                        maxrate=args.maxrate,
+                        bufsize=args.bufsize,
+
                     )
                     lf.write("Running: " + " ".join(map(str, file_cmd)) + "\n")
                     record_result = subprocess.run(file_cmd, capture_output=True, text=True)
