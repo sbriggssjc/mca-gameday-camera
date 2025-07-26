@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 from scoreboard_reader import ScoreboardReader, ScoreboardState
 
@@ -120,6 +121,7 @@ def stream(device: int, rtmp_url: str, *, json_path: str = "game_state.json", po
 
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1280)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 720)
+    out_width, out_height = 640, 480
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
         fps = 30.0
@@ -129,7 +131,7 @@ def stream(device: int, rtmp_url: str, *, json_path: str = "game_state.json", po
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"overlay_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     lf = log_file.open("w", encoding="utf-8", errors="ignore")
-    cmd = build_ffmpeg_command(rtmp_url, (width, height), fps)
+    cmd = build_ffmpeg_command(rtmp_url, (out_width, out_height), fps)
     print("Running FFmpeg command:", " ".join(cmd))
     process = subprocess.Popen(
         cmd,
@@ -137,7 +139,7 @@ def stream(device: int, rtmp_url: str, *, json_path: str = "game_state.json", po
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=False,
-        bufsize=0,
+        bufsize=10**8,
     )
 
     def _reader(pipe, logf):
@@ -172,7 +174,9 @@ def stream(device: int, rtmp_url: str, *, json_path: str = "game_state.json", po
             manual_state = manual_reader.update(frame)
             state = load_state_from_json(json_path, manual_state)
             overlay.draw(frame, state)
-            process.stdin.write(frame.tobytes())
+            frame_resized = cv2.resize(frame, (out_width, out_height))
+            print(f"Writing frame of shape {frame_resized.shape} to FFmpeg")
+            process.stdin.write(frame_resized.astype(np.uint8).tobytes())
     except KeyboardInterrupt:
         pass
     finally:

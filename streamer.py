@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 import shutil
 import subprocess
 import threading
@@ -42,6 +43,7 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
 
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480)
+    out_width, out_height = 640, 480
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
         fps = 30.0
@@ -55,7 +57,7 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
         "-f", "rawvideo",
         "-vcodec", "rawvideo",
         "-pix_fmt", "bgr24",
-        "-s", f"{width}x{height}",
+        "-s", f"{out_width}x{out_height}",
         "-r", str(fps),
         "-i", "-",
         "-c:v", select_codec(),
@@ -76,7 +78,7 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=False,
-        bufsize=0,
+        bufsize=10**8,
     )
 
     def _reader(pipe, logf):
@@ -106,7 +108,9 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
                 if frame.dtype != "uint8" or (len(frame.shape) > 2 and frame.shape[2] != 3):
                     print("Warning: frame is not bgr24 format")
                 first_frame = False
-            process.stdin.write(frame.tobytes())
+            frame_resized = cv2.resize(frame, (out_width, out_height))
+            print(f"Writing frame of shape {frame_resized.shape} to FFmpeg")
+            process.stdin.write(frame_resized.astype(np.uint8).tobytes())
     except KeyboardInterrupt:
         pass
     finally:
