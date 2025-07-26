@@ -74,8 +74,8 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
+        text=False,
+        bufsize=0,
     )
 
     def _reader(pipe, logf):
