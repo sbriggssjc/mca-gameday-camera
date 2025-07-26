@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 from smart_auto_tracker import SmartAutoTracker
 
@@ -105,6 +106,7 @@ def main() -> None:
 
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1280)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 720)
+    out_width, out_height = 640, 480
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
         fps = 30.0
@@ -117,7 +119,7 @@ def main() -> None:
         output_dir = Path("video")
         output_dir.mkdir(exist_ok=True)
         record_file = output_dir / f"game_{timestamp}.mp4"
-        cmd = build_ffmpeg_command(url, (width, height), fps, record_file)
+        cmd = build_ffmpeg_command(url, (out_width, out_height), fps, record_file)
         log_dir = Path("livestream_logs")
         log_dir.mkdir(exist_ok=True)
         log_file = log_dir / f"smart_crop_{timestamp}.log"
@@ -129,7 +131,7 @@ def main() -> None:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=False,
-            bufsize=0,
+            bufsize=10**8,
         )
 
         def _reader(pipe, logf):
@@ -160,8 +162,9 @@ def main() -> None:
                     first_frame = False
                 x, y, w, h = tracker.track(frame)
                 crop = frame[y : y + h, x : x + w]
-                crop = cv2.resize(crop, (width, height))
-                process.stdin.write(crop.tobytes())
+                crop = cv2.resize(crop, (out_width, out_height))
+                print(f"Writing frame of shape {crop.shape} to FFmpeg")
+                process.stdin.write(crop.astype(np.uint8).tobytes())
         except KeyboardInterrupt:
             pass
         finally:
