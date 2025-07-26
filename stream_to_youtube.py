@@ -220,6 +220,24 @@ def main() -> None:
         sys.exit("Unable to read from camera")
     if state_reader.roi is None:
         state_reader.calibrate(calib_frame)
+
+    # Release the camera after ROI selection so FFmpeg can access it
+    cap.release()
+    cv2.destroyAllWindows()
+
+    # Safety check to ensure /dev/video0 is free before starting FFmpeg
+    check_cap = cv2.VideoCapture(0)
+    if not check_cap.isOpened():
+        sys.exit("Camera is busy.")
+    check_cap.release()
+
+    # Re-open the camera for actual streaming
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        sys.exit("Unable to reopen camera")
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    cap.set(cv2.CAP_PROP_FPS, fps)
     tracker = None
     try:
         tracker = AutoTracker()
