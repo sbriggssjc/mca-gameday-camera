@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="115.3.0esr"
-URL="https://ftp.mozilla.org/pub/firefox/releases/115.3.0esr/linux-aarch64/en-US/firefox-115.3.0esr.tar.bz2"
+VERSION="115.11.0esr"
+URL="https://ftp.mozilla.org/pub/firefox/releases/${VERSION}/linux-aarch64/en-US/firefox-${VERSION}.tar.bz2"
 ARCHIVE="$(basename "$URL")"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,13 +11,13 @@ INSTALL_DIR="${SCRIPT_DIR}/firefox-esr"
 mkdir -p "$INSTALL_DIR"
 
 echo "Downloading Firefox ESR ${VERSION}..."
-if ! curl -LO "$URL"; then
-    echo "❌ Download failed or version not available for ARM64" >&2
+if ! curl -fL -o "$ARCHIVE" "$URL"; then
+    echo "Error: download failed" >&2
     exit 1
 fi
 
-if [ ! -s "$ARCHIVE" ] || [ $(stat -c%s "$ARCHIVE") -le 1048576 ]; then
-    echo "❌ Download failed or version not available for ARM64" >&2
+if [ ! -s "$ARCHIVE" ] || [ $(stat -c%s "$ARCHIVE") -le 10485760 ]; then
+    echo "Error: downloaded file is too small or invalid" >&2
     rm -f "$ARCHIVE"
     exit 1
 fi
@@ -29,8 +29,12 @@ if ! tar -tjf "$ARCHIVE" > /dev/null 2>&1; then
     exit 1
 fi
 
+rm -rf "$INSTALL_DIR"
+mkdir -p "$INSTALL_DIR"
+
 echo "Extracting archive..."
 tar -xjf "$ARCHIVE" --strip-components=1 -C "$INSTALL_DIR"
 rm -f "$ARCHIVE"
 
-echo "✅ Firefox ESR ${VERSION} installed successfully!"
+echo "Firefox ESR ${VERSION} installed successfully in ${INSTALL_DIR}."
+echo "Launch it with: ${INSTALL_DIR}/firefox &"
