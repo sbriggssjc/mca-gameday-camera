@@ -67,6 +67,10 @@ This repository contains simple utilities for analyzing football plays.
   player from the frame.
 - `record_video.py` – records 1280x720 video from /dev/video0 to output.mp4
 - `highlight_recorder.py` – automatically captures 10-second clips when motion is detected
+- `play_recognizer.py` – identifies plays based on formations in `mca_playbook.json` and writes results to `play_log.json`.
+```bash
+python play_recognizer.py path/to/game.mp4 --playbook mca_playbook.json --output play_log.csv
+```
 
 ## update_code.sh
 
