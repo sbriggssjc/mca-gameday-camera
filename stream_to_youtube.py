@@ -94,6 +94,10 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Pa
         "lavfi",
         "-i",
         "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
         "-c:v",
         "libx264",
         "-preset",
@@ -301,6 +305,8 @@ def main() -> None:
     output_dir = Path("video")
     output_dir.mkdir(exist_ok=True)
 
+    retries = 0
+    max_retries = 1
     while True:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_file = log_dir / f"stream_{timestamp}.log"
@@ -313,7 +319,9 @@ def main() -> None:
                     pix_fmt = cmd[cmd.index("-pix_fmt") + 1]
                 except Exception:
                     pass
-            print("Running FFmpeg command:", " ".join(cmd))
+            cmd_str = " ".join(cmd)
+            print("Running FFmpeg command:", cmd_str)
+            lf.write("Running FFmpeg command: " + cmd_str + "\n")
             process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
@@ -364,6 +372,10 @@ def main() -> None:
                     cv2.imshow("Debug Preview", frame)
                     cv2.waitKey(1)
                     frame_resized = cv2.resize(frame, (out_width, out_height))
+                    if frame_resized.shape != (out_height, out_width, 3) or frame_resized.dtype != np.uint8:
+                        raise ValueError(
+                            f"Resized frame has shape {frame_resized.shape} and dtype {frame_resized.dtype}"
+                        )
                     print(f"Writing frame of shape {frame_resized.shape} to FFmpeg")
                     try:
                         if pix_fmt == "rgb24":
@@ -424,8 +436,13 @@ def main() -> None:
                 with log_file.open("a", encoding="utf-8", errors="ignore") as lf:
                     lf.write(f"\nUpload failed: {exc}\n")
             break
+        elif retries < max_retries:
+            retries += 1
+            print(f"FFmpeg failed with code {ret}. Restarting (attempt {retries})")
+            time.sleep(2)
+            continue
         time.sleep(5)
-
+        
     cap.release()
 
 
