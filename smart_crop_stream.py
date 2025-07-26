@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -25,10 +26,28 @@ def load_env(env_path: str = ".env") -> None:
             os.environ.setdefault(key.strip(), val.strip())
 
 
+def ensure_ffmpeg() -> str:
+    path = shutil.which("ffmpeg")
+    if not path:
+        sys.exit("ffmpeg is not installed or not in PATH")
+    return path
+
+
+def select_codec() -> str:
+    try:
+        output = subprocess.check_output(["ffmpeg", "-encoders"], text=True)
+        for codec in ("h264_nvmpi", "h264_nvv4l2enc"):
+            if codec in output:
+                return codec
+    except Exception:
+        pass
+    return "libx264"
+
+
 def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Path) -> list[str]:
     width, height = size
     return [
-        "ffmpeg",
+        ensure_ffmpeg(),
         "-y",
         "-f",
         "rawvideo",
@@ -47,7 +66,7 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Pa
         "-i",
         "anullsrc=channel_layout=stereo:sample_rate=44100",
         "-c:v",
-        "libx264",
+        select_codec(),
         "-preset",
         "veryfast",
         "-pix_fmt",
@@ -72,6 +91,7 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Pa
 
 def main() -> None:
     load_env()
+    ensure_ffmpeg()
     url = os.environ.get("YOUTUBE_RTMP_URL")
     if not url:
         sys.exit("Missing YOUTUBE_RTMP_URL environment variable")
@@ -94,7 +114,11 @@ def main() -> None:
         output_dir.mkdir(exist_ok=True)
         record_file = output_dir / f"game_{timestamp}.mp4"
         cmd = build_ffmpeg_command(url, (width, height), fps, record_file)
-        process = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+        log_dir = Path("livestream_logs")
+        log_dir.mkdir(exist_ok=True)
+        log_file = log_dir / f"smart_crop_{timestamp}.log"
+        lf = log_file.open("w")
+        process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=lf, stderr=lf)
         try:
             while True:
                 ret, frame = cap.read()
@@ -110,6 +134,7 @@ def main() -> None:
             if process.stdin:
                 process.stdin.close()
             process.wait()
+            lf.close()
         # after each run break; change to continue if restart desired
         break
 
