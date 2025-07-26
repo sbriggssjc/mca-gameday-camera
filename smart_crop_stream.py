@@ -120,21 +120,20 @@ def main() -> None:
         log_dir = Path("livestream_logs")
         log_dir.mkdir(exist_ok=True)
         log_file = log_dir / f"smart_crop_{timestamp}.log"
-        lf = log_file.open("w")
+        lf = log_file.open("w", encoding="utf-8", errors="ignore")
         print("Running FFmpeg command:", " ".join(cmd))
         process = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
+            text=False,
             bufsize=1,
         )
 
         def _reader(pipe, logf):
-            for line in pipe:
-                if isinstance(line, bytes):
-                    line = line.decode("utf-8", errors="ignore")
+            for raw in pipe:
+                line = raw.decode("utf-8", errors="ignore")
                 print(line, end="")
                 logf.write(line)
 
