@@ -57,13 +57,15 @@ def load_playbook(path: str) -> List[PlaybookEntry]:
     return entries
 
 
-def detect_play_attributes(frames: List[np.ndarray]) -> Tuple[str, str, str]:
+def detect_play_attributes(frames: List[np.ndarray]) -> Tuple[str, str, str, float]:
     """Detect formation, direction and play type from frames.
 
-    This is a heuristic placeholder using optical flow for direction.
+    This is a heuristic placeholder using optical flow for direction. The
+    returned ``mean_flow`` represents the average horizontal optical flow and
+    can be used to compare clips for training or calibration purposes.
     """
     if not frames:
-        return "unknown", "middle", "run"
+        return "unknown", "middle", "run", 0.0
 
     prev = cv2.cvtColor(frames[0], cv2.COLOR_BGR2GRAY)
     flow_sum = 0.0
@@ -86,13 +88,23 @@ def detect_play_attributes(frames: List[np.ndarray]) -> Tuple[str, str, str]:
     # Placeholder formation and play type
     formation = "rit"
     play_type = "run"
-    return formation, direction, play_type
+    return formation, direction, play_type, mean_flow
 
 
 def match_play(
-    formation: str, direction: str, play_type: str, playbook: List[PlaybookEntry]
+    formation: str,
+    direction: str,
+    play_type: str,
+    mean_flow: float,
+    playbook: List[PlaybookEntry],
+    training_data: Dict[str, Dict[str, float]] | None = None,
 ) -> Tuple[str, float]:
-    """Return best matching play name and confidence score."""
+    """Return best matching play name and confidence score.
+
+    Training data can optionally provide a ``mean_flow`` value for each play
+    which is used to slightly bias the matching confidence toward similar
+    movement patterns.
+    """
     best_name = "unknown"
     best_score = -1.0
     for entry in playbook:
@@ -103,15 +115,29 @@ def match_play(
             score += 1.0
         if entry.play_type and entry.play_type == play_type.lower():
             score += 1.0
+
         confidence = score / 3.0
+
+        if training_data and entry.name in training_data:
+            ref = training_data[entry.name]
+            ref_flow = float(ref.get("mean_flow", 0.0))
+            diff = abs(mean_flow - ref_flow)
+            flow_score = max(0.0, 1.0 - diff)
+            # combine with base confidence, weighting flow_score moderately
+            confidence = 0.7 * confidence + 0.3 * flow_score
+
         if confidence > best_score:
             best_score = confidence
             best_name = entry.name
+
     return best_name, max(0.0, best_score)
 
 
 def analyze_video(
-    video_path: str, playbook: List[PlaybookEntry], output: str
+    video_path: str,
+    playbook: List[PlaybookEntry],
+    output: str,
+    training_data: Dict[str, Dict[str, float]] | None = None,
 ) -> List[PlayResult]:
     """Analyze a video, returning a list of detected plays."""
     cap = cv2.VideoCapture(video_path)
@@ -128,8 +154,15 @@ def analyze_video(
             break
         frames.append(frame)
         if len(frames) >= 60:  # roughly every 2 seconds at 30 FPS
-            formation, direction, play_type = detect_play_attributes(frames)
-            name, conf = match_play(formation, direction, play_type, playbook)
+            formation, direction, play_type, mean_flow = detect_play_attributes(frames)
+            name, conf = match_play(
+                formation,
+                direction,
+                play_type,
+                mean_flow,
+                playbook,
+                training_data,
+            )
             results.append(
                 PlayResult(
                     name=name,
@@ -188,6 +221,27 @@ def write_results(results: List[PlayResult], path: str) -> None:
             json.dump(data, f, indent=2)
 
 
+def load_training_data(path: str) -> Dict[str, Dict[str, float]]:
+    """Load practice training data if available."""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return {
+                str(d.get("play_name", "")): d
+                for d in data
+                if isinstance(d, dict) and "play_name" in d
+            }
+        elif isinstance(data, dict):
+            return {str(k): v for k, v in data.items()}
+    except Exception:
+        return {}
+    return {}
+
+
 def summarize_results(results: List[PlayResult]) -> Dict[str, int]:
     """Return a simple frequency count of plays."""
     counts: Dict[str, int] = {}
@@ -205,10 +259,16 @@ def main() -> None:
         help="Playbook JSON",
     )
     parser.add_argument("--output", default="play_log.json", help="Output JSON/CSV")
+    parser.add_argument(
+        "--training-data",
+        default="training_set.json",
+        help="Optional practice training data JSON",
+    )
     args = parser.parse_args()
 
     playbook = load_playbook(args.playbook)
-    results = analyze_video(args.video, playbook, args.output)
+    training_data = load_training_data(args.training_data)
+    results = analyze_video(args.video, playbook, args.output, training_data)
 
     summary = summarize_results(results)
     for name, cnt in summary.items():
