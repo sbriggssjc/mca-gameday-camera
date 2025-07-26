@@ -1,2 +1,4 @@
 .install/firefox-esr/
 .install/firefox-esr/
+.install/firefox-esr/libxul.so
+firefox-esr/
