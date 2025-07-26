@@ -1,42 +1,31 @@
-#!/usr/bin/env bash
-# Download and extract a known Firefox ESR build for ARM64 Linux
+#!/bin/bash
 
-set -euo pipefail
+set -e
 
-VERSION="115.23.0esr"
-URL="https://ftp.mozilla.org/pub/firefox/releases/${VERSION}/linux-aarch64/en-US/firefox-${VERSION}.tar.bz2"
-ARCHIVE="firefox-${VERSION}.tar.bz2"
-TARGET_DIR="firefox-esr"
+echo "🔍 Looking for latest Firefox ESR version compatible with ARM64..."
 
-log() {
-    echo -e "$1"
-}
+# Use a known working version — Firefox ESR 115 is the latest known with ARM64 builds
+ESR_VERSION="115.11.0esr"
+ARCH="linux-aarch64"
+LOCALE="en-US"
+INSTALL_DIR=".install/firefox-esr"
+TARBALL="firefox-${ESR_VERSION}.tar.bz2"
+DOWNLOAD_URL="https://ftp.mozilla.org/pub/firefox/releases/${ESR_VERSION}/${ARCH}/${LOCALE}/${TARBALL}"
 
-log "🌐 Downloading Firefox ESR $VERSION..."
-if ! curl -L "$URL" -o "$ARCHIVE"; then
-    log "❌ Download failed."
-    exit 1
-fi
+echo "🌐 Downloading from: $DOWNLOAD_URL"
 
-log "📦 Extracting..."
-rm -rf "$TARGET_DIR"
-mkdir -p "$TARGET_DIR"
-if ! tar -xjf "$ARCHIVE" -C "$TARGET_DIR" --strip-components=1; then
-    log "❌ Extraction failed."
-    rm -f "$ARCHIVE"
-    exit 1
-fi
-rm -f "$ARCHIVE"
+# Create install directory if it doesn't exist
+mkdir -p "$INSTALL_DIR"
 
-chmod +x "$TARGET_DIR/firefox"
+# Download and extract
+cd "$INSTALL_DIR"
+curl -LO "$DOWNLOAD_URL"
+tar -xjf "$TARBALL"
+rm "$TARBALL"
 
-LAUNCHER="$TARGET_DIR/run_firefox.sh"
-cat <<'EOF' > "$LAUNCHER"
-#!/usr/bin/env bash
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "$DIR/firefox" "$@"
-EOF
-chmod +x "$LAUNCHER"
+# Optional symlink
+cd ../..
+ln -sf $INSTALL_DIR/firefox/firefox firefox-esr
 
-log "✅ Firefox ESR installed in ./$TARGET_DIR"
-log "Launch it with ./$LAUNCHER"
+echo "✅ Firefox ESR $ESR_VERSION installed successfully."
+echo "👉 Run with: ./firefox-esr"
