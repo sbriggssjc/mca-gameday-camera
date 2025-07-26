@@ -128,7 +128,6 @@ def main() -> None:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=False,
-            bufsize=1,
             bufsize=0,
         )
 
