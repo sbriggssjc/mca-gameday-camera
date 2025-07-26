@@ -16,6 +16,23 @@ from scoreboard_reader import ScoreboardReader
 from game_uploader import upload_game
 
 
+def check_device_free(device: str = "/dev/video0") -> None:
+    """Exit with instructions if the device is still in use."""
+    cmds = [["lsof", device], ["fuser", device]]
+    for cmd in cmds:
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+        except FileNotFoundError:
+            continue
+        output = (result.stdout or result.stderr).strip()
+        if output:
+            print(f"Processes using {device}:")
+            print(output)
+            print(f"{device} is busy. Try 'sudo fuser -k {device}' or reboot.")
+            sys.exit(1)
+        break
+
+
 def load_env(env_path: str = ".env") -> None:
     if not os.path.exists(env_path):
         return
@@ -228,12 +245,7 @@ def main() -> None:
     time.sleep(2)
 
     # Safety check to ensure the device is free before starting FFmpeg
-    try:
-        result = subprocess.run(["lsof", device], capture_output=True, text=True)
-        if result.stdout.strip():
-            sys.exit(f"{device} is busy.")
-    except FileNotFoundError:
-        pass
+    check_device_free(device)
 
     check_cap = cv2.VideoCapture(device)
     if not check_cap.isOpened():
