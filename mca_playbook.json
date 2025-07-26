@@ -1,0 +1,14 @@
+[
+  {
+    "name": "Power Right",
+    "formation": "Rit",
+    "direction": "right",
+    "motion": "none"
+  },
+  {
+    "name": "Counter Left",
+    "formation": "Lit",
+    "direction": "left",
+    "motion": "pull"
+  }
+]
