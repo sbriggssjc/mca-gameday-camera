@@ -1,13 +1,28 @@
 #!/bin/bash
 
 # Start livestream from /dev/video0 to YouTube
-# Replace YOUR_STREAM_KEY with your actual YouTube stream key
+# Load RTMP URL from .env if present
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+fi
 
-YOUTUBE_URL="rtmp://a.rtmp.youtube.com/live2/YOUR_STREAM_KEY"
+# Require YOUTUBE_RTMP_URL to be defined
+if [ -z "$YOUTUBE_RTMP_URL" ]; then
+    echo "Missing YOUTUBE_RTMP_URL. Set it in the environment or .env file." >&2
+    exit 1
+fi
+
+YOUTUBE_URL="$YOUTUBE_RTMP_URL"
 
 # Ensure ffmpeg is installed
 if ! command -v ffmpeg >/dev/null 2>&1; then
     echo "ffmpeg not found. Please install ffmpeg." >&2
+    exit 1
+fi
+
+# Check network connectivity to YouTube
+if ! ping -c 1 -W 2 youtube.com >/dev/null 2>&1; then
+    echo "Unable to reach youtube.com. Check network connection." >&2
     exit 1
 fi
 
