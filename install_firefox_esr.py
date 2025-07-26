@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Download and extract a known Firefox ESR build for ARM64 Linux."""
+"""Download and extract the latest Firefox ESR build for ARM64 Linux."""
 import os
 import sys
 import tarfile
 import shutil
 from pathlib import Path
+import json
 
 try:
     import requests
@@ -12,14 +13,27 @@ except ImportError:
     print("Error: The 'requests' package is required. Install it with 'pip install requests'.")
     sys.exit(1)
 
-VERSION = "115.23.0esr"
-URL = "https://ftp.mozilla.org/pub/firefox/releases/115.23.0esr/linux-aarch64/en-US/firefox-115.23.0esr.tar.bz2"
-ARCHIVE = Path(f"firefox-{VERSION}.tar.bz2")
+VERSION = ""
+ARCHIVE = Path()
+URL = ""
 TARGET_DIR = Path("firefox-esr")
 
 
 def log(msg: str) -> None:
     print(msg)
+
+
+def get_latest_version() -> str:
+    """Return the latest Firefox ESR version string."""
+    url = "https://product-details.mozilla.org/1.0/firefox_versions.json"
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        return data.get("FIREFOX_ESR", "").strip()
+    except Exception as e:
+        log(f"Error fetching version info: {e}")
+        sys.exit(1)
 
 
 def download() -> Path:
@@ -66,6 +80,17 @@ def extract(tar_path: Path) -> None:
 
 
 def main() -> None:
+    global VERSION, ARCHIVE, URL
+    VERSION = get_latest_version()
+    if not VERSION:
+        log("Could not determine latest ESR version")
+        sys.exit(1)
+    URL = (
+        f"https://ftp.mozilla.org/pub/firefox/releases/{VERSION}/"
+        f"linux-aarch64/en-US/firefox-{VERSION}.tar.bz2"
+    )
+    ARCHIVE = Path(f"firefox-{VERSION}.tar.bz2")
+
     tarball = download()
     extract(tarball)
     ARCHIVE.unlink(missing_ok=True)
