@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -16,6 +17,13 @@ def load_env(env_path: str = ".env") -> None:
             os.environ.setdefault(key.strip(), val.strip())
 
 
+def ensure_ffmpeg() -> str:
+    path = shutil.which("ffmpeg")
+    if not path:
+        raise RuntimeError("ffmpeg is not installed or not in PATH")
+    return path
+
+
 def test_stream(url: str | None = None, *, duration: int = 5, log_path: str = "test_stream.log") -> None:
     """Send a short test pattern to the RTMP endpoint to verify connectivity."""
     if url is None:
@@ -23,6 +31,8 @@ def test_stream(url: str | None = None, *, duration: int = 5, log_path: str = "t
         url = os.environ.get("YOUTUBE_RTMP_URL")
     if not url:
         raise RuntimeError("Missing YOUTUBE_RTMP_URL environment variable")
+
+    ensure_ffmpeg()
 
     log_file = Path(log_path)
     with log_file.open("w") as log:
@@ -36,7 +46,7 @@ def test_stream(url: str | None = None, *, duration: int = 5, log_path: str = "t
 
         log.write("\nStarting ffmpeg test stream...\n")
         cmd = [
-            "ffmpeg",
+            ensure_ffmpeg(),
             "-re",
             "-f", "lavfi",
             "-i", "testsrc=size=1280x720:rate=30",

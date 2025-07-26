@@ -1,5 +1,26 @@
 import cv2
+import shutil
 import subprocess
+from datetime import datetime
+from pathlib import Path
+
+
+def ensure_ffmpeg() -> str:
+    path = shutil.which("ffmpeg")
+    if not path:
+        raise RuntimeError("ffmpeg is not installed or not in PATH")
+    return path
+
+
+def select_codec() -> str:
+    try:
+        output = subprocess.check_output(["ffmpeg", "-encoders"], text=True)
+        for codec in ("h264_nvmpi", "h264_nvv4l2enc"):
+            if codec in output:
+                return codec
+    except Exception:
+        pass
+    return "libx264"
 
 
 def livestream(youtube_url: str, device_index: int = 0) -> None:
@@ -12,6 +33,8 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
     device_index : int, optional
         Index of the capture device to use, by default 0.
     """
+    ensure_ffmpeg()
+
     cap = cv2.VideoCapture(device_index)
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open capture device {device_index}")
@@ -23,7 +46,7 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
         fps = 30.0
 
     command = [
-        "ffmpeg",
+        ensure_ffmpeg(),
         "-y",
         "-f", "rawvideo",
         "-vcodec", "rawvideo",
@@ -31,14 +54,18 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
         "-s", f"{width}x{height}",
         "-r", str(fps),
         "-i", "-",
-        "-c:v", "libx264",
+        "-c:v", select_codec(),
         "-pix_fmt", "yuv420p",
         "-preset", "veryfast",
         "-f", "flv",
         youtube_url,
     ]
 
-    process = subprocess.Popen(command, stdin=subprocess.PIPE)
+    log_dir = Path("livestream_logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"streamer_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    lf = log_file.open("w")
+    process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=lf, stderr=lf)
 
     try:
         while True:
@@ -53,3 +80,4 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
         if process.stdin:
             process.stdin.close()
         process.wait()
+        lf.close()
