@@ -3,11 +3,11 @@
 set -e
 
 # Hardcoded Firefox ESR version
-VERSION="115.3.1esr"
+VERSION="115.10.0esr"
 # Archive filename for the version above
 TARBALL="firefox-${VERSION}.tar.bz2"
 # Exact download URL for the archive
-DOWNLOAD_URL="https://ftp.mozilla.org/pub/firefox/releases/115.3.1esr/linux-aarch64/en-US/firefox-115.3.1esr.tar.bz2"
+DOWNLOAD_URL="https://ftp.mozilla.org/pub/firefox/releases/${VERSION}/linux-aarch64/en-US/firefox-${VERSION}.tar.bz2"
 INSTALL_DIR=".install/firefox-esr"
 
 echo "Downloading Firefox ESR ${VERSION}..."
@@ -31,9 +31,5 @@ fi
 tar -xjf "$TARBALL"
 rm "$TARBALL"
 
-# Create symlink to the Firefox binary
-cd ../..
-ln -sf "$INSTALL_DIR/firefox/firefox" firefox-esr
-
-echo "✅ Firefox ESR $VERSION installed successfully."
-echo "👉 Run with: ./firefox-esr"
+echo "✅ Firefox ESR ${VERSION} installed."
+echo "👉 Launch with ${INSTALL_DIR}/firefox/firefox"
