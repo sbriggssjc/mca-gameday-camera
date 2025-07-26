@@ -120,3 +120,16 @@ python install_firefox_esr.py
 ```
 
 The script prints progress messages and optionally launches Firefox when done. It requires the `requests` package.
+
+## assignment_analyzer.py
+
+`assignment_analyzer.py` is a stub for rating player assignments in recorded clips.
+It relies on `ai_detector.detect_jerseys` to find jersey numbers in each frame
+and appends the results to `player_ratings.csv`.
+
+```bash
+python assignment_analyzer.py path/to/clip.mp4 --playbook playbook.json
+```
+
+The optional JSON playbook maps jersey numbers to assignments. Real jersey
+detection and movement analysis are not implemented in this repository.
