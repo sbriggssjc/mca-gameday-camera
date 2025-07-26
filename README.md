@@ -20,9 +20,9 @@ python motion_detector.py path/to/video.mp4
 ```
 
 You can adjust the detection sensitivity using `--threshold` and minimum segment length with `--min-duration`.
-This repository provides a simple script for streaming a camera feed to
-YouTube Live using RTMP. Frames are captured with OpenCV and piped to
-`ffmpeg` for encoding and upload.
+This repository provides simple scripts for streaming and recording a camera
+feed. Frames can be captured with OpenCV and piped to `ffmpeg` for encoding and
+upload.
 
 ## Usage
 
@@ -33,6 +33,24 @@ python streamer.py <youtube_rtmp_url> [device_index]
 Replace `<youtube_rtmp_url>` with the RTMP URL and stream key supplied by
 YouTube. The optional `device_index` selects which local camera to use
 (the default is `0`). Press `Ctrl+C` to end the stream.
+
+## stream_to_youtube.py
+
+`stream_to_youtube.py` streams `/dev/video0` to YouTube using `ffmpeg`. The
+YouTube RTMP URL should be placed in a `.env` file:
+
+```ini
+YOUTUBE_RTMP_URL=rtmp://a.rtmp.youtube.com/live2/YOUR_STREAM_KEY
+```
+
+Logs are written to the `livestream_logs` folder and the script will
+automatically restart `ffmpeg` if it exits unexpectedly.
+
+Run it with:
+
+```bash
+python stream_to_youtube.py
+```
 
 ## Requirements
 
@@ -59,6 +77,13 @@ Run `update_code.sh` to pull the latest changes from the remote `main` branch. T
 `gameday.sh` updates the repository and starts `highlight_recorder.py`.
 You can place the script on the Desktop, make it executable with `chmod +x`,
 and then right-click and select **Allow Launching** to use it like a shortcut.
+
+## start_gameday.bat
+
+Windows users can run `start_gameday.bat` to launch livestreaming,
+recording and play tracking. The script loads the RTMP URL from `.env`,
+checks that the camera is connected and then starts several Python
+processes in separate terminal windows.
 
 ## youtube_uploader.py
 
