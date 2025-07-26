@@ -141,6 +141,8 @@ def stream(device: int, rtmp_url: str, *, json_path: str = "game_state.json", po
 
     def _reader(pipe, logf):
         for line in pipe:
+            if isinstance(line, bytes):
+                line = line.decode("utf-8", errors="ignore")
             print(line, end="")
             logf.write(line)
 
