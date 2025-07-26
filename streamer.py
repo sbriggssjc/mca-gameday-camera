@@ -1,6 +1,7 @@
 import cv2
 import shutil
 import subprocess
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -47,6 +48,8 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
 
     command = [
         ensure_ffmpeg(),
+        "-loglevel",
+        "verbose",
         "-y",
         "-f", "rawvideo",
         "-vcodec", "rawvideo",
@@ -65,7 +68,23 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"streamer_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     lf = log_file.open("w")
-    process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=lf, stderr=lf)
+    print("Running FFmpeg command:", " ".join(command))
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    def _reader(pipe, logf):
+        for line in pipe:
+            print(line, end="")
+            logf.write(line)
+
+    thread = threading.Thread(target=_reader, args=(process.stdout, lf), daemon=True)
+    thread.start()
 
     try:
         while True:
@@ -79,5 +98,9 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
         cap.release()
         if process.stdin:
             process.stdin.close()
-        process.wait()
+        ret = process.wait()
+        thread.join()
+        lf.write(f"\nffmpeg exited with code {ret}\n")
         lf.close()
+        if ret != 0:
+            print("FFmpeg exited with error:", ret)

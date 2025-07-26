@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 import time
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -49,6 +50,8 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Pa
     width, height = size
     return [
         ensure_ffmpeg(),
+        "-loglevel",
+        "verbose",
         "-y",
         "-f",
         "rawvideo",
@@ -138,13 +141,24 @@ def main() -> None:
         log_file = log_dir / f"stream_{timestamp}.log"
         record_file = output_dir / f"game_{timestamp}.mp4"
         with log_file.open("w") as lf:
-            print(f"\u26a0\ufe0f ffmpeg log: {log_file}")
+            cmd = build_ffmpeg_command(url, (width, height), fps, record_file)
+            print("Running FFmpeg command:", " ".join(cmd))
             process = subprocess.Popen(
-                build_ffmpeg_command(url, (width, height), fps, record_file),
+                cmd,
                 stdin=subprocess.PIPE,
-                stdout=lf,
-                stderr=lf,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
             )
+
+            def _reader(pipe, logf):
+                for line in pipe:
+                    print(line, end="")
+                    logf.write(line)
+
+            thread = threading.Thread(target=_reader, args=(process.stdout, lf), daemon=True)
+            thread.start()
             try:
                 while True:
                     ret, frame = cap.read()
@@ -163,7 +177,10 @@ def main() -> None:
                 if process.stdin:
                     process.stdin.close()
                 ret = process.wait()
+                thread.join()
                 lf.write(f"\nffmpeg exited with code {ret}\n")
+                if ret != 0:
+                    print("FFmpeg exited with error:", ret)
         if ret == 0:
             try:
                 upload_game(str(record_file))
