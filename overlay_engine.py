@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -82,6 +83,8 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float) -> list[st
     width, height = size
     return [
         ensure_ffmpeg(),
+        "-loglevel",
+        "verbose",
         "-y",
         "-f",
         "rawvideo",
@@ -125,12 +128,24 @@ def stream(device: int, rtmp_url: str, *, json_path: str = "game_state.json", po
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"overlay_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     lf = log_file.open("w")
+    cmd = build_ffmpeg_command(rtmp_url, (width, height), fps)
+    print("Running FFmpeg command:", " ".join(cmd))
     process = subprocess.Popen(
-        build_ffmpeg_command(rtmp_url, (width, height), fps),
+        cmd,
         stdin=subprocess.PIPE,
-        stdout=lf,
-        stderr=lf,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
     )
+
+    def _reader(pipe, logf):
+        for line in pipe:
+            print(line, end="")
+            logf.write(line)
+
+    thread = threading.Thread(target=_reader, args=(process.stdout, lf), daemon=True)
+    thread.start()
     overlay = OverlayEngine(position=position)
     manual_reader = ScoreboardReader()
 
@@ -149,8 +164,12 @@ def stream(device: int, rtmp_url: str, *, json_path: str = "game_state.json", po
         cap.release()
         if process.stdin:
             process.stdin.close()
-        process.wait()
+        ret = process.wait()
+        thread.join()
+        lf.write(f"\nffmpeg exited with code {ret}\n")
         lf.close()
+        if ret != 0:
+            print("FFmpeg exited with error:", ret)
 
 
 def overlay_file(input_path: str, output_path: str, *, json_path: str | None = None, position: str = "left") -> None:
