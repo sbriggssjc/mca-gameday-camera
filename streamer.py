@@ -7,7 +7,7 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
 
     Parameters
     ----------
-    youtube_url : str
+    youtube_url : rtmp://a.rtmp.youtube.com/live2/xcuz-3x1d-9y7v-ghec-2xmh
         The RTMP URL provided by YouTube including the stream key.
     device_index : int, optional
         Index of the capture device to use, by default 0.
