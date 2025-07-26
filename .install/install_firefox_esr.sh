@@ -2,34 +2,25 @@
 
 set -e
 
-# Hardcoded Firefox ESR version
 VERSION="115.10.0esr"
-# Archive filename for the version above
-TARBALL="firefox-${VERSION}.tar.bz2"
-# Exact download URL for the archive
-DOWNLOAD_URL="https://ftp.mozilla.org/pub/firefox/releases/${VERSION}/linux-aarch64/en-US/firefox-${VERSION}.tar.bz2"
-INSTALL_DIR=".install/firefox-esr"
+ARCHIVE="firefox-${VERSION}.tar.gz"
+URL="https://ftp.mozilla.org/pub/firefox/releases/115.10.0esr/linux-aarch64/en-US/firefox-115.10.0esr.tar.gz"
 
-echo "Downloading Firefox ESR ${VERSION}..."
-echo "URL: ${DOWNLOAD_URL}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_DIR="${SCRIPT_DIR}/firefox-esr"
 
-# Create install directory if it doesn't exist
 mkdir -p "$INSTALL_DIR"
 
-# Download the archive
-cd "$INSTALL_DIR"
-curl -L --fail --silent --show-error -o "$TARBALL" "$DOWNLOAD_URL"
+echo "Downloading Firefox ESR ${VERSION}..."
+curl -LO "$URL"
 
-# Validate the download (larger than 1MB)
-if [ ! -s "$TARBALL" ] || [ $(stat -c%s "$TARBALL") -lt 1048576 ]; then
-    echo "Error: Downloaded file looks invalid. Aborting."
-    rm -f "$TARBALL"
-    exit 1
-fi
+echo "Extracting archive..."
+tar -xzf "$ARCHIVE"
 
-# Extract and clean up
-tar -xjf "$TARBALL"
-rm "$TARBALL"
+echo "Moving files to $INSTALL_DIR..."
+mv firefox "$INSTALL_DIR/"
+rm "$ARCHIVE"
 
-echo "✅ Firefox ESR ${VERSION} installed."
-echo "👉 Launch with ${INSTALL_DIR}/firefox/firefox"
+echo "✅ Firefox ESR installed successfully"
+echo "📂 Installed at: .install/firefox-esr/"
+echo "🧪 Run it using: .install/firefox-esr/firefox"
