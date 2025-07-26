@@ -2,11 +2,12 @@
 
 set -e
 
-# Hardcode the desired Firefox ESR version instead of scraping Mozilla's site
-VERSION="115.11.0esr"
+# Hardcoded Firefox ESR version
+VERSION="115.3.1esr"
+# Archive filename for the version above
 TARBALL="firefox-${VERSION}.tar.bz2"
-# Construct the download URL directly from the version
-DOWNLOAD_URL="https://ftp.mozilla.org/pub/firefox/releases/${VERSION}/linux-aarch64/en-US/${TARBALL}"
+# Exact download URL for the archive
+DOWNLOAD_URL="https://ftp.mozilla.org/pub/firefox/releases/115.3.1esr/linux-aarch64/en-US/firefox-115.3.1esr.tar.bz2"
 INSTALL_DIR=".install/firefox-esr"
 
 echo "Downloading Firefox ESR ${VERSION}..."
