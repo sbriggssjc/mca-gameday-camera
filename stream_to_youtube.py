@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 import threading
+import argparse
 from datetime import datetime
 from pathlib import Path
 
@@ -31,6 +32,12 @@ def check_device_free(device: str = "/dev/video0") -> None:
             print(f"{device} is busy. Try 'sudo fuser -k {device}' or reboot.")
             sys.exit(1)
         break
+
+
+def wait_for_device(device: str = "/dev/video0") -> None:
+    """Block until the video device is free."""
+    while os.system(f"lsof {device} > /dev/null 2>&1") == 0:
+        time.sleep(1)
 
 
 def load_env(env_path: str = ".env") -> None:
@@ -207,6 +214,10 @@ def build_record_command(
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--test-direct", action="store_true", help="run direct FFmpeg test without OpenCV")
+    args = parser.parse_args()
+
     load_env()
     ensure_ffmpeg()
     url = os.environ.get("YOUTUBE_RTMP_URL")
@@ -219,6 +230,7 @@ def main() -> None:
         sys.exit("Unable to reach youtube.com. Check network connection.")
 
     device = os.environ.get("VIDEO_DEVICE", "/dev/video0")
+    wait_for_device(device)
     cap = cv2.VideoCapture(device)
     if not cap.isOpened():
         sys.exit(f"Unable to open camera {device}")
@@ -243,6 +255,19 @@ def main() -> None:
     cap.release()
     cv2.destroyAllWindows()
     time.sleep(2)
+    wait_for_device(device)
+
+    if args.test_direct:
+        test_cmd = build_v4l2_command(
+            url,
+            (width, height),
+            fps,
+            Path("output_test.mp4"),
+            device=device,
+        )
+        print("Running direct FFmpeg test command:", " ".join(test_cmd))
+        subprocess.run(test_cmd)
+        return
 
     # Safety check to ensure the device is free before starting FFmpeg
     check_device_free(device)
@@ -251,6 +276,8 @@ def main() -> None:
     if not check_cap.isOpened():
         sys.exit("Camera is busy.")
     check_cap.release()
+
+    wait_for_device(device)
 
     # Re-open the camera for actual streaming
     cap = cv2.VideoCapture(device)
@@ -278,6 +305,12 @@ def main() -> None:
         record_file = output_dir / f"game_{timestamp}.mp4"
         with log_file.open("w", encoding="utf-8", errors="ignore") as lf:
             cmd = build_ffmpeg_command(url, (width, height), fps, record_file)
+            pix_fmt = "bgr24"
+            if "-pix_fmt" in cmd:
+                try:
+                    pix_fmt = cmd[cmd.index("-pix_fmt") + 1]
+                except Exception:
+                    pass
             print("Running FFmpeg command:", " ".join(cmd))
             process = subprocess.Popen(
                 cmd,
@@ -312,7 +345,7 @@ def main() -> None:
                                 f"Warning: frame size {frame.shape[1]}x{frame.shape[0]} != {width}x{height}"
                             )
                         if frame.dtype != "uint8" or (len(frame.shape) > 2 and frame.shape[2] != 3):
-                            print("Warning: frame is not bgr24 format")
+                            print(f"Warning: frame is not {pix_fmt} format")
                         first_frame = False
                     if tracker:
                         x, y, w, h = tracker.track(frame)
@@ -321,7 +354,11 @@ def main() -> None:
                     state = state_reader.update(frame)
                     overlay.draw(frame, state)
                     try:
-                        process.stdin.write(frame.tobytes())
+                        if pix_fmt == "rgb24":
+                            frame_conv = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            process.stdin.write(frame_conv.tobytes())
+                        else:
+                            process.stdin.write(frame.tobytes())
                     except BrokenPipeError:
                         msg = "FFmpeg closed the pipe unexpectedly. Aborting stream."
                         print(msg)
@@ -344,6 +381,8 @@ def main() -> None:
                 if ret != 0:
                     print("FFmpeg exited with error:", ret)
                     lf.write("\nFFmpeg failed. Running diagnostics...\n")
+                    cap.release()
+                    cv2.destroyAllWindows()
                     test_cmd = build_v4l2_command(url, (width, height), fps, record_file, device=device)
                     lf.write("Running: " + " ".join(test_cmd) + "\n")
                     result = subprocess.run(test_cmd, capture_output=True, text=True)
