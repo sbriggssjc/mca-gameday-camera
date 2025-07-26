@@ -137,6 +137,7 @@ def stream(device: int, rtmp_url: str, *, json_path: str = "game_state.json", po
         stderr=subprocess.STDOUT,
         text=False,
         bufsize=1,
+        bufsize=0,
     )
 
     def _reader(pipe, logf):
