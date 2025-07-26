@@ -21,11 +21,13 @@ if "%YOUTUBE_RTMP_URL%"=="" (
 
 REM Check camera availability using Python and OpenCV
 python - <<PY
-import cv2, sys
+import cv2, sys, time
 cap = cv2.VideoCapture(0)
 if not cap.isOpened():
     sys.exit(1)
 cap.release()
+cv2.destroyAllWindows()
+time.sleep(2)
 PY
 if errorlevel 1 (
     echo Camera not found. Connect the camera and try again.
