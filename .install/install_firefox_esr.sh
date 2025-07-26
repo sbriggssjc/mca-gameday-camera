@@ -1,10 +1,13 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-set -e
+set -euo pipefail
 
+# Desired Firefox ESR version
 VERSION="115.10.0esr"
-ARCHIVE="firefox-${VERSION}.tar.gz"
-URL="https://ftp.mozilla.org/pub/firefox/releases/115.10.0esr/linux-aarch64/en-US/firefox-115.10.0esr.tar.gz"
+
+# Download URL and archive name
+URL="https://ftp.mozilla.org/pub/firefox/releases/${VERSION}/linux-aarch64/en-US/firefox-${VERSION}.tar.bz2"
+ARCHIVE="firefox-${VERSION}.tar.bz2"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="${SCRIPT_DIR}/firefox-esr"
@@ -12,15 +15,13 @@ INSTALL_DIR="${SCRIPT_DIR}/firefox-esr"
 mkdir -p "$INSTALL_DIR"
 
 echo "Downloading Firefox ESR ${VERSION}..."
-curl -LO "$URL"
+curl -L -o "$ARCHIVE" "$URL"
 
 echo "Extracting archive..."
-tar -xzf "$ARCHIVE"
+tar -xjf "$ARCHIVE" --strip-components=1 -C "$INSTALL_DIR"
 
-echo "Moving files to $INSTALL_DIR..."
-mv firefox "$INSTALL_DIR/"
-rm "$ARCHIVE"
+rm -f "$ARCHIVE"
 
-echo "✅ Firefox ESR installed successfully"
+echo "✅ Firefox ESR ${VERSION} installed successfully"
 echo "📂 Installed at: .install/firefox-esr/"
-echo "🧪 Run it using: .install/firefox-esr/firefox"
+echo "👉 Launch it using: .install/firefox-esr/firefox"
