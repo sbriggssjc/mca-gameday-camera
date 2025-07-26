@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -25,10 +26,18 @@ def load_env(env_path: str = ".env") -> None:
             os.environ.setdefault(key.strip(), val.strip())
 
 
+def ensure_ffmpeg() -> str:
+    """Return path to ffmpeg or exit if not installed."""
+    path = shutil.which("ffmpeg")
+    if not path:
+        sys.exit("ffmpeg is not installed or not in PATH")
+    return path
+
+
 def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Path) -> list[str]:
     width, height = size
     return [
-        "ffmpeg",
+        ensure_ffmpeg(),
         "-y",
         "-f",
         "rawvideo",
@@ -72,6 +81,7 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Pa
 
 def main() -> None:
     load_env()
+    ensure_ffmpeg()
     url = os.environ.get("YOUTUBE_RTMP_URL")
     if not url:
         sys.exit("Missing YOUTUBE_RTMP_URL environment variable")
