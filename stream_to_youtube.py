@@ -88,6 +88,13 @@ def main() -> None:
 
     state_reader = ScoreboardReader()
     overlay = OverlayEngine()
+
+    # Calibrate scoreboard ROI once at startup
+    ret, calib_frame = cap.read()
+    if not ret:
+        sys.exit("Unable to read from camera")
+    if state_reader.roi is None:
+        state_reader.calibrate(calib_frame)
     tracker = None
     try:
         tracker = AutoTracker()
