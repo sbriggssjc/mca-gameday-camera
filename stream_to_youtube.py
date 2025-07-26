@@ -189,7 +189,7 @@ def main() -> None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_file = log_dir / f"stream_{timestamp}.log"
         record_file = output_dir / f"game_{timestamp}.mp4"
-        with log_file.open("w") as lf:
+        with log_file.open("w", encoding="utf-8", errors="ignore") as lf:
             cmd = build_ffmpeg_command(url, (width, height), fps, record_file)
             print("Running FFmpeg command:", " ".join(cmd))
             process = subprocess.Popen(
@@ -197,14 +197,13 @@ def main() -> None:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
+                text=False,
                 bufsize=1,
             )
 
             def _reader(pipe, logf):
-                for line in pipe:
-                    if isinstance(line, bytes):
-                        line = line.decode("utf-8", errors="ignore")
+                for raw in pipe:
+                    line = raw.decode("utf-8", errors="ignore")
                     print(line, end="")
                     logf.write(line)
 
@@ -240,7 +239,7 @@ def main() -> None:
             try:
                 upload_game(str(record_file))
             except Exception as exc:
-                with log_file.open("a") as lf:
+                with log_file.open("a", encoding="utf-8", errors="ignore") as lf:
                     lf.write(f"\nUpload failed: {exc}\n")
             break
         time.sleep(5)
