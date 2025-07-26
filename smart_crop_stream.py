@@ -108,6 +108,7 @@ def main() -> None:
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
         fps = 30.0
+    print(f"Capture settings: {width}x{height} @ {fps}fps")
 
     tracker = SmartAutoTracker()
 
@@ -126,7 +127,7 @@ def main() -> None:
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.PIPE,
             text=False,
             bufsize=0,
         )
@@ -137,13 +138,26 @@ def main() -> None:
                 print(line, end="")
                 logf.write(line)
 
-        thread = threading.Thread(target=_reader, args=(process.stdout, lf), daemon=True)
-        thread.start()
+        thread_out = threading.Thread(target=_reader, args=(process.stdout, lf), daemon=True)
+        thread_err = threading.Thread(target=_reader, args=(process.stderr, lf), daemon=True)
+        thread_out.start()
+        thread_err.start()
+        first_frame = True
         try:
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     break
+                if first_frame:
+                    print("Frame shape:", frame.shape, "dtype:", frame.dtype)
+                    cv2.imwrite("debug_frame.jpg", frame)
+                    if frame.shape[0] != height or frame.shape[1] != width:
+                        print(
+                            f"Warning: frame size {frame.shape[1]}x{frame.shape[0]} != {width}x{height}"
+                        )
+                    if frame.dtype != "uint8" or (len(frame.shape) > 2 and frame.shape[2] != 3):
+                        print("Warning: frame is not bgr24 format")
+                    first_frame = False
                 x, y, w, h = tracker.track(frame)
                 crop = frame[y : y + h, x : x + w]
                 crop = cv2.resize(crop, (width, height))
@@ -154,7 +168,13 @@ def main() -> None:
             if process.stdin:
                 process.stdin.close()
             ret = process.wait()
-            thread.join()
+            thread_out.join()
+            thread_err.join()
+            if process.stderr:
+                err_output = process.stderr.read().decode("utf-8", errors="ignore")
+                if err_output:
+                    print(err_output)
+                    lf.write(err_output)
             lf.write(f"\nffmpeg exited with code {ret}\n")
             lf.close()
             if ret != 0:
