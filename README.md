@@ -36,8 +36,10 @@ YouTube. The optional `device_index` selects which local camera to use
 
 ## stream_to_youtube.py
 
-`stream_to_youtube.py` streams `/dev/video0` to YouTube using `ffmpeg`. The
-YouTube RTMP URL should be placed in a `.env` file:
+`stream_to_youtube.py` streams a video device (default `/dev/video0`) to
+YouTube using `ffmpeg`. Set the `VIDEO_DEVICE` environment variable if you need
+to use a different camera. The YouTube RTMP URL should be placed in a `.env`
+file:
 
 ```ini
 YOUTUBE_RTMP_URL=rtmp://a.rtmp.youtube.com/live2/YOUR_STREAM_KEY

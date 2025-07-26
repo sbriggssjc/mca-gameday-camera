@@ -201,9 +201,10 @@ def main() -> None:
     if subprocess.call(["ping", "-c", "1", "youtube.com"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) != 0:
         sys.exit("Unable to reach youtube.com. Check network connection.")
 
-    cap = cv2.VideoCapture(0)
+    device = os.environ.get("VIDEO_DEVICE", "/dev/video0")
+    cap = cv2.VideoCapture(device)
     if not cap.isOpened():
-        sys.exit("Unable to open camera")
+        sys.exit(f"Unable to open camera {device}")
 
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1280)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 720)
@@ -224,17 +225,25 @@ def main() -> None:
     # Release the camera after ROI selection so FFmpeg can access it
     cap.release()
     cv2.destroyAllWindows()
+    time.sleep(2)
 
-    # Safety check to ensure /dev/video0 is free before starting FFmpeg
-    check_cap = cv2.VideoCapture(0)
+    # Safety check to ensure the device is free before starting FFmpeg
+    try:
+        result = subprocess.run(["lsof", device], capture_output=True, text=True)
+        if result.stdout.strip():
+            sys.exit(f"{device} is busy.")
+    except FileNotFoundError:
+        pass
+
+    check_cap = cv2.VideoCapture(device)
     if not check_cap.isOpened():
         sys.exit("Camera is busy.")
     check_cap.release()
 
     # Re-open the camera for actual streaming
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(device)
     if not cap.isOpened():
-        sys.exit("Unable to reopen camera")
+        sys.exit(f"Unable to reopen camera {device}")
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     cap.set(cv2.CAP_PROP_FPS, fps)
@@ -303,7 +312,7 @@ def main() -> None:
                 if ret != 0:
                     print("FFmpeg exited with error:", ret)
                     lf.write("\nFFmpeg failed. Running diagnostics...\n")
-                    test_cmd = build_v4l2_command(url, (width, height), fps, record_file)
+                    test_cmd = build_v4l2_command(url, (width, height), fps, record_file, device=device)
                     lf.write("Running: " + " ".join(test_cmd) + "\n")
                     result = subprocess.run(test_cmd, capture_output=True, text=True)
                     lf.write(result.stdout)
@@ -313,7 +322,7 @@ def main() -> None:
                     print(result.stderr)
 
                     lf.write("\nTesting camera by recording locally...\n")
-                    file_cmd = build_record_command((width, height), fps, Path("output.mp4"))
+                    file_cmd = build_record_command((width, height), fps, Path("output.mp4"), device=device)
                     lf.write("Running: " + " ".join(map(str, file_cmd)) + "\n")
                     record_result = subprocess.run(file_cmd, capture_output=True, text=True)
                     lf.write(record_result.stdout)
