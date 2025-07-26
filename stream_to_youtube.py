@@ -93,6 +93,55 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Pa
     ]
 
 
+def build_v4l2_command(
+    url: str,
+    size: tuple[int, int],
+    fps: float,
+    output: Path,
+    device: str = "/dev/video0",
+) -> list[str]:
+    width, height = size
+    return [
+        ensure_ffmpeg(),
+        "-loglevel",
+        "verbose",
+        "-y",
+        "-f",
+        "v4l2",
+        "-framerate",
+        str(int(fps)),
+        "-video_size",
+        f"{width}x{height}",
+        "-i",
+        device,
+        "-f",
+        "lavfi",
+        "-i",
+        "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-pix_fmt",
+        "yuv420p",
+        "-b:v",
+        "4500k",
+        "-maxrate",
+        "4500k",
+        "-bufsize",
+        "9000k",
+        "-g",
+        "120",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-f",
+        "tee",
+        f"[f=flv]{url}|[f=mp4]{output}",
+    ]
+
+
 def main() -> None:
     load_env()
     ensure_ffmpeg()
@@ -154,6 +203,8 @@ def main() -> None:
 
             def _reader(pipe, logf):
                 for line in pipe:
+                    if isinstance(line, bytes):
+                        line = line.decode("utf-8", errors="ignore")
                     print(line, end="")
                     logf.write(line)
 
@@ -181,6 +232,10 @@ def main() -> None:
                 lf.write(f"\nffmpeg exited with code {ret}\n")
                 if ret != 0:
                     print("FFmpeg exited with error:", ret)
+                    lf.write("\nRetrying with direct camera input...\n")
+                    test_cmd = build_v4l2_command(url, (width, height), fps, record_file)
+                    lf.write("Running: " + " ".join(test_cmd) + "\n")
+                    subprocess.run(test_cmd, stdout=lf, stderr=subprocess.STDOUT, text=True)
         if ret == 0:
             try:
                 upload_game(str(record_file))
