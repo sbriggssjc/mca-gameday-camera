@@ -142,6 +142,53 @@ def build_v4l2_command(
     ]
 
 
+def build_record_command(
+    size: tuple[int, int],
+    fps: float,
+    output: Path,
+    device: str = "/dev/video0",
+) -> list[str]:
+    """Record from the camera directly to a local MP4 file."""
+    width, height = size
+    return [
+        ensure_ffmpeg(),
+        "-loglevel",
+        "verbose",
+        "-y",
+        "-f",
+        "v4l2",
+        "-framerate",
+        str(int(fps)),
+        "-video_size",
+        f"{width}x{height}",
+        "-i",
+        device,
+        "-f",
+        "lavfi",
+        "-i",
+        "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-pix_fmt",
+        "yuv420p",
+        "-b:v",
+        "4500k",
+        "-maxrate",
+        "4500k",
+        "-bufsize",
+        "9000k",
+        "-g",
+        "120",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        str(output),
+    ]
+
+
 def main() -> None:
     load_env()
     ensure_ffmpeg()
@@ -220,7 +267,13 @@ def main() -> None:
                         frame = cv2.resize(frame, (width, height))
                     state = state_reader.update(frame)
                     overlay.draw(frame, state)
-                    process.stdin.write(frame.tobytes())
+                    try:
+                        process.stdin.write(frame.tobytes())
+                    except BrokenPipeError:
+                        msg = "FFmpeg closed the pipe unexpectedly. Aborting stream."
+                        print(msg)
+                        lf.write(msg + "\n")
+                        break
             except KeyboardInterrupt:
                 pass
             finally:
@@ -234,7 +287,17 @@ def main() -> None:
                     lf.write("\nRetrying with direct camera input...\n")
                     test_cmd = build_v4l2_command(url, (width, height), fps, record_file)
                     lf.write("Running: " + " ".join(test_cmd) + "\n")
-                    subprocess.run(test_cmd, stdout=lf, stderr=subprocess.STDOUT, text=True)
+                    result = subprocess.run(test_cmd, capture_output=True, text=True)
+                    lf.write(result.stdout)
+                    print("FFmpeg output:")
+                    print(result.stdout)
+
+                    lf.write("\nTesting camera by recording locally...\n")
+                    file_cmd = build_record_command((width, height), fps, Path("output.mp4"))
+                    lf.write("Running: " + " ".join(map(str, file_cmd)) + "\n")
+                    record_result = subprocess.run(file_cmd, capture_output=True, text=True)
+                    lf.write(record_result.stdout)
+                    print(record_result.stdout)
         if ret == 0:
             try:
                 upload_game(str(record_file))
