@@ -33,11 +33,8 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Start livestream
+REM Start livestream with overlays and auto tracking
 start "Livestream" cmd /k python stream_to_youtube.py
-
-REM Start local recording
-start "Recording" cmd /k python record_video.py
 
 REM Start highlight recorder
 start "Highlights" cmd /k python highlight_recorder.py
