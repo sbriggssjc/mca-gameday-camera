@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# Download and extract the latest Firefox ESR using Mozilla's redirect service
+# Download and extract a known Firefox ESR build for ARM64 Linux
 
 set -euo pipefail
 
-URL="https://download.mozilla.org/?product=firefox-esr-latest&os=linux64&lang=en-US"
-ARCHIVE="firefox-latest-esr.tar.bz2"
+VERSION="115.23.0esr"
+URL="https://ftp.mozilla.org/pub/firefox/releases/${VERSION}/linux-aarch64/en-US/firefox-${VERSION}.tar.bz2"
+ARCHIVE="firefox-${VERSION}.tar.bz2"
 TARGET_DIR="firefox-esr"
 
 log() {
     echo -e "$1"
 }
 
-log "🌐 Downloading latest Firefox ESR..."
+log "🌐 Downloading Firefox ESR $VERSION..."
 if ! curl -L "$URL" -o "$ARCHIVE"; then
     log "❌ Download failed."
     exit 1
