@@ -5,11 +5,34 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
+from datetime import datetime
+from pathlib import Path
 
 import cv2
 
 from scoreboard_reader import ScoreboardReader, ScoreboardState
+
+
+def ensure_ffmpeg() -> str:
+    """Return path to ffmpeg or raise if missing."""
+    path = shutil.which("ffmpeg")
+    if not path:
+        raise RuntimeError("ffmpeg is not installed or not in PATH")
+    return path
+
+
+def select_codec() -> str:
+    """Choose a hardware-accelerated codec if available."""
+    try:
+        output = subprocess.check_output(["ffmpeg", "-encoders"], text=True)
+        for codec in ("h264_nvmpi", "h264_nvv4l2enc"):
+            if codec in output:
+                return codec
+    except Exception:
+        pass
+    return "libx264"
 
 
 class OverlayEngine:
@@ -58,7 +81,7 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float) -> list[st
     """Return command list for launching ffmpeg."""
     width, height = size
     return [
-        "ffmpeg",
+        ensure_ffmpeg(),
         "-y",
         "-f",
         "rawvideo",
@@ -73,7 +96,7 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float) -> list[st
         "-i",
         "-",
         "-c:v",
-        "libx264",
+        select_codec(),
         "-preset",
         "veryfast",
         "-pix_fmt",
@@ -86,6 +109,8 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float) -> list[st
 
 def stream(device: int, rtmp_url: str, *, json_path: str = "game_state.json", position: str = "left") -> None:
     """Stream camera frames with overlay to the provided RTMP URL."""
+    ensure_ffmpeg()
+
     cap = cv2.VideoCapture(device)
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open capture device {device}")
@@ -96,7 +121,16 @@ def stream(device: int, rtmp_url: str, *, json_path: str = "game_state.json", po
     if not fps or fps <= 1:
         fps = 30.0
 
-    process = subprocess.Popen(build_ffmpeg_command(rtmp_url, (width, height), fps), stdin=subprocess.PIPE)
+    log_dir = Path("livestream_logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"overlay_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    lf = log_file.open("w")
+    process = subprocess.Popen(
+        build_ffmpeg_command(rtmp_url, (width, height), fps),
+        stdin=subprocess.PIPE,
+        stdout=lf,
+        stderr=lf,
+    )
     overlay = OverlayEngine(position=position)
     manual_reader = ScoreboardReader()
 
@@ -116,6 +150,7 @@ def stream(device: int, rtmp_url: str, *, json_path: str = "game_state.json", po
         if process.stdin:
             process.stdin.close()
         process.wait()
+        lf.close()
 
 
 def overlay_file(input_path: str, output_path: str, *, json_path: str | None = None, position: str = "left") -> None:
