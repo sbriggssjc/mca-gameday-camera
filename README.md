@@ -4,12 +4,12 @@ This repository contains utilities for tracking play participation during a game
 
 ## play_count_tracker.py
 
-`play_count_tracker.py` is a simple command line tool for recording which players were on the field for each play. After each play, type the jersey numbers (1-17) separated by spaces. Enter `q` to finish. A log is written to `play_log.csv` and the final play counts are printed with alerts for any player that participated in fewer than seven plays.
+`play_count_tracker.py` is a command line tool for recording which players were on the field for each play. It now supports optional in-game alerts, SMS notifications and quarter summaries. After each play, type the jersey numbers separated by spaces. Enter `q` to finish. A log is written to `jersey_counts.csv` and the final play counts are printed with color-coded warnings for any player under the threshold.
 
 ### Usage
 
 ```bash
-python play_count_tracker.py
+python play_count_tracker.py --voice --quarters
 ```
 This repository contains tools for processing sports game footage. The `motion_detector.py` script scans a video and prints timecodes for periods of high motion. These timecodes are useful for extracting highlight clips from a full game recording.
 
@@ -84,6 +84,14 @@ Windows users can run `start_gameday.bat` to launch livestreaming,
 recording and play tracking. The script loads the RTMP URL from `.env`,
 checks that the camera is connected and then starts several Python
 processes in separate terminal windows.
+
+`launch_gameday.bat` provides a minimal launcher that only starts the livestream
+and the play tracker:
+
+```bat
+start cmd /k "python stream_to_youtube.py"
+start cmd /k "python play_count_tracker.py"
+```
 
 ## youtube_uploader.py
 
