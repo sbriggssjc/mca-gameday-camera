@@ -69,6 +69,10 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Pa
         "lavfi",
         "-i",
         "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
         "-c:v",
         select_codec(),
         "-preset",
@@ -114,6 +118,8 @@ def main() -> None:
 
     tracker = SmartAutoTracker()
 
+    retries = 0
+    max_retries = 1
     while True:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_dir = Path("video")
@@ -124,7 +130,9 @@ def main() -> None:
         log_dir.mkdir(exist_ok=True)
         log_file = log_dir / f"smart_crop_{timestamp}.log"
         lf = log_file.open("w", encoding="utf-8", errors="ignore")
-        print("Running FFmpeg command:", " ".join(cmd))
+        cmd_str = " ".join(cmd)
+        print("Running FFmpeg command:", cmd_str)
+        lf.write("Running FFmpeg command: " + cmd_str + "\n")
         process = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -163,6 +171,8 @@ def main() -> None:
                 x, y, w, h = tracker.track(frame)
                 crop = frame[y : y + h, x : x + w]
                 crop = cv2.resize(crop, (out_width, out_height))
+                if crop.shape != (out_height, out_width, 3) or crop.dtype != np.uint8:
+                    raise ValueError(f"Crop frame has shape {crop.shape} and dtype {crop.dtype}")
                 print(f"Writing frame of shape {crop.shape} to FFmpeg")
                 process.stdin.write(crop.astype(np.uint8).tobytes())
         except KeyboardInterrupt:
@@ -182,7 +192,12 @@ def main() -> None:
             lf.close()
             if ret != 0:
                 print("FFmpeg exited with error:", ret)
-        # after each run break; change to continue if restart desired
+        if ret != 0 and retries < max_retries:
+            retries += 1
+            print(f"FFmpeg failed with code {ret}. Restarting (attempt {retries})")
+            time.sleep(2)
+            continue
+        # after each run break
         break
 
     cap.release()
