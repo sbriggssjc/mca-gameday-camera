@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 from auto_tracker import AutoTracker
 from overlay_engine import OverlayEngine
@@ -237,6 +238,7 @@ def main() -> None:
 
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1280)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 720)
+    out_width, out_height = 640, 480
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
         fps = 30.0
@@ -260,7 +262,7 @@ def main() -> None:
     if args.test_direct:
         test_cmd = build_v4l2_command(
             url,
-            (width, height),
+            (out_width, out_height),
             fps,
             Path("output_test.mp4"),
             device=device,
@@ -304,7 +306,7 @@ def main() -> None:
         log_file = log_dir / f"stream_{timestamp}.log"
         record_file = output_dir / f"game_{timestamp}.mp4"
         with log_file.open("w", encoding="utf-8", errors="ignore") as lf:
-            cmd = build_ffmpeg_command(url, (width, height), fps, record_file)
+            cmd = build_ffmpeg_command(url, (out_width, out_height), fps, record_file)
             pix_fmt = "bgr24"
             if "-pix_fmt" in cmd:
                 try:
@@ -318,7 +320,7 @@ def main() -> None:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=False,
-                bufsize=0,
+                bufsize=10**8,
             )
 
             def _reader(pipe, logf):
@@ -353,12 +355,14 @@ def main() -> None:
                         frame = cv2.resize(frame, (width, height))
                     state = state_reader.update(frame)
                     overlay.draw(frame, state)
+                    frame_resized = cv2.resize(frame, (out_width, out_height))
+                    print(f"Writing frame of shape {frame_resized.shape} to FFmpeg")
                     try:
                         if pix_fmt == "rgb24":
-                            frame_conv = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                            process.stdin.write(frame_conv.tobytes())
+                            frame_conv = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
+                            process.stdin.write(frame_conv.astype(np.uint8).tobytes())
                         else:
-                            process.stdin.write(frame.tobytes())
+                            process.stdin.write(frame_resized.astype(np.uint8).tobytes())
                     except BrokenPipeError:
                         msg = "FFmpeg closed the pipe unexpectedly. Aborting stream."
                         print(msg)
@@ -393,7 +397,7 @@ def main() -> None:
                     print(result.stderr)
 
                     lf.write("\nTesting camera by recording locally...\n")
-                    file_cmd = build_record_command((width, height), fps, Path("output.mp4"), device=device)
+                    file_cmd = build_record_command((out_width, out_height), fps, Path("output.mp4"), device=device)
                     lf.write("Running: " + " ".join(map(str, file_cmd)) + "\n")
                     record_result = subprocess.run(file_cmd, capture_output=True, text=True)
                     lf.write(record_result.stdout)
