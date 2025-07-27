@@ -10,10 +10,13 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+import argparse
 import cv2
 import numpy as np
+import time
 
 from smart_auto_tracker import SmartAutoTracker
+from upload_to_drive import upload_to_drive
 
 
 def load_env(env_path: str = ".env") -> None:
@@ -106,6 +109,19 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Pa
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--no-upload",
+        action="store_true",
+        help="Skip Google Drive upload of the recording",
+    )
+    parser.add_argument(
+        "--folder-id",
+        default=os.getenv("GDRIVE_FOLDER_ID"),
+        help="Destination Google Drive folder ID",
+    )
+    args = parser.parse_args()
+
     load_env()
     ensure_ffmpeg()
     url = os.environ.get("YOUTUBE_RTMP_URL")
@@ -216,6 +232,22 @@ def main() -> None:
         break
 
     cap.release()
+
+    if ret == 0 and not args.no_upload:
+        folder = args.folder_id or os.getenv("GDRIVE_FOLDER_ID")
+        if folder is not None:
+            try:
+                file_id, url_view = upload_to_drive(record_file, folder)
+                uploaded_dir = Path("video/uploaded")
+                uploaded_dir.mkdir(exist_ok=True)
+                record_file.rename(uploaded_dir / record_file.name)
+                print(f"Upload successful: {record_file.name} -> {file_id}")
+            except ImportError:
+                print(
+                    "PyDrive is not installed. Run `pip install PyDrive google-api-python-client oauth2client` to enable Google Drive uploads."
+                )
+            except Exception as exc:
+                print(f"Upload failed: {exc}")
 
 
 if __name__ == "__main__":
