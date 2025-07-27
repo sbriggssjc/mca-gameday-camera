@@ -56,6 +56,11 @@ Run it with:
 python stream_to_youtube.py
 ```
 
+The default settings use the Jetson hardware H.264 encoder at
+1920x1080 and 30fps with a bitrate around **7.5&nbsp;Mbps**
+(YouTube's recommended range for 1080p). Output is written with `tee`
+so a local MP4 recording is saved alongside the live RTMP stream.
+
 Additional options:
 
 ```bash
@@ -74,8 +79,10 @@ Install FFmpeg on Jetson with:
 sudo apt-get update && sudo apt-get install ffmpeg
 ```
 
-For hardware-accelerated encoding, build FFmpeg with `h264_nvmpi` or
-`h264_nvv4l2enc` support.
+For best performance on Jetson devices, build FFmpeg with the Jetson
+accelerated encoders (`h264_nvmpi` or `h264_nvv4l2enc`). The streaming
+scripts automatically fall back to `libx264` when these encoders are
+unavailable.
 
 This repository contains simple utilities for analyzing football plays.
 
