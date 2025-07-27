@@ -77,6 +77,15 @@ def select_codec() -> str:
     return "libx264"
 
 
+def log_ffmpeg_stderr(stderr, log_file=None) -> None:
+    """Continuously read and print FFmpeg stderr."""
+    for line in stderr:
+        text = line.decode("utf-8", errors="ignore")
+        if log_file is not None:
+            log_file.write(text)
+        print("[FFMPEG]", text, end="")
+
+
 def validate_rtmp_url(url: str) -> None:
     """Exit if the RTMP URL does not match the expected YouTube pattern."""
     pattern = r"^rtmp://a\.rtmp\.youtube\.com/live2/[A-Za-z0-9_-]+$"
@@ -462,6 +471,9 @@ def main() -> None:
                 text=False,
                 bufsize=10**8,
             )
+            if process.poll() is not None:
+                print("FFmpeg failed to launch. Exiting...")
+                return
 
             def _reader(pipe, logf):
                 for raw in pipe:
@@ -479,7 +491,7 @@ def main() -> None:
                         logf.write("ALERT: frame delay > 500ms\n")
 
             thread_out = threading.Thread(target=_reader, args=(process.stdout, lf), daemon=True)
-            thread_err = threading.Thread(target=_reader, args=(process.stderr, lf), daemon=True)
+            thread_err = threading.Thread(target=log_ffmpeg_stderr, args=(process.stderr, lf), daemon=True)
             thread_out.start()
             thread_err.start()
             first_frame = True
