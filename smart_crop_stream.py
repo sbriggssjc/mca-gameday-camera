@@ -46,6 +46,15 @@ def select_codec() -> str:
     return "libx264"
 
 
+def log_ffmpeg_stderr(stderr, log_file=None) -> None:
+    """Continuously read and print FFmpeg stderr."""
+    for line in stderr:
+        text = line.decode("utf-8", errors="ignore")
+        if log_file is not None:
+            log_file.write(text)
+        print("[FFMPEG]", text, end="")
+
+
 def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Path) -> list[str]:
     width, height = size
     return [
@@ -141,6 +150,9 @@ def main() -> None:
             text=False,
             bufsize=10**8,
         )
+        if process.poll() is not None:
+            print("FFmpeg failed to launch. Exiting...")
+            return
 
         def _reader(pipe, logf):
             for raw in pipe:
@@ -149,7 +161,7 @@ def main() -> None:
                 logf.write(line)
 
         thread_out = threading.Thread(target=_reader, args=(process.stdout, lf), daemon=True)
-        thread_err = threading.Thread(target=_reader, args=(process.stderr, lf), daemon=True)
+        thread_err = threading.Thread(target=log_ffmpeg_stderr, args=(process.stderr, lf), daemon=True)
         thread_out.start()
         thread_err.start()
         first_frame = True
@@ -174,7 +186,11 @@ def main() -> None:
                 if crop.shape != (out_height, out_width, 3) or crop.dtype != np.uint8:
                     raise ValueError(f"Crop frame has shape {crop.shape} and dtype {crop.dtype}")
                 print(f"Writing frame of shape {crop.shape} to FFmpeg")
-                process.stdin.write(crop.astype(np.uint8).tobytes())
+                try:
+                    process.stdin.write(crop.astype(np.uint8).tobytes())
+                except BrokenPipeError:
+                    print("FFmpeg pipe closed unexpectedly. Aborting stream.")
+                    break
         except KeyboardInterrupt:
             pass
         finally:
