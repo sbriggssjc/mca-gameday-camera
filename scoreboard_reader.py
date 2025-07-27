@@ -21,7 +21,7 @@ class ScoreboardState:
     home: int = 0
     away: int = 0
     quarter: int = 1
-    # Updated default quarter length to 8:00 minutes per INFC rules
+    # Default quarter length is 8:00 minutes per INFC rules
     clock: str = "08:00"
     down: Optional[int] = None
     distance: Optional[int] = None
