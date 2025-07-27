@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from upload_to_drive import upload_file
+from upload_to_drive import upload_to_drive
 
 
 def upload_game(path: str, folder_id: str | None = None) -> None:
@@ -16,7 +16,7 @@ def upload_game(path: str, folder_id: str | None = None) -> None:
         folder_id = os.getenv("GDRIVE_FOLDER_ID")
     if not folder_id:
         raise RuntimeError("GDRIVE_FOLDER_ID not set")
-    upload_file(str(file_path), folder_id)
+    upload_to_drive(str(file_path), folder_id)
 
 
 if __name__ == "__main__":

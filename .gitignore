@@ -4,7 +4,8 @@ firefox-esr/
 .env
 
 # Video recordings
-video/
+video/*.mp4
+video/uploaded/
 *.mp4
 *.mov
 *.mkv
