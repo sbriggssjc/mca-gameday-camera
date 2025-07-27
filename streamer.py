@@ -41,13 +41,18 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open capture device {device_index}")
 
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480)
-    out_width, out_height = 640, 480
+    # Request HD resolution from the camera so OpenCV and FFmpeg match
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1280)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 720)
+    out_width, out_height = 1280, 720
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
         fps = 30.0
     print(f"Capture settings: {width}x{height} @ {fps}fps")
+    print(f"Output resolution: {out_width}x{out_height}")
 
     command = [
         ensure_ffmpeg(),
@@ -67,6 +72,8 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
         "-c:v", select_codec(),
         "-pix_fmt", "yuv420p",
         "-preset", "veryfast",
+        "-vf",
+        "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
         "-c:a", "aac",
         "-b:a", "128k",
         "-f", "flv",
@@ -77,6 +84,8 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"streamer_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     lf = log_file.open("w", encoding="utf-8", errors="ignore")
+    lf.write(f"Input resolution: {width}x{height}\n")
+    lf.write(f"Output resolution: {out_width}x{out_height}\n")
     retries = 0
     max_retries = 1
     while True:
@@ -95,8 +104,13 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
         def _reader(pipe, logf):
             for raw in pipe:
                 line = raw.decode("utf-8", errors="ignore")
-                print(line, end="")
                 logf.write(line)
+                if "Connection to" in line or "NetStream" in line:
+                    print(f"[ffmpeg] {line.strip()}")
+                elif "bitrate=" in line:
+                    print(f"[ffmpeg] {line.strip()}")
+                else:
+                    print(line, end="")
 
         thread_out = threading.Thread(target=_reader, args=(process.stdout, lf), daemon=True)
         thread_err = threading.Thread(target=_reader, args=(process.stderr, lf), daemon=True)
@@ -121,11 +135,13 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
                 if first_frame:
                     print("Frame shape:", frame.shape, "dtype:", frame.dtype)
                     cv2.imwrite("debug_frame.jpg", frame)
-                    first_frame = False
                 print(
                     f"Frame shape: {frame.shape}, dtype: {frame.dtype}, min: {frame.min()}, max: {frame.max()}"
                 )
                 frame_resized = cv2.resize(frame, (out_width, out_height))
+                if first_frame:
+                    lf.write(f"Final frame shape: {frame_resized.shape}\n")
+                    first_frame = False
                 if frame_resized.shape != (out_height, out_width, 3) or frame_resized.dtype != np.uint8:
                     raise ValueError(
                         f"Resized frame has shape {frame_resized.shape} and dtype {frame_resized.dtype}"
