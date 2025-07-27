@@ -1,4 +1,5 @@
 import cv2
+import os
 
 # ``cv2.utils.logging`` is not available in older OpenCV builds. Attempt to
 # suppress logging using whatever API is present so the script works across
@@ -10,6 +11,7 @@ except AttributeError:  # pragma: no cover - depends on OpenCV version
         cv2.setLogLevel(cv2.LOG_LEVEL_ERROR)
 import time
 import subprocess
+from upload_to_drive import upload_file
 
 
 def open_writer(path: str, fps: float, size: tuple[int, int]):
@@ -60,16 +62,14 @@ def record(device: str = "/dev/video0", duration: int = 30) -> None:
         cap.release()
         writer.release()
         print("Recording complete.")
-        result = subprocess.run(
-            ["rclone", "copy", "output.mp4", "gdrive:/MCA/GameDayRecordings/"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            print("Upload failed:")
-            print(result.stderr.strip())
-        else:
-            print("Upload successful.")
+        folder_id = os.getenv("GDRIVE_FOLDER_ID")
+        if folder_id:
+            try:
+                upload_file("output.mp4", folder_id)
+                print("Upload successful.")
+            except Exception as exc:
+                print("Upload failed:")
+                print(exc)
 
 
 if __name__ == "__main__":
