@@ -42,6 +42,23 @@ from scoreboard_reader import ScoreboardReader
 from upload_to_drive import upload_to_drive
 
 
+def upload_after_stream(video_path: Path, folder_id: str) -> None:
+    """Upload ``video_path`` to Google Drive once streaming finishes."""
+    print("Streaming finished, uploading to Drive...")
+    try:
+        file_id, url_view = upload_to_drive(video_path, folder_id)
+        uploaded_dir = Path("video/uploaded")
+        uploaded_dir.mkdir(exist_ok=True)
+        video_path.rename(uploaded_dir / video_path.name)
+        print(f"Upload successful: {url_view}")
+    except ImportError:
+        print(
+            "PyDrive is not installed. Run `pip install PyDrive google-api-python-client oauth2client` to enable Google Drive uploads."
+        )
+    except Exception as exc:
+        print(f"Upload failed: {exc}")
+
+
 def check_device_free(device: str = "/dev/video0") -> None:
     """Exit with instructions if the device is still in use."""
     cmds = [["lsof", device], ["fuser", device]]
@@ -501,6 +518,7 @@ def main() -> None:
                 except Exception:
                     pass
             cmd_str = " ".join(cmd)
+            print("Starting FFmpeg stream...")
             print("Running FFmpeg command:", cmd_str)
             lf.write("Running FFmpeg command: " + cmd_str + "\n")
             lf.write(f"Audio enabled: {'-c:a' in cmd}\n")
@@ -681,17 +699,11 @@ def main() -> None:
             if not args.no_upload:
                 folder_id = os.getenv("GDRIVE_FOLDER_ID")
                 if folder_id:
-                    try:
-                        file_id, url_view = upload_to_drive(str(record_file), folder_id)
-                        uploaded_dir = Path("video/uploaded")
-                        uploaded_dir.mkdir(exist_ok=True)
-                        record_file.rename(uploaded_dir / record_file.name)
-                        print(f"Uploaded file ID {file_id}: {url_view}")
-                    except Exception as exc:
-                        with log_file.open("a", encoding="utf-8", errors="ignore") as lf:
-                            lf.write(f"\nUpload failed: {exc}\n")
-                        with open(log_dir / "upload_errors.log", "a", encoding="utf-8") as ef:
-                            ef.write(f"{datetime.now().isoformat()} {record_file.name}: {exc}\n")
+                    upload_thread = threading.Thread(
+                        target=upload_after_stream, args=(record_file, folder_id)
+                    )
+                    upload_thread.start()
+                    upload_thread.join()
             break
         elif retries < max_retries:
             retries += 1
