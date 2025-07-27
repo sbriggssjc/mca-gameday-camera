@@ -13,8 +13,8 @@ import cv2
 import numpy as np
 
 # Stream resolution constants
-STREAM_WIDTH = 1280
-STREAM_HEIGHT = 720
+STREAM_WIDTH = 1920
+STREAM_HEIGHT = 1080
 
 from auto_tracker import AutoTracker
 from overlay_engine import OverlayEngine
@@ -63,6 +63,18 @@ def ensure_ffmpeg() -> str:
     if not path:
         sys.exit("ffmpeg is not installed or not in PATH")
     return path
+
+
+def select_codec() -> str:
+    """Choose a hardware-accelerated encoder if available."""
+    try:
+        output = subprocess.check_output(["ffmpeg", "-encoders"], text=True)
+        for codec in ("h264_nvmpi", "h264_omx", "h264_nvv4l2enc"):
+            if codec in output:
+                return codec
+    except Exception:
+        pass
+    return "libx264"
 
 
 def validate_rtmp_url(url: str) -> None:
@@ -118,9 +130,9 @@ def build_ffmpeg_command(
         "-map",
         "1:a:0",
         "-c:v",
-        "libx264",
+        select_codec(),
         "-preset",
-        "veryfast",
+        "fast",
         "-pix_fmt",
         "yuv420p",
     ]
@@ -134,7 +146,7 @@ def build_ffmpeg_command(
         "-bufsize",
         bufsize,
         "-g",
-        "120",
+        "60",
         "-c:a",
         "aac",
         "-b:a",
@@ -182,9 +194,9 @@ def build_v4l2_command(
         "-i",
         "anullsrc=channel_layout=stereo:sample_rate=44100",
         "-c:v",
-        "libx264",
+        select_codec(),
         "-preset",
-        "veryfast",
+        "fast",
         "-pix_fmt",
         "yuv420p",
     ]
@@ -198,7 +210,7 @@ def build_v4l2_command(
         "-bufsize",
         bufsize,
         "-g",
-        "120",
+        "60",
         "-c:a",
         "aac",
         "-b:a",
@@ -245,9 +257,9 @@ def build_record_command(
         "-i",
         "anullsrc=channel_layout=stereo:sample_rate=44100",
         "-c:v",
-        "libx264",
+        select_codec(),
         "-preset",
-        "veryfast",
+        "fast",
         "-pix_fmt",
         "yuv420p",
     ]
@@ -261,7 +273,7 @@ def build_record_command(
         "-bufsize",
         bufsize,
         "-g",
-        "120",
+        "60",
         "-c:a",
         "aac",
         "-b:a",
@@ -325,10 +337,7 @@ def main() -> None:
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or STREAM_WIDTH)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or STREAM_HEIGHT)
     out_width, out_height = STREAM_WIDTH, STREAM_HEIGHT
-    filter_str = (
-        f"scale={STREAM_WIDTH}:{STREAM_HEIGHT}:force_original_aspect_ratio=increase,"
-        f"crop={STREAM_WIDTH}:{STREAM_HEIGHT}"
-    )
+    filter_str = f"scale={STREAM_WIDTH}:{STREAM_HEIGHT}:flags=bicubic"
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
         fps = 30.0
