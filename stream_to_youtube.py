@@ -12,6 +12,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+# Stream resolution constants
+STREAM_WIDTH = 1280
+STREAM_HEIGHT = 720
+
 from auto_tracker import AutoTracker
 from overlay_engine import OverlayEngine
 from scoreboard_reader import ScoreboardReader
@@ -266,22 +270,22 @@ def main() -> None:
     )
     parser.add_argument(
         "--resolution",
-        default="1280x720",
+        default=f"{STREAM_WIDTH}x{STREAM_HEIGHT}",
         help="stream resolution WxH, e.g. 1280x720 or 1920x1080",
     )
     parser.add_argument(
         "--bitrate",
-        default="12000k",
+        default="6000k",
         help="target video bitrate",
     )
     parser.add_argument(
         "--maxrate",
-        default="14000k",
+        default="6000k",
         help="maximum video bitrate",
     )
     parser.add_argument(
         "--bufsize",
-        default="20000k",
+        default="12000k",
         help="encoder buffer size",
     )
     args = parser.parse_args()
@@ -303,23 +307,13 @@ def main() -> None:
     if not cap.isOpened():
         sys.exit(f"Unable to open camera {device}")
 
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1280)
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 720)
-    out_width, out_height = width, height
-    if args.output_size:
-        try:
-            out_width, out_height = map(int, args.output_size.lower().split("x"))
-        except Exception:
-            sys.exit("Invalid --output-size format. Use WIDTHxHEIGHT")
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or STREAM_WIDTH)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or STREAM_HEIGHT)
+    out_width, out_height = STREAM_WIDTH, STREAM_HEIGHT
     filter_str = (
-        f"scale={out_width}:{out_height}:force_original_aspect_ratio=decrease,pad={out_width}:{out_height}:(ow-iw)/2:(oh-ih)/2"
+        f"scale={STREAM_WIDTH}:{STREAM_HEIGHT}:force_original_aspect_ratio=decrease,"
+        f"pad={STREAM_WIDTH}:{STREAM_HEIGHT}:(ow-iw)/2:(oh-ih)/2"
     )
-
-    # parse desired output resolution
-    try:
-        out_width, out_height = map(int, args.resolution.lower().split("x", 1))
-    except Exception:
-        sys.exit(f"Invalid resolution format: {args.resolution}")
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
         fps = 30.0
@@ -428,6 +422,8 @@ def main() -> None:
             cmd_str = " ".join(cmd)
             print("Running FFmpeg command:", cmd_str)
             lf.write("Running FFmpeg command: " + cmd_str + "\n")
+            lf.write(f"Audio enabled: {'-c:a' in cmd}\n")
+            lf.write(f"Video enabled: {'-c:v' in cmd}\n")
             process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
@@ -480,6 +476,11 @@ def main() -> None:
                             f"Unexpected frame shape: {frame.shape} or dtype: {frame.dtype}"
                         )
                     if first_frame:
+                        if np.std(frame) < 2:
+                            msg = "Skipping blank first frame"
+                            print(msg)
+                            lf.write(msg + "\n")
+                            continue
                         print("Frame shape:", frame.shape, "dtype:", frame.dtype)
                         if args.debug:
                             cv2.imwrite("frame_debug_0.jpg", frame)
@@ -495,10 +496,10 @@ def main() -> None:
                     overlay.draw(frame, state)
                     cv2.imshow("Debug Preview", frame)
                     cv2.waitKey(1)
-                    frame_resized = cv2.resize(frame, (out_width, out_height))
+                    frame_resized = cv2.resize(frame, (STREAM_WIDTH, STREAM_HEIGHT))
                     if args.debug and frame_count < 5:
                         cv2.imwrite(f"frame_debug_{frame_count+1}.jpg", frame_resized)
-                    if frame_resized.shape != (out_height, out_width, 3) or frame_resized.dtype != np.uint8:
+                    if frame_resized.shape != (STREAM_HEIGHT, STREAM_WIDTH, 3) or frame_resized.dtype != np.uint8:
                         raise ValueError(
                             f"Resized frame has shape {frame_resized.shape} and dtype {frame_resized.dtype}"
                         )
@@ -564,7 +565,7 @@ def main() -> None:
 
                     lf.write("\nTesting camera by recording locally...\n")
                     file_cmd = build_record_command(
-                        (out_width, out_height),
+                        (STREAM_WIDTH, STREAM_HEIGHT),
                         fps,
                         Path("output.mp4"),
                         device=device,
