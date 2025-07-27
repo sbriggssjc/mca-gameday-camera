@@ -8,3 +8,7 @@ firefox-esr/
 *.mp4
 *.mov
 *.mkv
+
+# Recorded videos should not be tracked
+video/*.mp4
+output.mp4

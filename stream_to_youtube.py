@@ -19,7 +19,7 @@ STREAM_HEIGHT = 1080
 from auto_tracker import AutoTracker
 from overlay_engine import OverlayEngine
 from scoreboard_reader import ScoreboardReader
-from game_uploader import upload_game
+from upload_to_drive import upload_file
 
 
 def check_device_free(device: str = "/dev/video0") -> None:
@@ -637,7 +637,8 @@ def main() -> None:
                     break
         if ret == 0:
             try:
-                upload_game(str(record_file))
+                folder_id = os.getenv("GDRIVE_FOLDER_ID")
+                upload_file(str(record_file), folder_id)
             except Exception as exc:
                 with log_file.open("a", encoding="utf-8", errors="ignore") as lf:
                     lf.write(f"\nUpload failed: {exc}\n")
