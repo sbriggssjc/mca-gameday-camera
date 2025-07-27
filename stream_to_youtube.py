@@ -39,7 +39,7 @@ STREAM_HEIGHT = 1080
 from auto_tracker import AutoTracker
 from overlay_engine import OverlayEngine
 from scoreboard_reader import ScoreboardReader
-from upload_to_drive import upload_file
+from upload_to_drive import upload_to_drive
 
 
 def check_device_free(device: str = "/dev/video0") -> None:
@@ -341,6 +341,11 @@ def main() -> None:
         default="15000k",
         help="encoder buffer size",
     )
+    parser.add_argument(
+        "--no-upload",
+        action="store_true",
+        help="skip Google Drive upload of the recording",
+    )
     args = parser.parse_args()
 
     load_env()
@@ -449,6 +454,16 @@ def main() -> None:
 
     output_dir = Path("video")
     output_dir.mkdir(exist_ok=True)
+
+    # Delete recordings older than 7 days
+    cutoff = time.time() - 7 * 24 * 3600
+    for old_file in output_dir.glob("*.mp4"):
+        try:
+            if old_file.stat().st_mtime < cutoff:
+                old_file.unlink()
+                print(f"Deleted old file {old_file.name}")
+        except Exception as exc:
+            print(f"Failed to delete {old_file}: {exc}")
 
     retries = 0
     max_retries = 1
@@ -660,12 +675,20 @@ def main() -> None:
                     print(record_result.stderr)
                     break
         if ret == 0:
-            try:
+            if not args.no_upload:
                 folder_id = os.getenv("GDRIVE_FOLDER_ID")
-                upload_file(str(record_file), folder_id)
-            except Exception as exc:
-                with log_file.open("a", encoding="utf-8", errors="ignore") as lf:
-                    lf.write(f"\nUpload failed: {exc}\n")
+                if folder_id:
+                    try:
+                        file_id, url_view = upload_to_drive(str(record_file), folder_id)
+                        uploaded_dir = Path("video/uploaded")
+                        uploaded_dir.mkdir(exist_ok=True)
+                        record_file.rename(uploaded_dir / record_file.name)
+                        print(f"Uploaded file ID {file_id}: {url_view}")
+                    except Exception as exc:
+                        with log_file.open("a", encoding="utf-8", errors="ignore") as lf:
+                            lf.write(f"\nUpload failed: {exc}\n")
+                        with open(log_dir / "upload_errors.log", "a", encoding="utf-8") as ef:
+                            ef.write(f"{datetime.now().isoformat()} {record_file.name}: {exc}\n")
             break
         elif retries < max_retries:
             retries += 1

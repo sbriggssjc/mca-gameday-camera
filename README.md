@@ -2,7 +2,7 @@
 
 This repository contains utilities for tracking play participation during a game.
 
-Large video recordings (`.mp4`) are saved in the `video/` folder but are **not** tracked by Git. Use `upload_to_drive.py` to sync these files to Google Drive instead of committing them.
+Large video recordings (`.mp4`) are saved in the `video/` folder but individual recording files are ignored by Git. Use `upload_to_drive.py` to sync these videos to Google Drive instead of committing them.
 
 ## play_count_tracker.py
 
@@ -152,21 +152,14 @@ python youtube_uploader.py --file path/to/video.mp4 --title "My Title" \
 
 ## upload_to_drive.py
 
-`upload_to_drive.py` sends finished recordings to Google Drive using the
-[`gdrive`](https://github.com/prasmussen/gdrive) CLI. Set the destination folder
-ID in the `GDRIVE_FOLDER_ID` environment variable:
+`upload_to_drive.py` sends finished recordings to Google Drive using
+[PyDrive](https://github.com/googledrive/PyDrive). The first run will prompt for
+OAuth2 authentication and store credentials in `drive_token.json`. Set the
+destination folder ID with the `GDRIVE_FOLDER_ID` environment variable:
 
 ```bash
 export GDRIVE_FOLDER_ID=your_folder_id
 python upload_to_drive.py video/game_20250727_080156.mp4
-```
-
-Install the CLI with:
-
-```bash
-curl -L -o gdrive https://github.com/prasmussen/gdrive/releases/download/2.1.1/gdrive-linux-arm64
-chmod +x gdrive
-./gdrive about  # authenticate in browser
 ```
 
 To automate uploads, run `upload_daily.sh` via cron:
