@@ -11,7 +11,7 @@ except AttributeError:  # pragma: no cover - depends on OpenCV version
         cv2.setLogLevel(cv2.LOG_LEVEL_ERROR)
 import time
 import subprocess
-from upload_to_drive import upload_file
+from upload_to_drive import upload_to_drive
 
 
 def open_writer(path: str, fps: float, size: tuple[int, int]):
@@ -65,7 +65,7 @@ def record(device: str = "/dev/video0", duration: int = 30) -> None:
         folder_id = os.getenv("GDRIVE_FOLDER_ID")
         if folder_id:
             try:
-                upload_file("output.mp4", folder_id)
+                upload_to_drive("output.mp4", folder_id)
                 print("Upload successful.")
             except Exception as exc:
                 print("Upload failed:")
