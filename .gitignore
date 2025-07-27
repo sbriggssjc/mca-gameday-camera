@@ -4,3 +4,7 @@
 firefox-esr/
 .env
 
+/video/
+*.mp4
+*.mov
+*.mkv
