@@ -531,6 +531,7 @@ def main() -> None:
                 text=False,
                 bufsize=10**8,
             )
+            lf.write(f"FFmpeg PID: {process.pid}\n")
             if process.poll() is not None:
                 print("FFmpeg failed to launch. Exiting...")
                 return
@@ -616,16 +617,19 @@ def main() -> None:
                         )
                     print(f"Writing frame of shape {frame_resized.shape} to FFmpeg")
                     try:
+                        if process.poll() is not None or process.stdin.closed:
+                            raise BrokenPipeError("FFmpeg process terminated")
                         if pix_fmt == "rgb24":
                             frame_conv = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
                             process.stdin.write(frame_conv.astype(np.uint8).tobytes())
                         else:
                             process.stdin.write(frame_resized.astype(np.uint8).tobytes())
+                        process.stdin.flush()
                         frame_count += 1
                         if frame_count % 30 == 0:
                             print(f"Sent {frame_count} frames to FFmpeg")
-                    except BrokenPipeError:
-                        msg = "FFmpeg closed the pipe unexpectedly. Aborting stream."
+                    except (BrokenPipeError, OSError) as exc:
+                        msg = f"FFmpeg pipe closed: {exc}. Aborting stream."
                         print(msg)
                         lf.write(msg + "\n")
                         break
@@ -636,7 +640,10 @@ def main() -> None:
                 pass
             finally:
                 if process.stdin:
-                    process.stdin.close()
+                    if process.stdin.closed:
+                        lf.write("stdin already closed before cleanup\n")
+                    else:
+                        process.stdin.close()
                 ret = process.wait()
                 thread_out.join()
                 thread_err.join()
