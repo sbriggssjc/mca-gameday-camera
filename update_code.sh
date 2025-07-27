@@ -18,6 +18,9 @@ fi
 
 cd "$REPO_DIR" || { echo "Error: could not change directory to $REPO_DIR." >&2; exit 1; }
 
+# Ensure any large video files are not staged
+git reset video/*.mp4 >/dev/null 2>&1 || true
+
 if output=$(git pull origin main 2>&1); then
   if echo "$output" | grep -q "Already up to date."; then
     echo "No changes. Repository already up to date."
