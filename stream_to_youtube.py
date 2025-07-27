@@ -93,6 +93,8 @@ def build_ffmpeg_command(
         "-loglevel",
         "verbose",
         "-y",
+        "-thread_queue_size",
+        "512",
         "-f",
         "rawvideo",
         "-vcodec",
@@ -105,6 +107,8 @@ def build_ffmpeg_command(
         str(fps),
         "-i",
         "-",
+        "-thread_queue_size",
+        "512",
         "-f",
         "lavfi",
         "-i",
@@ -161,6 +165,8 @@ def build_v4l2_command(
         "-loglevel",
         "verbose",
         "-y",
+        "-thread_queue_size",
+        "512",
         "-f",
         "v4l2",
         "-framerate",
@@ -169,6 +175,8 @@ def build_v4l2_command(
         f"{width}x{height}",
         "-i",
         device,
+        "-thread_queue_size",
+        "512",
         "-f",
         "lavfi",
         "-i",
@@ -220,6 +228,8 @@ def build_record_command(
         "-loglevel",
         "verbose",
         "-y",
+        "-thread_queue_size",
+        "512",
         "-f",
         "v4l2",
         "-framerate",
@@ -228,6 +238,8 @@ def build_record_command(
         f"{width}x{height}",
         "-i",
         device,
+        "-thread_queue_size",
+        "512",
         "-f",
         "lavfi",
         "-i",
@@ -275,17 +287,17 @@ def main() -> None:
     )
     parser.add_argument(
         "--bitrate",
-        default="6000k",
+        default="13500k",
         help="target video bitrate",
     )
     parser.add_argument(
         "--maxrate",
-        default="6000k",
+        default="13500k",
         help="maximum video bitrate",
     )
     parser.add_argument(
         "--bufsize",
-        default="12000k",
+        default="27000k",
         help="encoder buffer size",
     )
     args = parser.parse_args()
@@ -307,12 +319,15 @@ def main() -> None:
     if not cap.isOpened():
         sys.exit(f"Unable to open camera {device}")
 
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, STREAM_WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, STREAM_HEIGHT)
+
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or STREAM_WIDTH)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or STREAM_HEIGHT)
     out_width, out_height = STREAM_WIDTH, STREAM_HEIGHT
     filter_str = (
         f"scale={STREAM_WIDTH}:{STREAM_HEIGHT}:force_original_aspect_ratio=decrease,"
-        f"pad={STREAM_WIDTH}:{STREAM_HEIGHT}:(ow-iw)/2:(oh-ih)/2"
+        f"pad={STREAM_WIDTH}:{STREAM_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black"
     )
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
@@ -323,8 +338,14 @@ def main() -> None:
 
     # Calibrate scoreboard ROI once at startup
     ret, calib_frame = cap.read()
-    if not ret:
+    if not ret or calib_frame is None:
         sys.exit("Unable to read from camera")
+    if calib_frame.shape[0] != STREAM_HEIGHT or calib_frame.shape[1] != STREAM_WIDTH:
+        raise RuntimeError(
+            f"Camera returned unexpected resolution {calib_frame.shape[1]}x{calib_frame.shape[0]}"
+        )
+    if np.std(calib_frame) < 2 or np.allclose(calib_frame[:, :, 1], 255, atol=5):
+        raise RuntimeError("Camera frame appears invalid or all green")
     if state_reader.roi is None:
         state_reader.calibrate(calib_frame)
 
@@ -438,6 +459,15 @@ def main() -> None:
                     line = raw.decode("utf-8", errors="ignore")
                     print(line, end="")
                     logf.write(line)
+                    if "Output file does not contain any stream" in line:
+                        logf.write("ALERT: no stream detected\n")
+                    if "Broken pipe" in line:
+                        logf.write("ALERT: broken pipe\n")
+                    if "drop=" in line:
+                        logf.write("ALERT: dropped frames reported\n")
+                    match = re.search(r"delay\s*=\s*(\d+)\w*", line)
+                    if match and int(match.group(1)) > 500:
+                        logf.write("ALERT: frame delay > 500ms\n")
 
             thread_out = threading.Thread(target=_reader, args=(process.stdout, lf), daemon=True)
             thread_err = threading.Thread(target=_reader, args=(process.stderr, lf), daemon=True)
