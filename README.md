@@ -2,6 +2,8 @@
 
 This repository contains utilities for tracking play participation during a game.
 
+Large video recordings (`.mp4`) are saved in the `video/` folder but are **not** tracked by Git. Use `upload_to_drive.py` to sync these files to Google Drive instead of committing them.
+
 ## play_count_tracker.py
 
 `play_count_tracker.py` is a command line tool for recording which players were on the field for each play. It now supports optional in-game alerts, SMS notifications and quarter summaries. After each play, type the jersey numbers separated by spaces. Enter `q` to finish. A log is written to `jersey_counts.csv` and the final play counts are printed with color-coded warnings for any player under the threshold.
@@ -139,6 +141,31 @@ run uses OAuth2 to store credentials in `token.json`.
 ```bash
 python youtube_uploader.py --file path/to/video.mp4 --title "My Title" \
     --description "Short description" --privacy public
+```
+
+## upload_to_drive.py
+
+`upload_to_drive.py` sends finished recordings to Google Drive using the
+[`gdrive`](https://github.com/prasmussen/gdrive) CLI. Set the destination folder
+ID in the `GDRIVE_FOLDER_ID` environment variable:
+
+```bash
+export GDRIVE_FOLDER_ID=your_folder_id
+python upload_to_drive.py video/game_20250727_080156.mp4
+```
+
+Install the CLI with:
+
+```bash
+curl -L -o gdrive https://github.com/prasmussen/gdrive/releases/download/2.1.1/gdrive-linux-arm64
+chmod +x gdrive
+./gdrive about  # authenticate in browser
+```
+
+To automate uploads, run `upload_daily.sh` via cron:
+
+```cron
+0 2 * * * /path/to/mca-gameday-camera/upload_daily.sh
 ```
 
 ## install_firefox_esr.py
