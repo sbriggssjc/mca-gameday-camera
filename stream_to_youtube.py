@@ -326,8 +326,8 @@ def main() -> None:
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or STREAM_HEIGHT)
     out_width, out_height = STREAM_WIDTH, STREAM_HEIGHT
     filter_str = (
-        f"scale={STREAM_WIDTH}:{STREAM_HEIGHT}:force_original_aspect_ratio=decrease,"
-        f"pad={STREAM_WIDTH}:{STREAM_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black"
+        f"scale={STREAM_WIDTH}:{STREAM_HEIGHT}:force_original_aspect_ratio=increase,"
+        f"crop={STREAM_WIDTH}:{STREAM_HEIGHT}"
     )
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
