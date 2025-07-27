@@ -38,9 +38,8 @@ def ensure_ffmpeg() -> str:
 def select_codec() -> str:
     try:
         output = subprocess.check_output(["ffmpeg", "-encoders"], text=True)
-        for codec in ("h264_nvmpi", "h264_nvv4l2enc"):
-            if codec in output:
-                return codec
+        if "h264_nvmpi" in output:
+            return "h264_nvmpi"
     except Exception:
         pass
     return "libx264"
