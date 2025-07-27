@@ -12,6 +12,26 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+# Optional utility to query camera resolution via v4l2-ctl
+def get_camera_resolution(device: str = "/dev/video0") -> tuple[int, int]:
+    """Return (width, height) using v4l2-ctl if available."""
+    v4l2ctl = shutil.which("v4l2-ctl")
+    if not v4l2ctl:
+        return STREAM_WIDTH, STREAM_HEIGHT
+    try:
+        output = subprocess.check_output([
+            v4l2ctl,
+            "-d",
+            device,
+            "--get-fmt-video",
+        ], text=True)
+        match = re.search(r"Width/Height\s*:\s*(\d+)/(\d+)", output)
+        if match:
+            return int(match.group(1)), int(match.group(2))
+    except Exception:
+        pass
+    return STREAM_WIDTH, STREAM_HEIGHT
+
 # Stream resolution constants
 STREAM_WIDTH = 1920
 STREAM_HEIGHT = 1080
@@ -66,11 +86,12 @@ def ensure_ffmpeg() -> str:
 
 
 def select_codec() -> str:
-    """Choose a hardware-accelerated encoder if available."""
+    """Return a Jetson hardware encoder if present, else libx264."""
     try:
         output = subprocess.check_output(["ffmpeg", "-encoders"], text=True)
-        if "h264_nvmpi" in output:
-            return "h264_nvmpi"
+        for enc in ("h264_nvmpi", "h264_nvv4l2enc"):
+            if enc in output:
+                return enc
     except Exception:
         pass
     return "libx264"
@@ -307,17 +328,17 @@ def main() -> None:
     )
     parser.add_argument(
         "--bitrate",
-        default="13500k",
+        default="7500k",
         help="target video bitrate",
     )
     parser.add_argument(
         "--maxrate",
-        default="13500k",
+        default="7500k",
         help="maximum video bitrate",
     )
     parser.add_argument(
         "--bufsize",
-        default="27000k",
+        default="15000k",
         help="encoder buffer size",
     )
     args = parser.parse_args()
@@ -339,13 +360,17 @@ def main() -> None:
     if not cap.isOpened():
         sys.exit(f"Unable to open camera {device}")
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, STREAM_WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, STREAM_HEIGHT)
+    detected_w, detected_h = get_camera_resolution(device)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, detected_w)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, detected_h)
 
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or STREAM_WIDTH)
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or STREAM_HEIGHT)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or detected_w)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or detected_h)
     out_width, out_height = STREAM_WIDTH, STREAM_HEIGHT
-    filter_str = f"scale={STREAM_WIDTH}:{STREAM_HEIGHT}:flags=bicubic"
+    filter_str = (
+        f"scale={STREAM_WIDTH}:{STREAM_HEIGHT}:force_original_aspect_ratio=decrease,"
+        f"pad={STREAM_WIDTH}:{STREAM_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+    )
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
         fps = 30.0
