@@ -69,9 +69,8 @@ def select_codec() -> str:
     """Choose a hardware-accelerated encoder if available."""
     try:
         output = subprocess.check_output(["ffmpeg", "-encoders"], text=True)
-        for codec in ("h264_nvmpi", "h264_omx", "h264_nvv4l2enc"):
-            if codec in output:
-                return codec
+        if "h264_nvmpi" in output:
+            return "h264_nvmpi"
     except Exception:
         pass
     return "libx264"
