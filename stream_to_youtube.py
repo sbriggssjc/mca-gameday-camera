@@ -86,10 +86,14 @@ def ensure_ffmpeg() -> str:
 
 
 def select_codec() -> str:
-    """Return a Jetson hardware encoder if present, else libx264."""
+    """Prefer Jetson hardware encoders and fall back to libx264."""
     try:
-        output = subprocess.check_output(["ffmpeg", "-encoders"], text=True)
-        for enc in ("h264_nvmpi", "h264_nvv4l2enc"):
+        output = subprocess.check_output([
+            "ffmpeg",
+            "-hide_banner",
+            "-encoders",
+        ], text=True)
+        for enc in ("h264_nvmpi", "h264_v4l2m2m", "h264_nvv4l2enc"):
             if enc in output:
                 return enc
     except Exception:
@@ -129,6 +133,7 @@ def build_ffmpeg_command(
 
 ) -> list[str]:
     width, height = size
+    codec = select_codec()
     cmd = [
         ensure_ffmpeg(),
         "-loglevel",
@@ -159,12 +164,11 @@ def build_ffmpeg_command(
         "-map",
         "1:a:0",
         "-c:v",
-        select_codec(),
-        "-preset",
-        "fast",
-        "-pix_fmt",
-        "yuv420p",
+        codec,
     ]
+    if codec == "libx264":
+        cmd += ["-preset", "ultrafast"]
+    cmd += ["-pix_fmt", "yuv420p"]
     if filters:
         cmd.extend(["-vf", filters])
     cmd += [
@@ -201,6 +205,7 @@ def build_v4l2_command(
 
 ) -> list[str]:
     width, height = size
+    codec = select_codec()
     cmd = [
         ensure_ffmpeg(),
         "-loglevel",
@@ -223,12 +228,11 @@ def build_v4l2_command(
         "-i",
         "anullsrc=channel_layout=stereo:sample_rate=44100",
         "-c:v",
-        select_codec(),
-        "-preset",
-        "fast",
-        "-pix_fmt",
-        "yuv420p",
+        codec,
     ]
+    if codec == "libx264":
+        cmd += ["-preset", "ultrafast"]
+    cmd += ["-pix_fmt", "yuv420p"]
     if filters:
         cmd.extend(["-vf", filters])
     cmd += [
@@ -264,6 +268,7 @@ def build_record_command(
 ) -> list[str]:
     """Record from the camera directly to a local MP4 file."""
     width, height = size
+    codec = select_codec()
     cmd = [
         ensure_ffmpeg(),
         "-loglevel",
@@ -286,12 +291,11 @@ def build_record_command(
         "-i",
         "anullsrc=channel_layout=stereo:sample_rate=44100",
         "-c:v",
-        select_codec(),
-        "-preset",
-        "fast",
-        "-pix_fmt",
-        "yuv420p",
+        codec,
     ]
+    if codec == "libx264":
+        cmd += ["-preset", "ultrafast"]
+    cmd += ["-pix_fmt", "yuv420p"]
     if filters:
         cmd.extend(["-vf", filters])
     cmd += [
@@ -328,17 +332,17 @@ def main() -> None:
     )
     parser.add_argument(
         "--bitrate",
-        default="7500k",
+        default="6000k",
         help="target video bitrate",
     )
     parser.add_argument(
         "--maxrate",
-        default="7500k",
+        default="6000k",
         help="maximum video bitrate",
     )
     parser.add_argument(
         "--bufsize",
-        default="15000k",
+        default="12000k",
         help="encoder buffer size",
     )
     args = parser.parse_args()
@@ -368,8 +372,7 @@ def main() -> None:
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or detected_h)
     out_width, out_height = STREAM_WIDTH, STREAM_HEIGHT
     filter_str = (
-        f"scale={STREAM_WIDTH}:{STREAM_HEIGHT}:force_original_aspect_ratio=decrease,"
-        f"pad={STREAM_WIDTH}:{STREAM_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+        f"scale={STREAM_WIDTH}:{STREAM_HEIGHT}:force_original_aspect_ratio=cover"
     )
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
@@ -451,7 +454,7 @@ def main() -> None:
     output_dir.mkdir(exist_ok=True)
 
     retries = 0
-    max_retries = 1
+    max_retries = 5
     while True:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_file = log_dir / f"stream_{timestamp}.log"
