@@ -190,3 +190,15 @@ python assignment_analyzer.py path/to/clip.mp4 --playbook playbook.json
 
 The optional JSON playbook maps jersey numbers to assignments. Real jersey
 detection and movement analysis are not implemented in this repository.
+
+## Recording Storage
+
+Raw recordings can quickly exceed GitHub's size limits. Do **not** commit any of the files in the `video/` directory or other `.mp4` footage. Instead use `sync_to_drive.py` to upload clips to your Drive folder and keep the repository clean.
+
+If you want to store large assets with Git, install Git LFS and track MP4 files:
+
+```bash
+git lfs install
+git lfs track "*.mp4"
+git add .gitattributes
+```
