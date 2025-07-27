@@ -19,6 +19,23 @@ from smart_auto_tracker import SmartAutoTracker
 from upload_to_drive import upload_to_drive
 
 
+def upload_after_stream(video_path: Path, folder_id: str) -> None:
+    """Upload ``video_path`` to Google Drive once streaming finishes."""
+    print("Streaming finished, uploading to Drive...")
+    try:
+        file_id, url_view = upload_to_drive(video_path, folder_id)
+        uploaded_dir = Path("video/uploaded")
+        uploaded_dir.mkdir(exist_ok=True)
+        video_path.rename(uploaded_dir / video_path.name)
+        print(f"Upload successful: {video_path.name} -> {file_id}")
+    except ImportError:
+        print(
+            "PyDrive is not installed. Run `pip install PyDrive google-api-python-client oauth2client` to enable Google Drive uploads."
+        )
+    except Exception as exc:
+        print(f"Upload failed: {exc}")
+
+
 def load_env(env_path: str = ".env") -> None:
     if not os.path.exists(env_path):
         return
@@ -155,6 +172,7 @@ def main() -> None:
         log_file = log_dir / f"smart_crop_{timestamp}.log"
         lf = log_file.open("w", encoding="utf-8", errors="ignore")
         cmd_str = " ".join(cmd)
+        print("Starting FFmpeg stream...")
         print("Running FFmpeg command:", cmd_str)
         lf.write("Running FFmpeg command: " + cmd_str + "\n")
         process = subprocess.Popen(
@@ -201,11 +219,9 @@ def main() -> None:
                 if crop.shape != (out_height, out_width, 3) or crop.dtype != np.uint8:
                     raise ValueError(f"Crop frame has shape {crop.shape} and dtype {crop.dtype}")
                 print(f"Writing frame of shape {crop.shape} to FFmpeg")
-                try:
-                    process.stdin.write(crop.astype(np.uint8).tobytes())
-                except BrokenPipeError:
-                    print("FFmpeg pipe closed unexpectedly. Aborting stream.")
-                    break
+                process.stdin.write(crop.astype(np.uint8).tobytes())
+        except BrokenPipeError:
+            print("FFmpeg pipe closed unexpectedly.")
         except KeyboardInterrupt:
             pass
         finally:
@@ -236,18 +252,11 @@ def main() -> None:
     if ret == 0 and not args.no_upload:
         folder = args.folder_id or os.getenv("GDRIVE_FOLDER_ID")
         if folder is not None:
-            try:
-                file_id, url_view = upload_to_drive(record_file, folder)
-                uploaded_dir = Path("video/uploaded")
-                uploaded_dir.mkdir(exist_ok=True)
-                record_file.rename(uploaded_dir / record_file.name)
-                print(f"Upload successful: {record_file.name} -> {file_id}")
-            except ImportError:
-                print(
-                    "PyDrive is not installed. Run `pip install PyDrive google-api-python-client oauth2client` to enable Google Drive uploads."
-                )
-            except Exception as exc:
-                print(f"Upload failed: {exc}")
+            upload_thread = threading.Thread(
+                target=upload_after_stream, args=(record_file, folder)
+            )
+            upload_thread.start()
+            upload_thread.join()
 
 
 if __name__ == "__main__":
