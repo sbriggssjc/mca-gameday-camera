@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import List, Tuple, Optional, Dict
 
+import json
+from pathlib import Path
+
 import cv2
 import numpy as np
 
@@ -14,6 +17,40 @@ except Exception:  # pragma: no cover - optional dependency
 
 
 from review_queue import add_entry
+
+
+def _log_ocr_attempt(
+    play_id: Optional[int],
+    frame_id: Optional[int],
+    bbox: Tuple[int, int, int, int],
+    jersey_text: Optional[str],
+    confidence: float,
+    timestamp: Optional[str],
+) -> None:
+    """Append a single OCR attempt to the log file."""
+    try:
+        log_entry = {
+            "play_id": play_id,
+            "frame_id": frame_id,
+            "bbox": [int(bbox[0]), int(bbox[1]), int(bbox[2] - bbox[0]), int(bbox[3] - bbox[1])],
+            "jersey_text": jersey_text,
+            "confidence": round(float(confidence) / 100.0, 2),
+            "timestamp": timestamp or "",
+        }
+        log_path = Path("training/logs/jersey_ocr_attempts.json")
+        if log_path.exists():
+            with open(log_path, "r", encoding="utf-8") as f:
+                log_data = json.load(f)
+            if not isinstance(log_data, list):
+                log_data = []
+        else:
+            log_data = []
+        log_data.append(log_entry)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, "w", encoding="utf-8") as f:
+            json.dump(log_data, f, indent=2)
+    except Exception:
+        pass
 
 
 def extract_jersey_number(
@@ -34,6 +71,7 @@ def extract_jersey_number(
     """
 
     if pytesseract is None:
+        _log_ocr_attempt(play_id, frame_id, player_bbox, None, 0.0, timestamp)
         return None, 0.0
 
     x1, y1, x2, y2 = [int(v) for v in player_bbox]
@@ -41,6 +79,7 @@ def extract_jersey_number(
     x2, y2 = max(x1 + 1, x2), max(y1 + 1, y2)
     crop = frame[y1:y2, x1:x2]
     if crop.size == 0:
+        _log_ocr_attempt(play_id, frame_id, (x1, y1, x2, y2), None, 0.0, timestamp)
         return None, 0.0
 
     crop = cv2.resize(crop, None, fx=2, fy=2, interpolation=cv2.INTER_LINEAR)
@@ -73,8 +112,6 @@ def extract_jersey_number(
 
     save_uncertain = result is None or best_conf < 50.0
     if save_uncertain and video_name and frame_id is not None and bbox_id is not None:
-        from pathlib import Path
-        import json
 
         out_dir = Path("training/uncertain_jerseys")
         label_path = Path("training/labels/ocr_review.json")
@@ -115,6 +152,19 @@ def extract_jersey_number(
                 "timestamp": timestamp or "",
             }
         )
+
+    # Log this OCR attempt for analysis
+    _log_ocr_attempt(play_id, frame_id, (x1, y1, x2, y2), result, best_conf, timestamp)
+
+    # Optionally save cropped patch for later review
+    if frame_id is not None and bbox_id is not None and play_id is not None:
+        try:
+            patch_dir = Path("training/ocr_attempts")
+            patch_dir.mkdir(parents=True, exist_ok=True)
+            patch_name = f"play{play_id}_frame{frame_id}_bbox{bbox_id}.jpg"
+            cv2.imwrite(str(patch_dir / patch_name), crop)
+        except Exception:
+            pass
 
     return result, best_conf
 
