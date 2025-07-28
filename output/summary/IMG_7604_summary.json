@@ -1,12 +1,10 @@
 {
-  "total_frames": 204,
-  "total_plays": 3,
+  "total_frames": 308,
+  "total_plays": 5,
   "jersey_counts": {},
   "play_counts": {
+    "Rit F Counter": 2,
     "Rit F Screen": 1,
     "Rit Dive": 2
-  },
-  "formation_counts": {
-    "Rit": 3
   }
 }
