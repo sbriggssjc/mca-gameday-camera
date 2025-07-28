@@ -5,6 +5,7 @@ import time
 import sys
 import os
 import re
+from collections import deque
 
 try:
     import pytesseract
@@ -29,6 +30,16 @@ THICKNESS = 2
 CLOCK_ROI = (50, 100, 900, 1100)
 HOME_ROI = (100, 150, 830, 930)
 AWAY_ROI = (100, 150, 1090, 1190)
+
+
+def open_writer(path: Path, fps: float, size: tuple[int, int]) -> cv2.VideoWriter:
+    """Open an MP4 writer, falling back to MJPG if needed."""
+    fourcc = cv2.VideoWriter_fourcc(*"avc1")
+    writer = cv2.VideoWriter(str(path), fourcc, fps, size)
+    if not writer.isOpened():
+        fourcc = cv2.VideoWriter_fourcc(*"MP4V")
+        writer = cv2.VideoWriter(str(path), fourcc, fps, size)
+    return writer
 
 
 def draw_label(frame: "cv2.Mat", text: str, org: tuple[int, int]) -> None:
@@ -153,6 +164,12 @@ def main() -> None:
     ffmpeg_error = False
     last_score_update = 0.0
     scoreboard = ("--:--", "0", "0")
+    highlight_dir = output_dir / "highlights"
+    highlight_dir.mkdir(parents=True, exist_ok=True)
+    buffer: deque = deque(maxlen=int(30 * FPS))
+    highlight_files: list[Path] = []
+    prev_home = -1
+    prev_away = -1
 
 
     try:
@@ -184,9 +201,35 @@ def main() -> None:
                     file=sys.stderr,
                 )
                 continue
+            buffer.append(frame.copy())
             if time.time() - last_score_update >= 1.0:
                 scoreboard = read_scoreboard(frame)
                 last_score_update = time.time()
+                clock, home_s, away_s = scoreboard
+                try:
+                    home_val = int(home_s)
+                except ValueError:
+                    home_val = prev_home
+                try:
+                    away_val = int(away_s)
+                except ValueError:
+                    away_val = prev_away
+                if prev_home >= 0 and (
+                    home_val > prev_home or away_val > prev_away
+                ):
+                    clip_name = (
+                        f"highlight_{home_val}-{away_val}_"
+                        f"{clock.replace(':', '-')}.mp4"
+                    )
+                    clip_path = highlight_dir / clip_name
+                    writer = open_writer(clip_path, FPS, (WIDTH, HEIGHT))
+                    for f in buffer:
+                        writer.write(f)
+                    writer.release()
+                    print(f"Saved highlight clip: {clip_path}")
+                    highlight_files.append(clip_path)
+                prev_home = home_val
+                prev_away = away_val
 
             overlay_info(frame, frame_count, scoreboard)
             cv2.imshow("Stream Preview", frame)
@@ -304,6 +347,15 @@ def main() -> None:
                 f"https://drive.google.com/file/d/{log_drive['id']}/view"
             )
             print(f"Uploaded {log_file.name} -> {log_view_url}")
+
+            for clip_path in highlight_files:
+                clip_drive = drive.CreateFile(
+                    {"title": clip_path.name, "parents": [{"id": game_folder_id}]}
+                )
+                clip_drive.SetContentFile(str(clip_path))
+                clip_drive.Upload()
+                clip_url = f"https://drive.google.com/file/d/{clip_drive['id']}/view"
+                print(f"Uploaded {clip_path.name} -> {clip_url}")
         except Exception as exc:  # pragma: no cover - network/auth
             print(f"Google Drive upload failed: {exc}")
 
