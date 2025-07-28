@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Dict
 
 import cv2
 import numpy as np
@@ -14,7 +14,13 @@ except Exception:  # pragma: no cover - optional dependency
 
 
 def extract_jersey_number(
-    frame: np.ndarray, player_bbox: Tuple[int, int, int, int]
+    frame: np.ndarray,
+    player_bbox: Tuple[int, int, int, int],
+    *,
+    video_name: Optional[str] = None,
+    frame_id: Optional[int] = None,
+    bbox_id: Optional[int] = None,
+    timestamp: Optional[str] = None,
 ) -> Tuple[str | None, float]:
     """Return jersey number string and OCR confidence.
 
@@ -57,9 +63,46 @@ def extract_jersey_number(
             best_conf = conf_val
             best_text = text.strip()
 
+    result: str | None = None
     if best_text and 1 <= int(best_text) <= 99:
-        return best_text, best_conf
-    return None, best_conf
+        result = best_text
+
+    save_uncertain = result is None or best_conf < 50.0
+    if save_uncertain and video_name and frame_id is not None and bbox_id is not None:
+        from pathlib import Path
+        import json
+
+        out_dir = Path("training/uncertain_jerseys")
+        label_path = Path("training/labels/ocr_review.json")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        label_path.parent.mkdir(parents=True, exist_ok=True)
+
+        fname = f"{video_name}_{frame_id}_{bbox_id}.jpg"
+        cv2.imwrite(str(out_dir / fname), crop)
+
+        try:
+            with open(label_path, "r", encoding="utf-8") as f:
+                labels: List[Dict[str, object]] = json.load(f)
+            if not isinstance(labels, list):
+                labels = []
+        except Exception:
+            labels = []
+
+        labels.append(
+            {
+                "filename": fname,
+                "bbox": [int(x1), int(y1), int(x2 - x1), int(y2 - y1)],
+                "frame_id": frame_id,
+                "video": video_name,
+                "timestamp": timestamp or "",
+                "expected_format": "jersey_number (1–99)",
+            }
+        )
+
+        with open(label_path, "w", encoding="utf-8") as f:
+            json.dump(labels, f, indent=2)
+
+    return result, best_conf
 
 
 def detect_jerseys(frame: np.ndarray, boxes: List[Tuple[int, int, int, int]]) -> List[str]:
