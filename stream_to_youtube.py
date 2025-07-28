@@ -24,6 +24,8 @@ BUFSIZE = "12000k"
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 FONT_SCALE = 0.7
 THICKNESS = 2
+# Larger font scale for the scoreboard overlay
+SB_FONT_SCALE = 1.2
 
 # Static scoreboard ROIs (y1, y2, x1, x2)
 # Adjust these values to match the on-screen scoreboard layout
@@ -42,12 +44,26 @@ def open_writer(path: Path, fps: float, size: tuple[int, int]) -> cv2.VideoWrite
     return writer
 
 
-def draw_label(frame: "cv2.Mat", text: str, org: tuple[int, int]) -> None:
+def draw_label(
+    frame: "cv2.Mat",
+    text: str,
+    org: tuple[int, int],
+    font_scale: float = FONT_SCALE,
+) -> None:
     """Draw text with a black background rectangle for contrast."""
-    (w, h), _ = cv2.getTextSize(text, FONT, FONT_SCALE, THICKNESS)
+    (w, h), _ = cv2.getTextSize(text, FONT, font_scale, THICKNESS)
     x, y = org
     cv2.rectangle(frame, (x - 5, y - h - 5), (x + w + 5, y + 5), (0, 0, 0), -1)
-    cv2.putText(frame, text, (x, y), FONT, FONT_SCALE, (255, 255, 255), THICKNESS, cv2.LINE_AA)
+    cv2.putText(
+        frame,
+        text,
+        (x, y),
+        FONT,
+        font_scale,
+        (255, 255, 255),
+        THICKNESS,
+        cv2.LINE_AA,
+    )
 
 
 def overlay_info(
@@ -62,9 +78,9 @@ def overlay_info(
     draw_label(frame, time_str, (frame.shape[1] - tw - 10, 30))
     if scoreboard:
         clock, home, away = scoreboard
-        sb_text = f"\u23F1 {clock} | \U0001F3E0 {home} - {away} \U0001F6EB"
-        (sw, sh), _ = cv2.getTextSize(sb_text, FONT, FONT_SCALE, THICKNESS)
-        draw_label(frame, sb_text, (frame.shape[1] - sw - 10, 60))
+        sb_text = f"\u23F1 {clock}     \U0001F3E0 {home}  -  {away} \U0001F6EB"
+        (sw, sh), _ = cv2.getTextSize(sb_text, FONT, SB_FONT_SCALE, THICKNESS)
+        draw_label(frame, sb_text, (frame.shape[1] - sw - 10, 60), SB_FONT_SCALE)
     # Frame counter in bottom-left
     frame_text = f"Frame: {frame_count}"
     (fw, fh), _ = cv2.getTextSize(frame_text, FONT, FONT_SCALE, THICKNESS)
