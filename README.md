@@ -61,6 +61,11 @@ The default settings use the software `libx264` encoder at
 Output is written with `tee` so a local MP4 recording is saved
 alongside the live RTMP stream.
 
+If `GDRIVE_FOLDER_ID` is set, the MP4 and a matching
+`*_play_log.csv` are uploaded to that Drive folder after streaming
+finishes. Set `GDRIVE_USE_GAME_FOLDER=1` to place both files in a
+dedicated subfolder named after the game timestamp.
+
 Additional options:
 
 ```bash
