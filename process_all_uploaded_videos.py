@@ -1,7 +1,18 @@
 from __future__ import annotations
 
+import sys
 import os
+from datetime import datetime
 from pathlib import Path
+
+log_dir = "/logs/pipeline"
+os.makedirs(log_dir, exist_ok=True)
+timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+log_path = os.path.join(log_dir, f"run_{timestamp}.log")
+original_stdout = sys.stdout
+original_stderr = sys.stderr
+sys.stdout = open(log_path, "w")
+sys.stderr = sys.stdout
 
 from gdrive_utils import upload_to_google_drive
 from manual_video_processor import process_uploaded_game_film
@@ -58,3 +69,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    sys.stdout.close()
+    sys.stdout = original_stdout
+    sys.stderr = original_stderr
+    print(f"[✅] Log saved at: {log_path}")
