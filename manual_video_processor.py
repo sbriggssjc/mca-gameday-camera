@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import cv2
 
@@ -49,19 +49,6 @@ def process_uploaded_game_film(video_path: str, *, purge_after: bool = False) ->
         tracker = None
     scoreboard = ScoreboardReader()
 
-    training_img_dir = Path("training/uncertain_jerseys")
-    label_file = Path("training/labels/ocr_review.json")
-    training_img_dir.mkdir(parents=True, exist_ok=True)
-    label_file.parent.mkdir(parents=True, exist_ok=True)
-    ocr_labels: List[Dict[str, object]] = []
-    if label_file.exists():
-        try:
-            with open(label_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, list):
-                ocr_labels = data
-        except Exception:
-            ocr_labels = []
 
     playbook_file = (
         "mca_full_playbook_final.json"
@@ -98,27 +85,21 @@ def process_uploaded_game_film(video_path: str, *, purge_after: bool = False) ->
         crop = frame[y : y + h, x : x + w]
 
         jerseys = []
-        for bx in boxes:
-            num, conf = extract_jersey_number(frame, bx)
+        for i, bx in enumerate(boxes):
+            ts = frame_index / fps
+            ts_str = f"{int(ts // 3600):02d}:{int((ts % 3600) // 60):02d}:{int(ts % 60):02d}"
+            num, conf = extract_jersey_number(
+                frame,
+                bx,
+                video_name=path.stem,
+                frame_id=frame_index,
+                bbox_id=i,
+                timestamp=ts_str,
+            )
             if num is not None and conf >= 50.0:
                 jerseys.append(int(num))
                 jersey_counts[int(num)] = jersey_counts.get(int(num), 0) + 1
                 current_play_jerseys.add(num)
-            else:
-                ts = frame_index / fps
-                ts_str = f"{int(ts // 3600):02d}_{int((ts % 3600) // 60):02d}_{int(ts % 60):02d}"
-                fname = f"{play_id}_{ts_str}.jpg"
-                cv2.imwrite(str(training_img_dir / fname), crop)
-                cv2.imwrite(str(training_img_dir / f"{play_id}_{ts_str}_full.jpg"), frame)
-                ocr_labels.append(
-                    {
-                        "filename": fname,
-                        "bbox": [int(bx[0]), int(bx[1]), int(bx[2] - bx[0]), int(bx[3] - bx[1])],
-                        "expected_format": "jersey_number (1–99)",
-                        "play_id": play_id,
-                        "video_time": ts_str.replace("_", ":"),
-                    }
-                )
 
         state = scoreboard.update(frame)
 
@@ -174,8 +155,6 @@ def process_uploaded_game_film(video_path: str, *, purge_after: bool = False) ->
     with open(part_path, "w", encoding="utf-8") as f:
         json.dump(participation_counts, f, indent=2)
 
-    with open(label_file, "w", encoding="utf-8") as f:
-        json.dump(ocr_labels, f, indent=2)
 
     video_ok = upload_to_google_drive(str(path), "GameFilmUploads")
     summary_ok = upload_to_google_drive(str(summary_path), "GameFilmSummaries")
