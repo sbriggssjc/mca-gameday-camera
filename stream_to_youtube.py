@@ -159,7 +159,7 @@ def main() -> None:
         log_fp.close()
         cv2.destroyAllWindows()
 
-    # Upload the recorded file to Google Drive after streaming finishes
+    # Upload the recorded file and log to Google Drive after streaming finishes
     drive_folder_id = os.getenv("GDRIVE_FOLDER_ID")
     if drive_folder_id:
         try:
@@ -176,12 +176,47 @@ def main() -> None:
             gauth.SaveCredentialsFile(token_file)
             drive = GoogleDrive(gauth)
 
-            gfile = drive.CreateFile({"title": record_file.name,
-                                     "parents": [{"id": drive_folder_id}]})
+            use_subfolder = os.getenv("GDRIVE_USE_GAME_FOLDER")
+            game_folder_id = drive_folder_id
+            if use_subfolder:
+                folder_meta = {
+                    "title": f"game_{timestamp}",
+                    "parents": [{"id": drive_folder_id}],
+                    "mimeType": "application/vnd.google-apps.folder",
+                }
+                folder_file = drive.CreateFile(folder_meta)
+                folder_file.Upload()
+                game_folder_id = folder_file["id"]
+                folder_link = (
+                    f"https://drive.google.com/drive/folders/{folder_file['id']}"
+                )
+                print(
+                    f"Created folder game_{timestamp} -> {folder_link}"
+                )
+
+            # upload video
+            gfile = drive.CreateFile(
+                {"title": record_file.name, "parents": [{"id": game_folder_id}]}
+            )
             gfile.SetContentFile(str(record_file))
             gfile.Upload()
             view_url = f"https://drive.google.com/file/d/{gfile['id']}/view"
             print(f"Uploaded {record_file.name} -> {view_url}")
+
+            # upload play log
+            log_drive = drive.CreateFile(
+                {
+                    "title": log_file.name,
+                    "parents": [{"id": game_folder_id}],
+                    "mimeType": "text/csv",
+                }
+            )
+            log_drive.SetContentFile(str(log_file))
+            log_drive.Upload()
+            log_view_url = (
+                f"https://drive.google.com/file/d/{log_drive['id']}/view"
+            )
+            print(f"Uploaded {log_file.name} -> {log_view_url}")
         except Exception as exc:  # pragma: no cover - network/auth
             print(f"Google Drive upload failed: {exc}")
 
