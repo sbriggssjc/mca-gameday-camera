@@ -164,7 +164,6 @@ def build_ffmpeg_command(
 
 ) -> list[str]:
     width, height = size
-    codec = select_codec()
     cmd = [
         ensure_ffmpeg(),
         "-re",
@@ -198,18 +197,16 @@ def build_ffmpeg_command(
         "-map",
         "1:a:0",
         "-c:v",
-        codec,
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-tune",
+        "zerolatency",
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        str(int(fps)),
     ]
-    if codec == "libx264":
-        cmd += [
-            "-preset",
-            "ultrafast",
-            "-tune",
-            "zerolatency",
-            "-x264-params",
-            "bframes=0",
-        ]
-    cmd += ["-pix_fmt", "yuv420p", "-r", str(int(fps))]
     if filters:
         cmd.extend(["-vf", filters])
     cmd += [
@@ -254,7 +251,6 @@ def build_v4l2_command(
 
 ) -> list[str]:
     width, height = size
-    codec = select_codec()
     cmd = [
         ensure_ffmpeg(),
         "-re",
@@ -284,18 +280,16 @@ def build_v4l2_command(
         "-map",
         "1:a:0",
         "-c:v",
-        codec,
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-tune",
+        "zerolatency",
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        str(int(fps)),
     ]
-    if codec == "libx264":
-        cmd += [
-            "-preset",
-            "ultrafast",
-            "-tune",
-            "zerolatency",
-            "-x264-params",
-            "bframes=0",
-        ]
-    cmd += ["-pix_fmt", "yuv420p", "-r", str(int(fps))]
     if filters:
         cmd.extend(["-vf", filters])
     cmd += [
@@ -339,7 +333,6 @@ def build_record_command(
 ) -> list[str]:
     """Record from the camera directly to a local MP4 file."""
     width, height = size
-    codec = select_codec()
     cmd = [
         ensure_ffmpeg(),
         "-re",
@@ -369,18 +362,16 @@ def build_record_command(
         "-map",
         "1:a:0",
         "-c:v",
-        codec,
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-tune",
+        "zerolatency",
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        str(int(fps)),
     ]
-    if codec == "libx264":
-        cmd += [
-            "-preset",
-            "ultrafast",
-            "-tune",
-            "zerolatency",
-            "-x264-params",
-            "bframes=0",
-        ]
-    cmd += ["-pix_fmt", "yuv420p", "-r", str(int(fps))]
     if filters:
         cmd.extend(["-vf", filters])
     cmd += [
@@ -481,7 +472,7 @@ def main() -> None:
     # aspect ratio so YouTube displays the feed without padding. Also
     # force a 30fps output so the stream maintains a consistent frame
     # rate when sent to FFmpeg.
-    filter_str = "scale=1920:1080,setsar=1,setdar=16/9,fps=30"
+    filter_str = "scale=1920:1080,fps=30,setsar=1,setdar=16/9"
 
     # Force a 30fps capture rate so FFmpeg receives frames at a
     # consistent realtime pace. Some cameras report incorrect FPS
@@ -685,15 +676,18 @@ def main() -> None:
             frame_count = 0
             frame_interval = 1.0 / STREAM_FPS
             last_frame_time = time.time()
+            frame_log = 0
+            log_start = time.time()
             try:
                 while True:
                     ret, frame = cap.read()
-                    if not ret or frame is None:
+                    if not ret:
+                        print("cap.read() failed", file=sys.stderr)
+                        break
+                    if frame is None:
                         lf.write("Dropped frame\n")
                         print("Dropped frame")
                         elapsed = time.time() - last_frame_time
-                        # Temporarily disabled pacing for debugging potential over-throttling
-                        # time.sleep(max(0, frame_interval - elapsed))
                         last_frame_time = time.time()
                         continue
                     if frame.shape[0] != height or frame.shape[1] != width:
@@ -750,20 +744,26 @@ def main() -> None:
                                 lf.write(err_text)
                             suggest_ffmpeg_exit_causes()
                             break
-                        if process.stdin.closed:
-                            raise BrokenPipeError("FFmpeg stdin closed")
                         if pix_fmt == "rgb24":
                             frame_conv = cv2.cvtColor(
                                 frame_resized, cv2.COLOR_BGR2RGB
                             )
-                            process.stdin.write(frame_conv.astype(np.uint8).tobytes())
+                            data = frame_conv.astype(np.uint8).tobytes()
                         else:
-                            process.stdin.write(frame_resized.astype(np.uint8).tobytes())
-                        print("Sending frame at", time.time(), file=sys.stderr)
-                        process.stdin.flush()
+                            data = frame_resized.astype(np.uint8).tobytes()
+                        sys.stdout.buffer.write(data)
+                        sys.stdout.buffer.flush()
                         frame_count += 1
-                        if frame_count % 30 == 0:
-                            print(f"Sent {frame_count} frames to FFmpeg")
+                        frame_log += 1
+                        now = time.time()
+                        if now - log_start >= 1.0:
+                            elapsed = now - log_start
+                            print(
+                                f"Sent {frame_log} frames in {elapsed:.2f} seconds",
+                                file=sys.stderr,
+                            )
+                            frame_log = 0
+                            log_start = now
                     except BrokenPipeError:
                         msg = "FFmpeg stdin pipe already closed (BrokenPipeError)."
                         print(msg)
