@@ -197,7 +197,14 @@ def build_ffmpeg_command(
         codec,
     ]
     if codec == "libx264":
-        cmd += ["-preset", "ultrafast"]
+        cmd += [
+            "-preset",
+            "ultrafast",
+            "-tune",
+            "zerolatency",
+            "-x264-params",
+            "bframes=0",
+        ]
     cmd += ["-pix_fmt", "yuv420p"]
     if filters:
         cmd.extend(["-vf", filters])
@@ -209,7 +216,9 @@ def build_ffmpeg_command(
         "-bufsize",
         bufsize,
         "-g",
-        "60",
+        "30",
+        "-keyint_min",
+        "30",
         "-c:a",
         "aac",
         "-b:a",
@@ -267,7 +276,14 @@ def build_v4l2_command(
         codec,
     ]
     if codec == "libx264":
-        cmd += ["-preset", "ultrafast"]
+        cmd += [
+            "-preset",
+            "ultrafast",
+            "-tune",
+            "zerolatency",
+            "-x264-params",
+            "bframes=0",
+        ]
     cmd += ["-pix_fmt", "yuv420p"]
     if filters:
         cmd.extend(["-vf", filters])
@@ -279,7 +295,9 @@ def build_v4l2_command(
         "-bufsize",
         bufsize,
         "-g",
-        "60",
+        "30",
+        "-keyint_min",
+        "30",
         "-c:a",
         "aac",
         "-b:a",
@@ -336,7 +354,14 @@ def build_record_command(
         codec,
     ]
     if codec == "libx264":
-        cmd += ["-preset", "ultrafast"]
+        cmd += [
+            "-preset",
+            "ultrafast",
+            "-tune",
+            "zerolatency",
+            "-x264-params",
+            "bframes=0",
+        ]
     cmd += ["-pix_fmt", "yuv420p"]
     if filters:
         cmd.extend(["-vf", filters])
@@ -348,7 +373,9 @@ def build_record_command(
         "-bufsize",
         bufsize,
         "-g",
-        "60",
+        "30",
+        "-keyint_min",
+        "30",
         "-c:a",
         "aac",
         "-b:a",
@@ -380,17 +407,17 @@ def main() -> None:
     )
     parser.add_argument(
         "--bitrate",
-        default="13500k",
+        default="9000k",
         help="target video bitrate",
     )
     parser.add_argument(
         "--maxrate",
-        default="13500k",
+        default="9000k",
         help="maximum video bitrate",
     )
     parser.add_argument(
         "--bufsize",
-        default="27000k",
+        default="18000k",
         help="encoder buffer size",
     )
     parser.add_argument(
@@ -424,15 +451,10 @@ def main() -> None:
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or detected_w)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or detected_h)
     out_width, out_height = STREAM_WIDTH, STREAM_HEIGHT
-    # FFmpeg 5.x introduced changes to the "scale" filter that broke the
-    # previous use of ``force_original_aspect_ratio=cover``.  To maintain
-    # compatibility with FFmpeg 4.4 we instead scale the frame while
-    # preserving the aspect ratio and pad to the desired resolution.
-    filter_str = (
-        f"scale=w={STREAM_WIDTH}:h={STREAM_HEIGHT}:"
-        "force_original_aspect_ratio=decrease,"
-        f"pad={STREAM_WIDTH}:{STREAM_HEIGHT}:(ow-iw)/2:(oh-ih)/2"
-    )
+    if width == STREAM_WIDTH and height == STREAM_HEIGHT:
+        filter_str = None
+    else:
+        filter_str = f"scale={STREAM_WIDTH}:{STREAM_HEIGHT}"
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
         fps = 30.0
