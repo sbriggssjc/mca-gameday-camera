@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple
 
 import cv2
 
@@ -18,7 +18,12 @@ from smart_auto_tracker import SmartAutoTracker
 from gdrive_utils import upload_to_google_drive
 
 
-def process_uploaded_game_film(video_path: str, *, purge_after: bool = False) -> None:
+def process_uploaded_game_film(
+    video_path: str,
+    *,
+    purge_after: bool = False,
+    max_frames_per_play: int = 2,
+) -> None:
     """Process an uploaded game film video file.
 
     Parameters
@@ -34,6 +39,11 @@ def process_uploaded_game_film(video_path: str, *, purge_after: bool = False) ->
     summary_dir = Path("output/summary")
     log_dir.mkdir(parents=True, exist_ok=True)
     summary_dir.mkdir(parents=True, exist_ok=True)
+
+    training_frame_dir = Path("training/frames")
+    training_label_dir = Path("training/labels")
+    training_frame_dir.mkdir(parents=True, exist_ok=True)
+    training_label_dir.mkdir(parents=True, exist_ok=True)
 
     cap = cv2.VideoCapture(str(path))
     if not cap.isOpened():
@@ -61,7 +71,7 @@ def process_uploaded_game_film(video_path: str, *, purge_after: bool = False) ->
     jersey_counts: Dict[int, int] = {}
     play_counts: Dict[str, int] = {}
     player_play_counts: Dict[str, Set[int]] = {}
-    clip_frames: List = []
+    clip_frames: List[Tuple[object, int, str, List[int]]] = []
     play_id = 1
 
     frame_index = 0
@@ -84,9 +94,9 @@ def process_uploaded_game_film(video_path: str, *, purge_after: bool = False) ->
         crop = frame[y : y + h, x : x + w]
 
         jerseys = []
+        ts = frame_index / fps
+        ts_str = f"{int(ts // 3600):02d}:{int((ts % 3600) // 60):02d}:{int(ts % 60):02d}"
         for i, bx in enumerate(boxes):
-            ts = frame_index / fps
-            ts_str = f"{int(ts // 3600):02d}:{int((ts % 3600) // 60):02d}:{int(ts % 60):02d}"
             num, conf = extract_jersey_number(
                 frame,
                 bx,
@@ -113,11 +123,37 @@ def process_uploaded_game_film(video_path: str, *, purge_after: bool = False) ->
             }
         )
 
-        clip_frames.append(crop)
+        clip_frames.append((crop, frame_index, ts_str, list(jerseys)))
         if len(clip_frames) >= 60:
-            formation, direction, ptype, mean_flow = detect_play_attributes(clip_frames)
+            frames_only = [cf[0] for cf in clip_frames]
+            formation, direction, ptype, mean_flow = detect_play_attributes(frames_only)
             name, conf = match_play(formation, direction, ptype, mean_flow, playbook)
             play_counts[name] = play_counts.get(name, 0) + 1
+
+            indices: List[int] = []
+            if max_frames_per_play > 0:
+                indices.append(min(9, len(clip_frames) - 1))
+            if max_frames_per_play > 1 and len(clip_frames) > 1:
+                indices.append(len(clip_frames) // 2)
+
+            for idx in indices[:max_frames_per_play]:
+                img, fid, fts, jnums = clip_frames[idx]
+                ts_name = fts.replace(":", "-")
+                frame_path = training_frame_dir / f"play_{play_id}_{ts_name}.jpg"
+                cv2.imwrite(str(frame_path), img)
+                label = {
+                    "play_id": play_id,
+                    "video": path.name,
+                    "timestamp": fts,
+                    "play_type": name,
+                    "frame_id": fid,
+                    "jersey_numbers": [str(j) for j in jnums],
+                    "ball_carrier": "",
+                }
+                label_path = training_label_dir / f"play_{play_id}_{ts_name}.json"
+                with open(label_path, "w", encoding="utf-8") as f:
+                    json.dump(label, f, indent=2)
+
             play_id += 1
             clip_frames.clear()
 

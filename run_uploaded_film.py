@@ -28,9 +28,19 @@ def main() -> None:
         action="store_true",
         help="Delete local video after successful upload",
     )
+    parser.add_argument(
+        "--max_frames_per_play",
+        type=int,
+        default=2,
+        help="Maximum training frames to save per play",
+    )
     args = parser.parse_args()
     video_path = Path("video/manual_uploads") / args.video
-    process_uploaded_game_film(str(video_path), purge_after=args.purge_after)
+    process_uploaded_game_film(
+        str(video_path),
+        purge_after=args.purge_after,
+        max_frames_per_play=args.max_frames_per_play,
+    )
 
 
 if __name__ == "__main__":
