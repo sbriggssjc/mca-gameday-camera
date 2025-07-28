@@ -12,6 +12,32 @@ RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/xcuz-3x1d-9y7v-ghec-2xmh"
 BITRATE = "6000k"
 BUFSIZE = "12000k"
 
+FONT = cv2.FONT_HERSHEY_SIMPLEX
+FONT_SCALE = 0.7
+THICKNESS = 2
+
+
+def draw_label(frame: "cv2.Mat", text: str, org: tuple[int, int]) -> None:
+    """Draw text with a black background rectangle for contrast."""
+    (w, h), _ = cv2.getTextSize(text, FONT, FONT_SCALE, THICKNESS)
+    x, y = org
+    cv2.rectangle(frame, (x - 5, y - h - 5), (x + w + 5, y + 5), (0, 0, 0), -1)
+    cv2.putText(frame, text, (x, y), FONT, FONT_SCALE, (255, 255, 255), THICKNESS, cv2.LINE_AA)
+
+
+def overlay_info(frame: "cv2.Mat", frame_count: int) -> None:
+    """Overlay time, LIVE label, and frame counter on the frame."""
+    time_str = datetime.now().strftime("%H:%M:%S")
+    # LIVE label in top-left
+    draw_label(frame, "LIVE", (10, 30))
+    # Current time in top-right
+    (tw, th), _ = cv2.getTextSize(time_str, FONT, FONT_SCALE, THICKNESS)
+    draw_label(frame, time_str, (frame.shape[1] - tw - 10, 30))
+    # Frame counter in bottom-left
+    frame_text = f"Frame: {frame_count}"
+    (fw, fh), _ = cv2.getTextSize(frame_text, FONT, FONT_SCALE, THICKNESS)
+    draw_label(frame, frame_text, (10, frame.shape[0] - 10))
+
 
 def launch_ffmpeg(width: int, height: int, record_path: Path) -> subprocess.Popen:
     cmd = [
@@ -77,6 +103,7 @@ def main() -> None:
                     file=sys.stderr,
                 )
                 continue
+            overlay_info(frame, frame_count)
             try:
                 process.stdin.write(frame.tobytes())
                 process.stdin.flush()
