@@ -4,7 +4,7 @@ from datetime import datetime
 import argparse
 from pathlib import Path
 
-log_dir = "/logs/pipeline"
+log_dir = "./logs/pipeline"
 os.makedirs(log_dir, exist_ok=True)
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 log_path = os.path.join(log_dir, f"run_{timestamp}.log")
