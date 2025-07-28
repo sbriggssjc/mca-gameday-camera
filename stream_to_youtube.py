@@ -8,6 +8,12 @@ import re
 from collections import deque
 
 try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+except Exception:
+    canvas = None  # type: ignore
+
+try:
     import pytesseract
 except Exception:
     pytesseract = None  # type: ignore
@@ -38,6 +44,60 @@ HALFTIME_SECS = 20 * 60  # halftime at 20:00
 FINAL_WARNING_SECS = 34 * 60  # 6:00 remaining in a 40 minute game
 HALFTIME_MIN_PLAYS = 3
 FINAL_MIN_PLAYS = 7
+
+
+def generate_compliance_report(
+    play_counts: dict[str, int], timestamp: str, team_name: str = "Team"
+) -> None:
+    """Create a compliance summary CSV and optional PDF."""
+
+    report_dir = Path("video") / "reports"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = report_dir / "compliance_report.csv"
+
+    summary: list[dict[str, str | int]] = []
+    for pid in sorted(play_counts.keys()):
+        count = play_counts[pid]
+        status_str = "Met" if count >= FINAL_MIN_PLAYS else "Below"
+        summary.append(
+            {
+                "player": f"#{pid}",
+                "plays": count,
+                "status": f"{'✅' if status_str == 'Met' else '❌'} {status_str}",
+            }
+        )
+
+    with open(csv_path, "w", newline="") as fp:
+        writer = csv.writer(fp)
+        writer.writerow(["Player", "Plays", "Status"])
+        for row in summary:
+            writer.writerow([row["player"], row["plays"], row["status"].split()[1]])
+
+    if canvas is not None:
+        pdf_path = report_dir / f"compliance_{timestamp[:8]}.pdf"
+        c = canvas.Canvas(str(pdf_path), pagesize=letter)
+        width, height = letter
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(50, height - 50, f"Compliance Report - {team_name}")
+        c.setFont("Helvetica", 12)
+        c.drawString(50, height - 70, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        y = height - 100
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(50, y, "Player")
+        c.drawString(150, y, "Plays")
+        c.drawString(220, y, "Status")
+        c.setFont("Helvetica", 12)
+        y -= 20
+        for row in summary:
+            c.drawString(50, y, str(row["player"]))
+            c.drawString(150, y, str(row["plays"]))
+            c.drawString(220, y, row["status"])
+            y -= 20
+        c.save()
+
+    print("\nCompliance Summary:")
+    for row in summary:
+        print(f"{row['player']} - {row['plays']} plays - {row['status']}")
 
 
 def open_writer(path: Path, fps: float, size: tuple[int, int]) -> cv2.VideoWriter:
@@ -191,6 +251,7 @@ def main() -> None:
     last_check_time = start
     halftime_alerted: set[str] = set()
     final_alerted: set[str] = set()
+    summary_generated = False
     cv2.namedWindow("Stream Preview", cv2.WINDOW_NORMAL)
     frame_interval = 1.0 / FPS
     frame_count = 0
@@ -393,6 +454,11 @@ def main() -> None:
                 prev_home = home_val
                 prev_away = away_val
                 check_substitutions(clock)
+                if not summary_generated and parse_clock(clock) == 0:
+                    generate_compliance_report(
+                        play_counts, timestamp, os.getenv("TEAM_NAME", "Team")
+                    )
+                    summary_generated = True
 
             overlay_info(frame, frame_count, scoreboard)
             cv2.imshow("Stream Preview", frame)
@@ -458,6 +524,11 @@ def main() -> None:
         sub_log_fp.close()
         alert_fp.close()
         cv2.destroyAllWindows()
+
+        if not summary_generated:
+            generate_compliance_report(
+                play_counts, timestamp, os.getenv("TEAM_NAME", "Team")
+            )
 
     # Upload the recorded file and log to Google Drive after streaming finishes
     drive_folder_id = os.getenv("GDRIVE_FOLDER_ID")
@@ -540,6 +611,32 @@ def main() -> None:
                 clip_drive.Upload()
                 clip_url = f"https://drive.google.com/file/d/{clip_drive['id']}/view"
                 print(f"Uploaded {clip_path.name} -> {clip_url}")
+
+            compliance_csv = Path("video") / "reports" / "compliance_report.csv"
+            if compliance_csv.exists():
+                compl_drive = drive.CreateFile(
+                    {
+                        "title": compliance_csv.name,
+                        "parents": [{"id": game_folder_id}],
+                        "mimeType": "text/csv",
+                    }
+                )
+                compl_drive.SetContentFile(str(compliance_csv))
+                compl_drive.Upload()
+                compl_url = (
+                    f"https://drive.google.com/file/d/{compl_drive['id']}/view"
+                )
+                print(f"Uploaded {compliance_csv.name} -> {compl_url}")
+
+            pdf_file = Path("video") / "reports" / f"compliance_{timestamp[:8]}.pdf"
+            if pdf_file.exists():
+                pdf_drive = drive.CreateFile(
+                    {"title": pdf_file.name, "parents": [{"id": game_folder_id}]}
+                )
+                pdf_drive.SetContentFile(str(pdf_file))
+                pdf_drive.Upload()
+                pdf_url = f"https://drive.google.com/file/d/{pdf_drive['id']}/view"
+                print(f"Uploaded {pdf_file.name} -> {pdf_url}")
         except Exception as exc:  # pragma: no cover - network/auth
             print(f"Google Drive upload failed: {exc}")
 
