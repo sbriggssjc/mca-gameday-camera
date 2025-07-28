@@ -4,6 +4,12 @@ import subprocess
 import time
 import sys
 import os
+import re
+
+try:
+    import pytesseract
+except Exception:
+    pytesseract = None  # type: ignore
 from datetime import datetime
 from pathlib import Path
 
@@ -18,6 +24,12 @@ FONT = cv2.FONT_HERSHEY_SIMPLEX
 FONT_SCALE = 0.7
 THICKNESS = 2
 
+# Static scoreboard ROIs (y1, y2, x1, x2)
+# Adjust these values to match the on-screen scoreboard layout
+CLOCK_ROI = (50, 100, 900, 1100)
+HOME_ROI = (100, 150, 830, 930)
+AWAY_ROI = (100, 150, 1090, 1190)
+
 
 def draw_label(frame: "cv2.Mat", text: str, org: tuple[int, int]) -> None:
     """Draw text with a black background rectangle for contrast."""
@@ -27,18 +39,56 @@ def draw_label(frame: "cv2.Mat", text: str, org: tuple[int, int]) -> None:
     cv2.putText(frame, text, (x, y), FONT, FONT_SCALE, (255, 255, 255), THICKNESS, cv2.LINE_AA)
 
 
-def overlay_info(frame: "cv2.Mat", frame_count: int) -> None:
-    """Overlay time, LIVE label, and frame counter on the frame."""
+def overlay_info(
+    frame: "cv2.Mat", frame_count: int, scoreboard: tuple[str, str, str] | None = None
+) -> None:
+    """Overlay time, LIVE label, frame counter and scoreboard."""
     time_str = datetime.now().strftime("%H:%M:%S")
     # LIVE label in top-left
     draw_label(frame, "LIVE", (10, 30))
     # Current time in top-right
     (tw, th), _ = cv2.getTextSize(time_str, FONT, FONT_SCALE, THICKNESS)
     draw_label(frame, time_str, (frame.shape[1] - tw - 10, 30))
+    if scoreboard:
+        clock, home, away = scoreboard
+        sb_text = f"\u23F1 {clock} | \U0001F3E0 {home} - {away} \U0001F6EB"
+        (sw, sh), _ = cv2.getTextSize(sb_text, FONT, FONT_SCALE, THICKNESS)
+        draw_label(frame, sb_text, (frame.shape[1] - sw - 10, 60))
     # Frame counter in bottom-left
     frame_text = f"Frame: {frame_count}"
     (fw, fh), _ = cv2.getTextSize(frame_text, FONT, FONT_SCALE, THICKNESS)
     draw_label(frame, frame_text, (10, frame.shape[0] - 10))
+
+
+def extract_roi_text(roi: "cv2.Mat") -> str:
+    """Return OCR text from the given ROI."""
+    if pytesseract is None:
+        return ""
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return pytesseract.image_to_string(thresh, config="--psm 7")
+
+
+def read_scoreboard(frame: "cv2.Mat") -> tuple[str, str, str]:
+    """Read clock, home score and away score from the frame."""
+    y1, y2, x1, x2 = CLOCK_ROI
+    clock_roi = frame[y1:y2, x1:x2]
+    clock_raw = extract_roi_text(clock_roi)
+    clock = re.sub(r"[^0-9:]", "", clock_raw).strip()
+    if len(clock) < 4:
+        clock = "--:--"
+
+    y1, y2, x1, x2 = HOME_ROI
+    home_roi = frame[y1:y2, x1:x2]
+    home_raw = extract_roi_text(home_roi)
+    home = re.sub(r"\D", "", home_raw).strip() or "0"
+
+    y1, y2, x1, x2 = AWAY_ROI
+    away_roi = frame[y1:y2, x1:x2]
+    away_raw = extract_roi_text(away_roi)
+    away = re.sub(r"\D", "", away_raw).strip() or "0"
+
+    return clock, home, away
 
 
 def launch_ffmpeg(width: int, height: int, record_path: Path) -> subprocess.Popen:
@@ -97,6 +147,8 @@ def main() -> None:
     frame_count = 0
     start = time.time()
     last_log = start
+    last_score_update = 0.0
+    scoreboard = ("--:--", "0", "0")
 
     try:
         while True:
@@ -111,7 +163,11 @@ def main() -> None:
                     file=sys.stderr,
                 )
                 continue
-            overlay_info(frame, frame_count)
+            if time.time() - last_score_update >= 1.0:
+                scoreboard = read_scoreboard(frame)
+                last_score_update = time.time()
+
+            overlay_info(frame, frame_count, scoreboard)
             cv2.imshow("Stream Preview", frame)
             key = cv2.waitKey(1) & 0xFF
             if key != 255:
