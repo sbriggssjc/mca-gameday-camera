@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
+from datetime import datetime
+import zipfile
 
 import cv2
 
@@ -24,6 +26,7 @@ def process_uploaded_game_film(
     *,
     purge_after: bool = False,
     max_frames_per_play: int = 2,
+    prepare_retrain: bool = False,
 ) -> None:
     """Process an uploaded game film video file.
 
@@ -31,6 +34,8 @@ def process_uploaded_game_film(
     ----------
     video_path:
         Full path to the video file to process.
+    prepare_retrain:
+        When True, create a training bundle after processing.
     """
     path = Path(video_path)
     if not path.exists():
@@ -74,6 +79,8 @@ def process_uploaded_game_film(
     player_play_counts: Dict[str, Set[int]] = {}
     clip_frames: List[Tuple[object, int, str, List[int]]] = []
     play_id = 1
+    ocr_failures = 0
+    frames_saved = 0
 
     frame_index = 0
     while True:
@@ -112,6 +119,8 @@ def process_uploaded_game_film(
                 jersey_counts[int(num)] = jersey_counts.get(int(num), 0) + 1
                 plays = player_play_counts.setdefault(str(num), set())
                 plays.add(play_id)
+            else:
+                ocr_failures += 1
 
         state = scoreboard.update(frame)
 
@@ -145,6 +154,7 @@ def process_uploaded_game_film(
                 ts_name = fts.replace(":", "-")
                 frame_path = training_frame_dir / f"play_{play_id}_{ts_name}.jpg"
                 cv2.imwrite(str(frame_path), img)
+                frames_saved += 1
                 if saved_frame is None:
                     saved_frame = frame_path
                     saved_ts = fts
@@ -232,6 +242,48 @@ def process_uploaded_game_film(
     print(f"  Summary upload: {'success' if summary_ok else 'FAILED'}")
     if purge_after:
         print("  Local video deleted" if removed else "  Local video retained")
+
+    learning_dir = Path("training/logs")
+    learning_dir.mkdir(parents=True, exist_ok=True)
+    stats = {
+        "video": path.name,
+        "plays_detected": summary["total_plays"],
+        "jersey_numbers_recognized": len(jersey_counts),
+        "jersey_ocr_failures": ocr_failures,
+        "unknown_play_types": play_counts.get("unknown", 0),
+        "frames_saved": frames_saved,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+    }
+    stats_path = learning_dir / f"learning_stats_{path.stem}.json"
+    with open(stats_path, "w", encoding="utf-8") as f:
+        json.dump(stats, f, indent=2)
+
+    global_path = learning_dir / "self_learning_log.json"
+    try:
+        with open(global_path, "r", encoding="utf-8") as f:
+            history = json.load(f)
+        if not isinstance(history, list):
+            history = []
+    except Exception:
+        history = []
+    history.append(stats)
+    with open(global_path, "w", encoding="utf-8") as f:
+        json.dump(history, f, indent=2)
+    print(f"\u2705 Learning stats saved: {stats_path}")
+
+    if prepare_retrain:
+        bundle_dir = Path("training/bundles")
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y-%m-%d_%H-%M")
+        bundle_path = bundle_dir / f"retrain_bundle_{ts}.zip"
+        with zipfile.ZipFile(bundle_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for folder in ["training/frames", "training/labels", "training/uncertain_jerseys"]:
+                for root_dir, _, files in os.walk(folder):
+                    for file in files:
+                        fp = Path(root_dir) / file
+                        if fp.is_file():
+                            zf.write(fp, fp.relative_to("training"))
+        print(f"\u2705 Retraining bundle created: {bundle_path.name}")
 
     print(
         f"\u26a0\ufe0f  Review queue updated: {queue_length()} items pending in /training/review_queue.json"
