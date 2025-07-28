@@ -21,7 +21,7 @@ def launch_ffmpeg(width: int, height: int) -> subprocess.Popen:
         "-r", str(FPS),
         "-i", "-",
         "-f", "lavfi",
-        "-i", "anullsrc",
+        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-tune", "zerolatency",
@@ -34,6 +34,7 @@ def launch_ffmpeg(width: int, height: int) -> subprocess.Popen:
         "-c:a", "aac",
         "-b:a", "128k",
         "-ar", "44100",
+        "-ac", "2",
         "-f", "flv",
         RTMP_URL,
     ]
@@ -63,6 +64,7 @@ def main() -> None:
                 break
             try:
                 process.stdin.write(frame.tobytes())
+                process.stdin.flush()
             except BrokenPipeError:
                 print("FFmpeg pipe closed (BrokenPipeError). Exiting.")
                 break
@@ -70,7 +72,11 @@ def main() -> None:
             frame_count += 1
             if frame_count % 30 == 0:
                 elapsed = time.time() - start
-                print(f"Sent {frame_count} frames in {elapsed:.2f} seconds")
+                print(
+                    f"Sent {frame_count} frames in {elapsed:.2f} seconds",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
             if process.poll() is not None:
                 print(f"FFmpeg exited with code {process.returncode}")
