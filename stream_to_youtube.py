@@ -105,18 +105,7 @@ def ensure_ffmpeg() -> str:
 
 
 def select_codec() -> str:
-    """Prefer Jetson hardware encoders and fall back to libx264."""
-    try:
-        output = subprocess.check_output([
-            "ffmpeg",
-            "-hide_banner",
-            "-encoders",
-        ], text=True)
-        for enc in ("h264_nvmpi", "h264_v4l2m2m", "h264_nvv4l2enc"):
-            if enc in output:
-                return enc
-    except Exception:
-        pass
+    """Return the software H.264 encoder."""
     return "libx264"
 
 
