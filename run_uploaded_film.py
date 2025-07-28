@@ -10,9 +10,14 @@ def main() -> None:
         required=True,
         help="Video file name within video/manual_uploads",
     )
+    parser.add_argument(
+        "--purge_after",
+        action="store_true",
+        help="Delete local video after successful upload",
+    )
     args = parser.parse_args()
     video_path = Path("video/manual_uploads") / args.video
-    process_uploaded_game_film(str(video_path))
+    process_uploaded_game_film(str(video_path), purge_after=args.purge_after)
 
 
 if __name__ == "__main__":
