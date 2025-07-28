@@ -188,7 +188,7 @@ def build_ffmpeg_command(
         "-f",
         "lavfi",
         "-i",
-        "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "anullsrc=r=44100:cl=stereo",
         "-map",
         "0:v:0",
         "-map",
@@ -262,7 +262,11 @@ def build_v4l2_command(
         "-f",
         "lavfi",
         "-i",
-        "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "anullsrc=r=44100:cl=stereo",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
         "-c:v",
         codec,
     ]
@@ -331,7 +335,11 @@ def build_record_command(
         "-f",
         "lavfi",
         "-i",
-        "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "anullsrc=r=44100:cl=stereo",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
         "-c:v",
         codec,
     ]
@@ -428,11 +436,10 @@ def main() -> None:
     # previous use of ``force_original_aspect_ratio=cover``.  To maintain
     # compatibility with FFmpeg 4.4 we instead scale the frame while
     # preserving the aspect ratio and pad to the desired resolution.
-    filter_str = (
-        f"scale=w={STREAM_WIDTH}:h={STREAM_HEIGHT}:"
-        "force_original_aspect_ratio=decrease,"
-        f"pad={STREAM_WIDTH}:{STREAM_HEIGHT}:(ow-iw)/2:(oh-ih)/2"
-    )
+    # YouTube expects a full 1080p frame.  Using padding caused the
+    # stream to be reported as not filling the frame, so scale directly
+    # to the output size.
+    filter_str = f"scale={STREAM_WIDTH}:{STREAM_HEIGHT}"
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
         fps = 30.0
