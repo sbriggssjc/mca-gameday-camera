@@ -15,6 +15,7 @@ from play_recognizer import (
     detect_play_attributes,
     match_play,
 )
+from formation_detector import detect_formation
 from scoreboard_reader import ScoreboardReader
 from smart_auto_tracker import SmartAutoTracker
 from gdrive_utils import upload_to_google_drive
@@ -76,8 +77,9 @@ def process_uploaded_game_film(
     frame_logs: List[Dict[str, object]] = []
     jersey_counts: Dict[int, int] = {}
     play_counts: Dict[str, int] = {}
+    formation_counts: Dict[str, int] = {}
     player_play_counts: Dict[str, Set[int]] = {}
-    clip_frames: List[Tuple[object, int, str, List[int]]] = []
+    clip_frames: List[Tuple[object, int, str, List[int], List[Tuple[int, int, int, int]]]] = []
     play_id = 1
     ocr_failures = 0
     frames_saved = 0
@@ -134,12 +136,14 @@ def process_uploaded_game_film(
             }
         )
 
-        clip_frames.append((crop, frame_index, ts_str, list(jerseys)))
+        clip_frames.append((crop, frame_index, ts_str, list(jerseys), boxes))
         if len(clip_frames) >= 60:
             frames_only = [cf[0] for cf in clip_frames]
-            formation, direction, ptype, mean_flow = detect_play_attributes(frames_only)
+            _, direction, ptype, mean_flow = detect_play_attributes(frames_only)
+            formation, _info = detect_formation(clip_frames[0][0], clip_frames[0][4], play_id=play_id, frame_id=clip_frames[0][1])
             name, conf = match_play(formation, direction, ptype, mean_flow, playbook)
             play_counts[name] = play_counts.get(name, 0) + 1
+            formation_counts[formation] = formation_counts.get(formation, 0) + 1
 
             indices: List[int] = []
             if max_frames_per_play > 0:
@@ -150,7 +154,7 @@ def process_uploaded_game_film(
             saved_frame = None
             saved_ts = ""
             for idx in indices[:max_frames_per_play]:
-                img, fid, fts, jnums = clip_frames[idx]
+                img, fid, fts, jnums, _bxs = clip_frames[idx]
                 ts_name = fts.replace(":", "-")
                 frame_path = training_frame_dir / f"play_{play_id}_{ts_name}.jpg"
                 cv2.imwrite(str(frame_path), img)
@@ -163,6 +167,7 @@ def process_uploaded_game_film(
                     "video": path.name,
                     "timestamp": fts,
                     "play_type": name,
+                    "formation": formation,
                     "frame_id": fid,
                     "jersey_numbers": [str(j) for j in jnums],
                     "ball_carrier": "",
@@ -201,6 +206,7 @@ def process_uploaded_game_film(
         "total_plays": sum(play_counts.values()),
         "jersey_counts": jersey_counts,
         "play_counts": play_counts,
+        "formation_counts": formation_counts,
     }
     participation_counts = {j: len(ids) for j, ids in player_play_counts.items()}
     summary_path = summary_dir / f"{path.stem}_summary.json"
