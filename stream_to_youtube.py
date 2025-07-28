@@ -620,6 +620,9 @@ def main() -> None:
                 bufsize=10**8,
             )
             lf.write(f"FFmpeg PID: {process.pid}\n")
+            print(
+                f"Spawned FFmpeg PID {process.pid} with stdin pipe? {process.stdin is not None}"
+            )
             # Give FFmpeg a moment to start and capture any immediate errors
             startup_timeout = 5
             start_time = time.time()
@@ -681,7 +684,8 @@ def main() -> None:
                         lf.write("Dropped frame\n")
                         print("Dropped frame")
                         elapsed = time.time() - last_frame_time
-                        time.sleep(max(0, frame_interval - elapsed))
+                        # Temporarily disabled pacing for debugging potential over-throttling
+                        # time.sleep(max(0, frame_interval - elapsed))
                         last_frame_time = time.time()
                         continue
                     if frame.shape[0] != height or frame.shape[1] != width:
@@ -747,6 +751,7 @@ def main() -> None:
                             process.stdin.write(frame_conv.astype(np.uint8).tobytes())
                         else:
                             process.stdin.write(frame_resized.astype(np.uint8).tobytes())
+                        print("Sending frame at", time.time(), file=sys.stderr)
                         process.stdin.flush()
                         frame_count += 1
                         if frame_count % 30 == 0:
@@ -768,7 +773,8 @@ def main() -> None:
                         warn = f"Frame delay {elapsed:.3f}s"
                         print(warn)
                         lf.write(warn + "\n")
-                    time.sleep(max(0, frame_interval - elapsed))
+                    # Temporarily disable pacing during debugging
+                    # time.sleep(max(0, frame_interval - elapsed))
                     last_frame_time = time.time()
             except KeyboardInterrupt:
                 pass
