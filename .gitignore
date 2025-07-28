@@ -5,6 +5,7 @@ firefox-esr/
 
 # Video recordings
 /video/*.mp4
+video/*_play_log.csv
 video/uploaded/
 *.mp4
 *.mov
