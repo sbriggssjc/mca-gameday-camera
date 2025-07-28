@@ -4,6 +4,7 @@ import sys
 import os
 from datetime import datetime
 from pathlib import Path
+import argparse
 
 log_dir = "/logs/pipeline"
 os.makedirs(log_dir, exist_ok=True)
@@ -23,6 +24,14 @@ SUMMARY_DIR = Path("output/summary")
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Process all uploaded videos")
+    parser.add_argument(
+        "--prepare_retrain",
+        action="store_true",
+        help="Create retraining bundle after processing each video",
+    )
+    args = parser.parse_args()
+
     videos = [p for p in UPLOAD_DIR.iterdir() if p.suffix.lower() in {".mp4", ".mov"}]
     print(f"Found {len(videos)} video(s) to process\n")
 
@@ -32,7 +41,9 @@ def main() -> None:
     for video in videos:
         print(f"Processing {video.name}...")
         try:
-            process_uploaded_game_film(str(video), purge_after=False)
+            process_uploaded_game_film(
+                str(video), purge_after=False, prepare_retrain=args.prepare_retrain
+            )
         except Exception as exc:
             print(f"⚠️ Failed to process {video.name}: {exc}")
             retained.append(video.name)
