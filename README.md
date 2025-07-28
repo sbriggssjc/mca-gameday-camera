@@ -57,7 +57,7 @@ python stream_to_youtube.py
 ```
 
 The default settings use the software `libx264` encoder at
-1920x1080 and 30fps with a bitrate around **13.5&nbsp;Mbps**.
+1920x1080 and 30fps with a bitrate around **9&nbsp;Mbps**.
 Output is written with `tee` so a local MP4 recording is saved
 alongside the live RTMP stream.
 
