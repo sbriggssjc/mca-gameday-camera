@@ -4,6 +4,16 @@ This repository contains utilities for tracking play participation during a game
 
 Large video recordings (`.mp4`) are saved in the `video/` folder but individual recording files are ignored by Git. Use `upload_to_drive.py` to sync these videos to Google Drive instead of committing them.
 
+## Processing uploaded game film
+
+Place a video inside `video/manual_uploads/` and run:
+
+```bash
+python run_uploaded_film.py --video my_game.mp4 --purge_after True
+```
+
+The clip is analyzed locally and both the raw video and summary JSON are uploaded to Google Drive. The local video is removed only after a successful upload while the logs remain under `output/summary/` and `output/manual_logs/`.
+
 ## play_count_tracker.py
 
 `play_count_tracker.py` is a command line tool for recording which players were on the field for each play. It now supports optional in-game alerts, SMS notifications and quarter summaries. After each play, type the jersey numbers separated by spaces. Enter `q` to finish. A log is written to `jersey_counts.csv` and the final play counts are printed with color-coded warnings for any player under the threshold.
