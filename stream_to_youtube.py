@@ -455,9 +455,11 @@ def main() -> None:
         filter_str = None
     else:
         filter_str = f"scale={STREAM_WIDTH}:{STREAM_HEIGHT}"
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    if not fps or fps <= 1:
-        fps = 30.0
+    # Force a 30fps capture rate so FFmpeg receives frames at a
+    # consistent realtime pace. Some cameras report incorrect FPS
+    # values so we explicitly override to match the FFmpeg input rate.
+    fps = 30.0
+    cap.set(cv2.CAP_PROP_FPS, fps)
 
     state_reader = ScoreboardReader()
     overlay = OverlayEngine()
@@ -645,21 +647,17 @@ def main() -> None:
             first_frame = True
             frame_count = 0
             frame_interval = 1.0 / fps
-            next_frame_time = time.time()
+            last_frame_time = time.time()
             try:
                 while True:
-                    now = time.time()
-                    if now - next_frame_time > frame_interval * 1.5:
-                        warn = f"Frame delay {now - next_frame_time:.3f}s"
-                        print(warn)
-                        lf.write(warn + "\n")
                     ret, frame = cap.read()
                     if not ret or frame is None:
                         lf.write("Dropped frame\n")
                         print("Dropped frame")
-                        next_frame_time += frame_interval
+                        elapsed = time.time() - last_frame_time
+                        time.sleep(max(0, frame_interval - elapsed))
+                        last_frame_time = time.time()
                         continue
-                    next_frame_time += frame_interval
                     if frame.shape[0] != height or frame.shape[1] != width:
                         warn = (
                             f"Unexpected frame size {frame.shape[1]}x{frame.shape[0]}"
@@ -739,9 +737,13 @@ def main() -> None:
                         lf.write(msg + "\n")
                         suggest_ffmpeg_exit_causes()
                         break
-                    sleep_time = next_frame_time - time.time()
-                    if sleep_time > 0:
-                        time.sleep(sleep_time)
+                    elapsed = time.time() - last_frame_time
+                    if elapsed > frame_interval * 1.5:
+                        warn = f"Frame delay {elapsed:.3f}s"
+                        print(warn)
+                        lf.write(warn + "\n")
+                    time.sleep(max(0, frame_interval - elapsed))
+                    last_frame_time = time.time()
             except KeyboardInterrupt:
                 pass
             finally:
