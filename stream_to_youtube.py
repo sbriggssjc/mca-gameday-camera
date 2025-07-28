@@ -417,8 +417,14 @@ def main() -> None:
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or detected_w)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or detected_h)
     out_width, out_height = STREAM_WIDTH, STREAM_HEIGHT
+    # FFmpeg 5.x introduced changes to the "scale" filter that broke the
+    # previous use of ``force_original_aspect_ratio=cover``.  To maintain
+    # compatibility with FFmpeg 4.4 we instead scale the frame while
+    # preserving the aspect ratio and pad to the desired resolution.
     filter_str = (
-        f"scale={STREAM_WIDTH}:{STREAM_HEIGHT}:force_original_aspect_ratio=cover"
+        f"scale=w={STREAM_WIDTH}:h={STREAM_HEIGHT}:"
+        "force_original_aspect_ratio=decrease,"
+        f"pad={STREAM_WIDTH}:{STREAM_HEIGHT}:(ow-iw)/2:(oh-ih)/2"
     )
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
