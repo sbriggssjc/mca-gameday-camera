@@ -11,6 +11,13 @@ import cv2
 import numpy as np
 
 try:  # pragma: no cover - optional dependency
+    import easyocr
+    _easyocr_reader = easyocr.Reader(["en"], gpu=False)
+except Exception:  # pragma: no cover - optional dependency
+    easyocr = None  # type: ignore
+    _easyocr_reader = None
+
+try:  # pragma: no cover - optional dependency
     import pytesseract
 except Exception:  # pragma: no cover - optional dependency
     pytesseract = None  # type: ignore
@@ -26,6 +33,8 @@ def _log_ocr_attempt(
     jersey_text: Optional[str],
     confidence: float,
     timestamp: Optional[str],
+    *,
+    ocr_method: str,
 ) -> None:
     """Append a single OCR attempt to the log file."""
     try:
@@ -36,6 +45,7 @@ def _log_ocr_attempt(
             "jersey_text": jersey_text,
             "confidence": round(float(confidence) / 100.0, 2),
             "timestamp": timestamp or "",
+            "ocr_method": ocr_method,
         }
         log_path = Path("training/logs/jersey_ocr_attempts.json")
         if log_path.exists():
@@ -71,7 +81,15 @@ def extract_jersey_number(
     """
 
     if pytesseract is None:
-        _log_ocr_attempt(play_id, frame_id, player_bbox, None, 0.0, timestamp)
+        _log_ocr_attempt(
+            play_id,
+            frame_id,
+            player_bbox,
+            None,
+            0.0,
+            timestamp,
+            ocr_method="tesseract",
+        )
         return None, 0.0
 
     x1, y1, x2, y2 = [int(v) for v in player_bbox]
@@ -79,7 +97,15 @@ def extract_jersey_number(
     x2, y2 = max(x1 + 1, x2), max(y1 + 1, y2)
     crop = frame[y1:y2, x1:x2]
     if crop.size == 0:
-        _log_ocr_attempt(play_id, frame_id, (x1, y1, x2, y2), None, 0.0, timestamp)
+        _log_ocr_attempt(
+            play_id,
+            frame_id,
+            (x1, y1, x2, y2),
+            None,
+            0.0,
+            timestamp,
+            ocr_method="tesseract",
+        )
         return None, 0.0
 
     crop = cv2.resize(crop, None, fx=2, fy=2, interpolation=cv2.INTER_LINEAR)
@@ -154,7 +180,45 @@ def extract_jersey_number(
         )
 
     # Log this OCR attempt for analysis
-    _log_ocr_attempt(play_id, frame_id, (x1, y1, x2, y2), result, best_conf, timestamp)
+    _log_ocr_attempt(
+        play_id,
+        frame_id,
+        (x1, y1, x2, y2),
+        result,
+        best_conf,
+        timestamp,
+        ocr_method="tesseract",
+    )
+
+    if (result is None or best_conf < 50.0) and _easyocr_reader is not None:
+        try:
+            easy_results = _easyocr_reader.readtext(crop)
+        except Exception:
+            easy_results = []
+
+        easy_text: str | None = None
+        easy_conf = 0.0
+        for _, text, conf in easy_results:
+            candidate = "".join(ch for ch in text if ch.isdigit())
+            if not candidate.isdigit():
+                continue
+            if conf > easy_conf:
+                easy_conf = float(conf)
+                easy_text = candidate
+
+        if easy_text and 1 <= int(easy_text) <= 99:
+            result = easy_text
+            best_conf = easy_conf * 100.0
+
+        _log_ocr_attempt(
+            play_id,
+            frame_id,
+            (x1, y1, x2, y2),
+            easy_text,
+            easy_conf * 100.0,
+            timestamp,
+            ocr_method="easyocr",
+        )
 
     # Optionally save cropped patch for later review
     if frame_id is not None and bbox_id is not None and play_id is not None:
