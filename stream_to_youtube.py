@@ -214,6 +214,12 @@ def build_ffmpeg_command(
         "aac",
         "-b:a",
         "128k",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-sample_fmt",
+        "fltp",
         "-f",
         "tee",
         f"[f=flv]{url}|[f=mp4]{output}",
@@ -278,6 +284,12 @@ def build_v4l2_command(
         "aac",
         "-b:a",
         "128k",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-sample_fmt",
+        "fltp",
         "-f",
         "tee",
         f"[f=flv]{url}|[f=mp4]{output}",
@@ -341,6 +353,12 @@ def build_record_command(
         "aac",
         "-b:a",
         "128k",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-sample_fmt",
+        "fltp",
         str(output),
     ]
     return cmd
@@ -362,17 +380,17 @@ def main() -> None:
     )
     parser.add_argument(
         "--bitrate",
-        default="6000k",
+        default="13500k",
         help="target video bitrate",
     )
     parser.add_argument(
         "--maxrate",
-        default="6000k",
+        default="13500k",
         help="maximum video bitrate",
     )
     parser.add_argument(
         "--bufsize",
-        default="12000k",
+        default="27000k",
         help="encoder buffer size",
     )
     parser.add_argument(
