@@ -292,7 +292,7 @@ def process_uploaded_game_film(
         print(f"\u2705 Retraining bundle created: {bundle_path.name}")
 
     print(
-        f"\u26a0\ufe0f  Review queue updated: {queue_length()} items pending in /training/review_queue.json"
+        f"\u26a0\ufe0f  Review queue updated: {queue_length()} items pending in ./training/review_queue.json"
     )
 
 
