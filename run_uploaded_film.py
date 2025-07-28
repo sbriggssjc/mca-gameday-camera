@@ -13,6 +13,8 @@ original_stderr = sys.stderr
 sys.stdout = open(log_path, "w")
 sys.stderr = sys.stdout
 
+print("[DEBUG] Logging system initialized successfully.")
+
 from manual_video_processor import process_uploaded_game_film
 
 
@@ -58,12 +60,18 @@ def main() -> None:
             )
     else:
         video_path = upload_dir / args.video
+    video_path = Path("video/manual_uploads") / args.video
+    try:
+
         process_uploaded_game_film(
             str(video_path),
             purge_after=args.purge_after,
             max_frames_per_play=args.max_frames_per_play,
             prepare_retrain=args.prepare_retrain,
         )
+
+    except Exception as e:
+        print(f"[ERROR] Exception during processing: {e}")
 
 
 if __name__ == "__main__":
