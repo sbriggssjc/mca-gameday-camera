@@ -170,6 +170,14 @@ def main() -> None:
     highlight_files: list[Path] = []
     prev_home = -1
     prev_away = -1
+    drive_log_path = output_dir / "drive_summaries.csv"
+    write_header = not drive_log_path.exists()
+    drive_log_fp = open(drive_log_path, "a", newline="")
+    drive_writer = csv.writer(drive_log_fp)
+    if write_header:
+        drive_writer.writerow(["start", "end", "home", "away", "duration", "clip"])
+    drive_start_clock = "--:--"
+    drive_start_time = time.time()
 
 
     try:
@@ -222,12 +230,47 @@ def main() -> None:
                         f"{clock.replace(':', '-')}.mp4"
                     )
                     clip_path = highlight_dir / clip_name
+                    duration = int(time.time() - drive_start_time)
+                    overlay_text = (
+                        f"{drive_start_clock} → {clock} | "
+                        f"{prev_home}-{prev_away} → {home_val}-{away_val} | {duration}s"
+                    )
                     writer = open_writer(clip_path, FPS, (WIDTH, HEIGHT))
                     for f in buffer:
-                        writer.write(f)
+                        frame_copy = f.copy()
+                        cv2.putText(
+                            frame_copy,
+                            overlay_text,
+                            (10, 30),
+                            FONT,
+                            FONT_SCALE,
+                            (0, 255, 0),
+                            THICKNESS,
+                            cv2.LINE_AA,
+                        )
+                        writer.write(frame_copy)
                     writer.release()
+                    drive_writer.writerow(
+                        [
+                            drive_start_clock,
+                            clock,
+                            str(home_val),
+                            str(away_val),
+                            f"{duration}s",
+                            clip_name,
+                        ]
+                    )
+                    drive_log_fp.flush()
+                    print(
+                        f"Drive {drive_start_clock}-{clock} {prev_home}-{prev_away} -> {home_val}-{away_val} ({duration}s)"
+                    )
                     print(f"Saved highlight clip: {clip_path}")
                     highlight_files.append(clip_path)
+                    drive_start_clock = clock
+                    drive_start_time = time.time()
+                elif prev_home < 0:
+                    drive_start_clock = clock
+                    drive_start_time = time.time()
                 prev_home = home_val
                 prev_away = away_val
 
@@ -287,6 +330,7 @@ def main() -> None:
         if process:
             process.wait()
         log_fp.close()
+        drive_log_fp.close()
         cv2.destroyAllWindows()
 
     # Upload the recorded file and log to Google Drive after streaming finishes
@@ -347,6 +391,20 @@ def main() -> None:
                 f"https://drive.google.com/file/d/{log_drive['id']}/view"
             )
             print(f"Uploaded {log_file.name} -> {log_view_url}")
+
+            drive_summary_drive = drive.CreateFile(
+                {
+                    "title": drive_log_path.name,
+                    "parents": [{"id": game_folder_id}],
+                    "mimeType": "text/csv",
+                }
+            )
+            drive_summary_drive.SetContentFile(str(drive_log_path))
+            drive_summary_drive.Upload()
+            drive_summary_url = (
+                f"https://drive.google.com/file/d/{drive_summary_drive['id']}/view"
+            )
+            print(f"Uploaded {drive_log_path.name} -> {drive_summary_url}")
 
             for clip_path in highlight_files:
                 clip_drive = drive.CreateFile(
