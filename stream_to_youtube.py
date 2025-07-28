@@ -124,6 +124,14 @@ def read_scoreboard(frame: "cv2.Mat") -> tuple[str, str, str]:
     return clock, home, away
 
 
+def parse_clock(clock: str) -> int | None:
+    """Return the clock time in seconds or None if invalid."""
+    m = re.match(r"(\d{1,2}):(\d{2})", clock)
+    if m:
+        return int(m.group(1)) * 60 + int(m.group(2))
+    return None
+
+
 def launch_ffmpeg(width: int, height: int, record_path: Path) -> subprocess.Popen:
     cmd = [
         "ffmpeg",
@@ -208,6 +216,16 @@ def main() -> None:
     drive_start_clock = "--:--"
     drive_start_time = time.time()
 
+    sub_log_path = output_dir / f"game_{timestamp}_substitution_log.csv"
+    sub_log_fp = open(sub_log_path, "w", newline="")
+    sub_log_writer = csv.writer(sub_log_fp)
+    sub_log_writer.writerow(["timestamp", "type", "player_id", "message"])
+
+    sub_state: dict[str, str] = {}
+    last_sub_check_time = start
+    prev_clock_secs: int | None = None
+    game_half = 1
+
     def check_alerts() -> None:
         nonlocal plays_since_check, last_check_time
         now_check = time.time()
@@ -236,6 +254,49 @@ def main() -> None:
         plays_since_check = 0
         last_check_time = now_check
         alert_fp.flush()
+
+    def check_substitutions(clock_str: str) -> None:
+        nonlocal last_sub_check_time, prev_clock_secs, game_half
+        now_sub = time.time()
+        if now_sub - last_sub_check_time < 60:
+            return
+        clock_secs = parse_clock(clock_str)
+        if clock_secs is None:
+            return
+        if prev_clock_secs is not None and clock_secs > prev_clock_secs + 60:
+            game_half = 2
+        prev_clock_secs = clock_secs
+        remaining_secs = clock_secs + (HALFTIME_SECS if game_half == 1 else 0)
+        for pid, cnt in play_counts.items():
+            if cnt >= 7:
+                if pid in sub_state:
+                    sub_state.pop(pid)
+                continue
+            need = 7 - cnt
+            new_state = None
+            msg = ""
+            if remaining_secs < need * 60:
+                new_state = "warn"
+                mins, secs = divmod(remaining_secs, 60)
+                msg = (
+                    f"[\u23F1 TIME WARNING] #{pid} unlikely to hit 7 plays \u2014 "
+                    f"{mins}:{secs:02d} remaining"
+                )
+            elif cnt < 4:
+                new_state = "sub"
+                msg = (
+                    f"[\U0001F45F SUB IN] #{pid} needs {need} more plays \u2014 "
+                    "recommend subbing now"
+                )
+            if new_state and sub_state.get(pid) != new_state:
+                print(msg)
+                ts = datetime.now().strftime("%H:%M:%S")
+                sub_log_writer.writerow([ts, new_state, pid, msg])
+                sub_log_fp.flush()
+                sub_state[pid] = new_state
+            elif new_state is None and pid in sub_state:
+                sub_state.pop(pid)
+        last_sub_check_time = now_sub
 
 
     try:
@@ -331,6 +392,7 @@ def main() -> None:
                     drive_start_time = time.time()
                 prev_home = home_val
                 prev_away = away_val
+                check_substitutions(clock)
 
             overlay_info(frame, frame_count, scoreboard)
             cv2.imshow("Stream Preview", frame)
@@ -393,6 +455,7 @@ def main() -> None:
             process.wait()
         log_fp.close()
         drive_log_fp.close()
+        sub_log_fp.close()
         alert_fp.close()
         cv2.destroyAllWindows()
 
