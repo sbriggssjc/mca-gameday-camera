@@ -181,8 +181,10 @@ def build_ffmpeg_command(
         "bgr24",
         "-s",
         f"{width}x{height}",
+        "-framerate",
+        str(int(fps)),
         "-r",
-        str(fps),
+        str(int(fps)),
         "-i",
         "-",
         "-thread_queue_size",
@@ -207,7 +209,7 @@ def build_ffmpeg_command(
             "-x264-params",
             "bframes=0",
         ]
-    cmd += ["-pix_fmt", "yuv420p"]
+    cmd += ["-pix_fmt", "yuv420p", "-r", str(int(fps))]
     if filters:
         cmd.extend(["-vf", filters])
     cmd += [
@@ -267,6 +269,8 @@ def build_v4l2_command(
         str(int(fps)),
         "-video_size",
         f"{width}x{height}",
+        "-r",
+        str(int(fps)),
         "-i",
         device,
         "-thread_queue_size",
@@ -291,7 +295,7 @@ def build_v4l2_command(
             "-x264-params",
             "bframes=0",
         ]
-    cmd += ["-pix_fmt", "yuv420p"]
+    cmd += ["-pix_fmt", "yuv420p", "-r", str(int(fps))]
     if filters:
         cmd.extend(["-vf", filters])
     cmd += [
@@ -350,6 +354,8 @@ def build_record_command(
         str(int(fps)),
         "-video_size",
         f"{width}x{height}",
+        "-r",
+        str(int(fps)),
         "-i",
         device,
         "-thread_queue_size",
@@ -374,7 +380,7 @@ def build_record_command(
             "-x264-params",
             "bframes=0",
         ]
-    cmd += ["-pix_fmt", "yuv420p"]
+    cmd += ["-pix_fmt", "yuv420p", "-r", str(int(fps))]
     if filters:
         cmd.extend(["-vf", filters])
     cmd += [
@@ -472,14 +478,16 @@ def main() -> None:
     # stream to be reported as not filling the frame, so scale directly
     # to the output size.
     # Always scale to the full output resolution and set the display
-    # aspect ratio so YouTube displays the feed without padding.
-    filter_str = "scale=1920:1080,setdar=16/9"
+    # aspect ratio so YouTube displays the feed without padding. Also
+    # force a 30fps output so the stream maintains a consistent frame
+    # rate when sent to FFmpeg.
+    filter_str = "scale=1920:1080,setsar=1,setdar=16/9,fps=30"
 
     # Force a 30fps capture rate so FFmpeg receives frames at a
     # consistent realtime pace. Some cameras report incorrect FPS
     # values so we explicitly override to match the FFmpeg input rate.
     fps = STREAM_FPS
-    cap.set(cv2.CAP_PROP_FPS, fps)
+    cap.set(cv2.CAP_PROP_FPS, 30)
 
 
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -541,7 +549,7 @@ def main() -> None:
         sys.exit(f"Unable to reopen camera {device}")
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, out_width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, out_height)
-    cap.set(cv2.CAP_PROP_FPS, fps)
+    cap.set(cv2.CAP_PROP_FPS, 30)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or out_width)
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or out_height)
     if width != out_width or height != out_height:
