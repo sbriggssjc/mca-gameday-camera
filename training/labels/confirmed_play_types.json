@@ -1,0 +1,7 @@
+[
+  {"filename": "frame1.jpg", "play_type": "run"},
+  {"filename": "frame1.jpg", "play_type": "run"},
+  {"filename": "frame2.jpg", "play_type": "pass"},
+  {"filename": "frame2.jpg", "play_type": "run"},
+  {"filename": "frame3.jpg", "play_type": null}
+]
