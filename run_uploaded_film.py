@@ -34,12 +34,18 @@ def main() -> None:
         default=2,
         help="Maximum training frames to save per play",
     )
+    parser.add_argument(
+        "--prepare_retrain",
+        action="store_true",
+        help="Create retraining bundle after processing",
+    )
     args = parser.parse_args()
     video_path = Path("video/manual_uploads") / args.video
     process_uploaded_game_film(
         str(video_path),
         purge_after=args.purge_after,
         max_frames_per_play=args.max_frames_per_play,
+        prepare_retrain=args.prepare_retrain,
     )
 
 
