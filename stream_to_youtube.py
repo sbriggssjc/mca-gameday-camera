@@ -33,6 +33,12 @@ CLOCK_ROI = (50, 100, 900, 1100)
 HOME_ROI = (100, 150, 830, 930)
 AWAY_ROI = (100, 150, 1090, 1190)
 
+# Play count alert settings
+HALFTIME_SECS = 20 * 60  # halftime at 20:00
+FINAL_WARNING_SECS = 34 * 60  # 6:00 remaining in a 40 minute game
+HALFTIME_MIN_PLAYS = 3
+FINAL_MIN_PLAYS = 7
+
 
 def open_writer(path: Path, fps: float, size: tuple[int, int]) -> cv2.VideoWriter:
     """Open an MP4 writer, falling back to MJPG if needed."""
@@ -169,10 +175,17 @@ def main() -> None:
     log_fp = open(log_file, "w", newline="")
     log_writer = csv.writer(log_fp)
     log_writer.writerow(["timestamp", "player_id"])
+    start = time.time()
+    alert_log_file = output_dir / f"game_{timestamp}_alerts.log"
+    alert_fp = open(alert_log_file, "w", encoding="utf-8")
+    play_counts: dict[str, int] = {}
+    plays_since_check = 0
+    last_check_time = start
+    halftime_alerted: set[str] = set()
+    final_alerted: set[str] = set()
     cv2.namedWindow("Stream Preview", cv2.WINDOW_NORMAL)
     frame_interval = 1.0 / FPS
     frame_count = 0
-    start = time.time()
     last_log = start
     fps_start = start
     fps_counter = 0
@@ -194,6 +207,35 @@ def main() -> None:
         drive_writer.writerow(["start", "end", "home", "away", "duration", "clip"])
     drive_start_clock = "--:--"
     drive_start_time = time.time()
+
+    def check_alerts() -> None:
+        nonlocal plays_since_check, last_check_time
+        now_check = time.time()
+        if plays_since_check < 5 and now_check - last_check_time < 60:
+            return
+        elapsed_secs = int(now_check - start)
+        if elapsed_secs >= HALFTIME_SECS:
+            for pid, cnt in play_counts.items():
+                if cnt < HALFTIME_MIN_PLAYS and pid not in halftime_alerted:
+                    msg = f"[\u26A0\uFE0F ALERT] #{pid} has only {cnt} plays at halftime"
+                    print(msg)
+                    alert_fp.write(msg + "\n")
+                    halftime_alerted.add(pid)
+        if elapsed_secs >= FINAL_WARNING_SECS:
+            remaining = max(HALFTIME_SECS * 2 - elapsed_secs, 0)
+            mins, secs = divmod(remaining, 60)
+            for pid, cnt in play_counts.items():
+                if cnt < FINAL_MIN_PLAYS and pid not in final_alerted:
+                    msg = (
+                        f"[\U0001F6A8 FINAL WARNING] #{pid} has only {cnt} plays "
+                        f"\u2014 {mins}:{secs:02d} remaining"
+                    )
+                    print(msg)
+                    alert_fp.write(msg + "\n")
+                    final_alerted.add(pid)
+        plays_since_check = 0
+        last_check_time = now_check
+        alert_fp.flush()
 
 
     try:
@@ -304,6 +346,9 @@ def main() -> None:
                     log_writer.writerow([ts, char])
                     log_fp.flush()
                     print(f"[LOG] Player {char} logged at {ts}")
+                    play_counts[char] = play_counts.get(char, 0) + 1
+                    plays_since_check += 1
+                    check_alerts()
             if process and process.stdin:
                 try:
                     process.stdin.write(frame.tobytes())
@@ -339,6 +384,7 @@ def main() -> None:
             delay = frame_interval - (time.time() - loop_start)
             if delay > 0:
                 time.sleep(delay)
+            check_alerts()
     finally:
         cap.release()
         if process and process.stdin:
@@ -347,6 +393,7 @@ def main() -> None:
             process.wait()
         log_fp.close()
         drive_log_fp.close()
+        alert_fp.close()
         cv2.destroyAllWindows()
 
     # Upload the recorded file and log to Google Drive after streaming finishes
