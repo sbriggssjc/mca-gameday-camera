@@ -20,8 +20,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Process uploaded game film")
     parser.add_argument(
         "--video",
-        required=True,
-        help="Video file name within video/manual_uploads",
+        required=False,
+        help="Specific video to process",
     )
     parser.add_argument(
         "--purge_after",
@@ -40,13 +40,30 @@ def main() -> None:
         help="Create retraining bundle after processing",
     )
     args = parser.parse_args()
-    video_path = Path("video/manual_uploads") / args.video
-    process_uploaded_game_film(
-        str(video_path),
-        purge_after=args.purge_after,
-        max_frames_per_play=args.max_frames_per_play,
-        prepare_retrain=args.prepare_retrain,
-    )
+    upload_dir = Path("video/manual_uploads")
+
+    if args.video is None:
+        videos = [
+            p
+            for p in upload_dir.iterdir()
+            if p.suffix.lower() in {".mp4", ".mov"}
+        ]
+        for video_path in videos:
+            print(f"Processing {video_path.name}...")
+            process_uploaded_game_film(
+                str(video_path),
+                purge_after=args.purge_after,
+                max_frames_per_play=args.max_frames_per_play,
+                prepare_retrain=args.prepare_retrain,
+            )
+    else:
+        video_path = upload_dir / args.video
+        process_uploaded_game_film(
+            str(video_path),
+            purge_after=args.purge_after,
+            max_frames_per_play=args.max_frames_per_play,
+            prepare_retrain=args.prepare_retrain,
+        )
 
 
 if __name__ == "__main__":
