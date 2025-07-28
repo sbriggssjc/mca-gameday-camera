@@ -37,6 +37,7 @@ def get_camera_resolution(device: str = "/dev/video0") -> tuple[int, int]:
 # Stream resolution constants
 STREAM_WIDTH = 1920
 STREAM_HEIGHT = 1080
+STREAM_FPS = 30.0
 
 from auto_tracker import AutoTracker
 from overlay_engine import OverlayEngine
@@ -166,6 +167,7 @@ def build_ffmpeg_command(
     codec = select_codec()
     cmd = [
         ensure_ffmpeg(),
+        "-re",
         "-loglevel",
         "verbose",
         "-y",
@@ -253,6 +255,7 @@ def build_v4l2_command(
     codec = select_codec()
     cmd = [
         ensure_ffmpeg(),
+        "-re",
         "-loglevel",
         "verbose",
         "-y",
@@ -335,6 +338,7 @@ def build_record_command(
     codec = select_codec()
     cmd = [
         ensure_ffmpeg(),
+        "-re",
         "-loglevel",
         "verbose",
         "-y",
@@ -476,13 +480,13 @@ def main() -> None:
     # Force a 30fps capture rate so FFmpeg receives frames at a
     # consistent realtime pace. Some cameras report incorrect FPS
     # values so we explicitly override to match the FFmpeg input rate.
-    fps = 30.0
+    fps = STREAM_FPS
     cap.set(cv2.CAP_PROP_FPS, fps)
 
 
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
-        fps = 30.0
+        fps = STREAM_FPS
 
 
     state_reader = ScoreboardReader()
@@ -670,7 +674,7 @@ def main() -> None:
             thread_err.start()
             first_frame = True
             frame_count = 0
-            frame_interval = 1.0 / fps
+            frame_interval = 1.0 / STREAM_FPS
             last_frame_time = time.time()
             try:
                 while True:
