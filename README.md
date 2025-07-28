@@ -168,9 +168,10 @@ python youtube_uploader.py --file path/to/video.mp4 --title "My Title" \
 ## upload_to_drive.py
 
 `upload_to_drive.py` sends finished recordings to Google Drive using
-[PyDrive](https://github.com/googledrive/PyDrive). The first run will prompt for
-OAuth2 authentication and store credentials in `drive_token.json`. Set the
-destination folder ID with the `GDRIVE_FOLDER_ID` environment variable:
+[PyDrive](https://github.com/googledrive/PyDrive). The first run requires a
+`client_secrets.json` OAuth file in this directory. After authenticating,
+credentials are stored in `drive_token.json` so future runs reuse them.
+Set the destination folder ID with the `GDRIVE_FOLDER_ID` environment variable:
 
 ```bash
 export GDRIVE_FOLDER_ID=your_folder_id
