@@ -60,22 +60,15 @@ def main() -> None:
         while True:
             loop_start = time.time()
             ret, frame = cap.read()
-            if not ret:
-                print("\u274c Camera not returning valid frames")
-                break
-            frame_count += 1
-            cv2.putText(
-                frame,
-                f"Frame {frame_count}",
-                (50, 50),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 255, 0),
-                2,
-            )
-            print(
-                f"Sending frame {frame_count}: shape={frame.shape}, dtype={frame.dtype}"
-            )
+            if not ret or frame is None:
+                print("\u26a0\ufe0f Invalid frame received", file=sys.stderr)
+                continue
+            if frame.shape != (HEIGHT, WIDTH, 3):
+                print(
+                    f"\u26a0\ufe0f Unexpected frame shape {frame.shape}",
+                    file=sys.stderr,
+                )
+                continue
             try:
                 process.stdin.write(frame.tobytes())
                 process.stdin.flush()
@@ -83,6 +76,7 @@ def main() -> None:
                 print("FFmpeg pipe closed (BrokenPipeError). Exiting.")
                 break
 
+            frame_count += 1
             if frame_count % 30 == 0:
                 elapsed = time.time() - start
                 print(
