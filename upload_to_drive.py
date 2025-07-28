@@ -35,18 +35,32 @@ def get_drive() -> GoogleDrive:
     """
 
     gauth = GoogleAuth()
-    gauth.LoadCredentialsFile(TOKEN_FILE)
+
+    try:
+        gauth.LoadCredentialsFile(TOKEN_FILE)
+    except Exception:
+        print("[\u26A0\uFE0F] No drive_token.json found. Starting OAuth flow.")
+
     if gauth.credentials is None:
-        # Detect headless environment
-        if os.getenv("DISPLAY"):
-            try:
+        if not os.path.exists("client_secrets.json"):
+            print("[\u274C] Missing client_secrets.json. Cannot authenticate with Google Drive.")
+            print("Visit https://console.cloud.google.com to create and download it.")
+            raise RuntimeError("client_secrets.json missing")
+
+        try:
+            if os.getenv("DISPLAY"):
                 gauth.LocalWebserverAuth()
-            except Exception:
+            else:
                 gauth.CommandLineAuth()
-        else:
-            gauth.CommandLineAuth()
-    elif gauth.access_token_expired:
-        gauth.Refresh()
+            gauth.SaveCredentialsFile(TOKEN_FILE)
+            print("[\u2705] OAuth success. Credentials saved to drive_token.json")
+        except Exception as exc:
+            raise RuntimeError(f"Google Drive login failed: {exc}") from exc
+    else:
+        if gauth.access_token_expired:
+            gauth.Refresh()
+        gauth.Authorize()
+
     gauth.SaveCredentialsFile(TOKEN_FILE)
     return GoogleDrive(gauth)
 
