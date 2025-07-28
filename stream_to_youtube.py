@@ -1,4 +1,5 @@
 import cv2
+import csv
 import subprocess
 import time
 import sys
@@ -86,7 +87,12 @@ def main() -> None:
     output_dir.mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     record_file = output_dir / f"game_{timestamp}.mp4"
+    log_file = output_dir / f"game_{timestamp}_play_log.csv"
     process = launch_ffmpeg(WIDTH, HEIGHT, record_file)
+    log_fp = open(log_file, "w", newline="")
+    log_writer = csv.writer(log_fp)
+    log_writer.writerow(["timestamp", "player_id"])
+    cv2.namedWindow("Stream Preview", cv2.WINDOW_NORMAL)
     frame_interval = 1.0 / FPS
     frame_count = 0
     start = time.time()
@@ -106,6 +112,19 @@ def main() -> None:
                 )
                 continue
             overlay_info(frame, frame_count)
+            cv2.imshow("Stream Preview", frame)
+            key = cv2.waitKey(1) & 0xFF
+            if key != 255:
+                if key in {ord('q'), 27}:
+                    break
+                char = chr(key).upper()
+                if ('1' <= char <= '9') or ('A' <= char <= 'Z'):
+                    elapsed = int(time.time() - start)
+                    minutes, seconds = divmod(elapsed, 60)
+                    ts = f"{minutes:02d}:{seconds:02d}"
+                    log_writer.writerow([ts, char])
+                    log_fp.flush()
+                    print(f"[LOG] Player {char} logged at {ts}")
             try:
                 process.stdin.write(frame.tobytes())
                 process.stdin.flush()
@@ -137,6 +156,8 @@ def main() -> None:
         if process.stdin:
             process.stdin.close()
         process.wait()
+        log_fp.close()
+        cv2.destroyAllWindows()
 
     # Upload the recorded file to Google Drive after streaming finishes
     drive_folder_id = os.getenv("GDRIVE_FOLDER_ID")
