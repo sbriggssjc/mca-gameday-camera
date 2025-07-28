@@ -1,0 +1,4 @@
+usage: run_uploaded_film.py [-h] --video VIDEO [--purge_after]
+                            [--max_frames_per_play MAX_FRAMES_PER_PLAY]
+                            [--prepare_retrain]
+run_uploaded_film.py: error: the following arguments are required: --video
