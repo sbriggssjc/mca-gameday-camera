@@ -5,11 +5,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-JERSEY_PATH = Path("/training/labels/confirmed_jerseys.json")
-PLAY_PATH = Path("/training/labels/confirmed_play_types.json")
-CLEANED_JERSEY_PATH = Path("/training/labels/cleaned_jerseys.json")
-CLEANED_PLAY_PATH = Path("/training/labels/cleaned_play_types.json")
-LOG_PATH = Path("/training/logs/label_cleaning_log.json")
+JERSEY_PATH = Path("./training/labels/confirmed_jerseys.json")
+PLAY_PATH = Path("./training/labels/confirmed_play_types.json")
+CLEANED_JERSEY_PATH = Path("./training/labels/cleaned_jerseys.json")
+CLEANED_PLAY_PATH = Path("./training/labels/cleaned_play_types.json")
+LOG_PATH = Path("./training/logs/label_cleaning_log.json")
 
 
 def load_entries(path: Path) -> List[Dict]:

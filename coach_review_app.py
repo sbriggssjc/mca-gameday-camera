@@ -4,12 +4,12 @@ from datetime import datetime
 import streamlit as st
 
 
-OCR_REVIEW_PATH = Path('/training/labels/ocr_review.json')
-CONFIRMED_JERSEYS_PATH = Path('/training/labels/confirmed_jerseys.json')
-UNCERTAIN_DIR = Path('/training/uncertain_jerseys')
-LABELS_DIR = Path('/training/labels')
-FRAMES_DIR = Path('/training/frames')
-CONFIRMED_PLAYS_PATH = Path('/training/labels/confirmed_play_types.json')
+OCR_REVIEW_PATH = Path('./training/labels/ocr_review.json')
+CONFIRMED_JERSEYS_PATH = Path('./training/labels/confirmed_jerseys.json')
+UNCERTAIN_DIR = Path('./training/uncertain_jerseys')
+LABELS_DIR = Path('./training/labels')
+FRAMES_DIR = Path('./training/frames')
+CONFIRMED_PLAYS_PATH = Path('./training/labels/confirmed_play_types.json')
 
 
 st.set_page_config(page_title='Coach Review', layout='wide')
