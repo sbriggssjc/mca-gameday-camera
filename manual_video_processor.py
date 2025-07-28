@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Set
 
 import cv2
 
@@ -60,9 +60,8 @@ def process_uploaded_game_film(video_path: str, *, purge_after: bool = False) ->
     frame_logs: List[Dict[str, object]] = []
     jersey_counts: Dict[int, int] = {}
     play_counts: Dict[str, int] = {}
-    play_participation: Dict[str, List[int]] = {}
+    player_play_counts: Dict[str, Set[int]] = {}
     clip_frames: List = []
-    current_play_jerseys: set[str] = set()
     play_id = 1
 
     frame_index = 0
@@ -99,7 +98,8 @@ def process_uploaded_game_film(video_path: str, *, purge_after: bool = False) ->
             if num is not None and conf >= 50.0:
                 jerseys.append(int(num))
                 jersey_counts[int(num)] = jersey_counts.get(int(num), 0) + 1
-                current_play_jerseys.add(num)
+                plays = player_play_counts.setdefault(str(num), set())
+                plays.add(play_id)
 
         state = scoreboard.update(frame)
 
@@ -118,12 +118,7 @@ def process_uploaded_game_film(video_path: str, *, purge_after: bool = False) ->
             formation, direction, ptype, mean_flow = detect_play_attributes(clip_frames)
             name, conf = match_play(formation, direction, ptype, mean_flow, playbook)
             play_counts[name] = play_counts.get(name, 0) + 1
-            for j in current_play_jerseys:
-                plays = play_participation.setdefault(j, [])
-                if play_id not in plays:
-                    plays.append(play_id)
             play_id += 1
-            current_play_jerseys.clear()
             clip_frames.clear()
 
         if total_frames:
@@ -144,7 +139,7 @@ def process_uploaded_game_film(video_path: str, *, purge_after: bool = False) ->
         "jersey_counts": jersey_counts,
         "play_counts": play_counts,
     }
-    participation_counts = {j: len(plays) for j, plays in play_participation.items()}
+    participation_counts = {j: len(ids) for j, ids in player_play_counts.items()}
     summary_path = summary_dir / f"{path.stem}_summary.json"
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
@@ -154,6 +149,8 @@ def process_uploaded_game_film(video_path: str, *, purge_after: bool = False) ->
     part_path = summaries_dir / "player_play_counts.json"
     with open(part_path, "w", encoding="utf-8") as f:
         json.dump(participation_counts, f, indent=2)
+    print(
+        f"\u2705 Player play count summary saved: {part_path}")
 
 
     video_ok = upload_to_google_drive(str(path), "GameFilmUploads")
