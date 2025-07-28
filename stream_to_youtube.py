@@ -2,6 +2,8 @@ import cv2
 import subprocess
 import time
 import sys
+from datetime import datetime
+from pathlib import Path
 
 WIDTH = 1920
 HEIGHT = 1080
@@ -11,7 +13,7 @@ BITRATE = "6000k"
 BUFSIZE = "12000k"
 
 
-def launch_ffmpeg(width: int, height: int) -> subprocess.Popen:
+def launch_ffmpeg(width: int, height: int, record_path: Path) -> subprocess.Popen:
     cmd = [
         "ffmpeg",
         "-re",
@@ -34,9 +36,11 @@ def launch_ffmpeg(width: int, height: int) -> subprocess.Popen:
         "-c:a", "aac",
         "-b:a", "128k",
         "-ar", "44100",
-        "-ac", "2",
-        "-f", "flv",
-        RTMP_URL,
+        "-ac",
+        "2",
+        "-f",
+        "tee",
+        f"[f=flv]{RTMP_URL}|[f=mp4]{record_path}",
     ]
     return subprocess.Popen(cmd, stdin=subprocess.PIPE)
 
@@ -51,7 +55,11 @@ def main() -> None:
     if not cap.isOpened():
         sys.exit("Unable to open camera")
 
-    process = launch_ffmpeg(WIDTH, HEIGHT)
+    output_dir = Path("video")
+    output_dir.mkdir(exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    record_file = output_dir / f"game_{timestamp}.mp4"
+    process = launch_ffmpeg(WIDTH, HEIGHT, record_file)
     frame_interval = 1.0 / FPS
     frame_count = 0
     start = time.time()
