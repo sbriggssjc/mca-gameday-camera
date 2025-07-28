@@ -6,6 +6,8 @@ import sys
 import time
 import threading
 import argparse
+import select
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 
@@ -118,13 +120,35 @@ def select_codec() -> str:
     return "libx264"
 
 
-def log_ffmpeg_stderr(stderr, log_file=None) -> None:
-    """Continuously read and print FFmpeg stderr."""
+def log_ffmpeg_stderr(stderr, log_file=None, buffer=None) -> None:
+    """Continuously read and print FFmpeg stderr.
+
+    Parameters
+    ----------
+    stderr : IO[Any]
+        The stderr pipe from FFmpeg.
+    log_file : IO[str] | None
+        Optional log file to write stderr output to.
+    buffer : collections.deque[str] | None
+        Optional deque used to store recent stderr lines for later
+        inspection if FFmpeg exits early.
+    """
     for line in stderr:
         text = line.decode("utf-8", errors="ignore")
+        if buffer is not None:
+            buffer.append(text)
         if log_file is not None:
             log_file.write(text)
         print("[FFMPEG]", text, end="")
+
+
+def suggest_ffmpeg_exit_causes() -> None:
+    """Print common reasons FFmpeg might exit immediately."""
+    print("Possible reasons for early FFmpeg termination:")
+    print("- Invalid input format (e.g., incorrect OpenCV frame encoding)")
+    print("- Bad or missing input resolution or frame rate")
+    print("- Stream key or RTMP URL problems")
+    print("- Missing ffmpeg binary or codecs")
 
 
 def validate_rtmp_url(url: str) -> None:
@@ -523,6 +547,7 @@ def main() -> None:
             lf.write("Running FFmpeg command: " + cmd_str + "\n")
             lf.write(f"Audio enabled: {'-c:a' in cmd}\n")
             lf.write(f"Video enabled: {'-c:v' in cmd}\n")
+            stderr_buffer = deque(maxlen=50)
             process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
@@ -532,8 +557,29 @@ def main() -> None:
                 bufsize=10**8,
             )
             lf.write(f"FFmpeg PID: {process.pid}\n")
+            # Give FFmpeg a moment to start and capture any immediate errors
+            startup_timeout = 5
+            start_time = time.time()
+            while time.time() - start_time < startup_timeout:
+                if process.poll() is not None:
+                    break
+                if process.stderr in select.select([process.stderr], [], [], 0.1)[0]:
+                    line = process.stderr.readline()
+                    if line:
+                        text = line.decode("utf-8", errors="ignore")
+                        stderr_buffer.append(text)
+                        lf.write(text)
+                        print("[FFMPEG]", text, end="")
+                else:
+                    time.sleep(0.1)
             if process.poll() is not None:
-                print("FFmpeg failed to launch. Exiting...")
+                print(f"FFmpeg failed to launch with code {process.returncode}")
+                lf.write(f"FFmpeg exited early with code {process.returncode}\n")
+                err_text = "".join(stderr_buffer)
+                if err_text:
+                    print(err_text)
+                    lf.write(err_text)
+                suggest_ffmpeg_exit_causes()
                 return
 
             def _reader(pipe, logf):
@@ -551,8 +597,14 @@ def main() -> None:
                     if match and int(match.group(1)) > 500:
                         logf.write("ALERT: frame delay > 500ms\n")
 
-            thread_out = threading.Thread(target=_reader, args=(process.stdout, lf), daemon=True)
-            thread_err = threading.Thread(target=log_ffmpeg_stderr, args=(process.stderr, lf), daemon=True)
+            thread_out = threading.Thread(
+                target=_reader, args=(process.stdout, lf), daemon=True
+            )
+            thread_err = threading.Thread(
+                target=log_ffmpeg_stderr,
+                args=(process.stderr, lf, stderr_buffer),
+                daemon=True,
+            )
             thread_out.start()
             thread_err.start()
             first_frame = True
@@ -617,10 +669,22 @@ def main() -> None:
                         )
                     print(f"Writing frame of shape {frame_resized.shape} to FFmpeg")
                     try:
-                        if process.poll() is not None or process.stdin.closed:
-                            raise BrokenPipeError("FFmpeg process terminated")
+                        if process.poll() is not None:
+                            msg = f"FFmpeg exited with code {process.returncode}"
+                            print(msg)
+                            lf.write(msg + "\n")
+                            err_text = "".join(stderr_buffer)
+                            if err_text:
+                                print(err_text)
+                                lf.write(err_text)
+                            suggest_ffmpeg_exit_causes()
+                            break
+                        if process.stdin.closed:
+                            raise BrokenPipeError("FFmpeg stdin closed")
                         if pix_fmt == "rgb24":
-                            frame_conv = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
+                            frame_conv = cv2.cvtColor(
+                                frame_resized, cv2.COLOR_BGR2RGB
+                            )
                             process.stdin.write(frame_conv.astype(np.uint8).tobytes())
                         else:
                             process.stdin.write(frame_resized.astype(np.uint8).tobytes())
@@ -628,10 +692,17 @@ def main() -> None:
                         frame_count += 1
                         if frame_count % 30 == 0:
                             print(f"Sent {frame_count} frames to FFmpeg")
-                    except (BrokenPipeError, OSError) as exc:
+                    except BrokenPipeError:
+                        msg = "FFmpeg stdin pipe already closed (BrokenPipeError)."
+                        print(msg)
+                        lf.write(msg + "\n")
+                        suggest_ffmpeg_exit_causes()
+                        break
+                    except OSError as exc:
                         msg = f"FFmpeg pipe closed: {exc}. Aborting stream."
                         print(msg)
                         lf.write(msg + "\n")
+                        suggest_ffmpeg_exit_causes()
                         break
                     sleep_time = next_frame_time - time.time()
                     if sleep_time > 0:
