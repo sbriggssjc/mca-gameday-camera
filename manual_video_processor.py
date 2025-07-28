@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Dict, List
 
@@ -14,9 +15,10 @@ from play_recognizer import (
 )
 from scoreboard_reader import ScoreboardReader
 from smart_auto_tracker import SmartAutoTracker
+from gdrive_utils import upload_to_google_drive
 
 
-def process_uploaded_game_film(video_path: str) -> None:
+def process_uploaded_game_film(video_path: str, *, purge_after: bool = False) -> None:
     """Process an uploaded game film video file.
 
     Parameters
@@ -119,11 +121,29 @@ def process_uploaded_game_film(video_path: str) -> None:
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
 
+    video_ok = upload_to_google_drive(str(path), "GameFilmUploads")
+    summary_ok = upload_to_google_drive(str(summary_path), "GameFilmSummaries")
+
+    removed = False
+    if purge_after and video_ok and summary_ok:
+        try:
+            os.remove(path)
+            removed = True
+        except Exception as exc:  # pragma: no cover - filesystem
+            print(f"Failed to delete local video: {exc}")
+
     print("\nProcessing complete")
     print(f"Total plays detected: {summary['total_plays']}")
     print("Jersey numbers tracked:", sorted(jersey_counts.keys()))
     print("Play types identified:")
     for name, cnt in play_counts.items():
         print(f"  {name}: {cnt}")
+
+    print("\nUpload results:")
+    print(f"  Video upload: {'success' if video_ok else 'FAILED'}")
+    print(f"  Summary upload: {'success' if summary_ok else 'FAILED'}")
+    if purge_after:
+        print("  Local video deleted" if removed else "  Local video retained")
+
 
 __all__ = ["process_uploaded_game_film"]
