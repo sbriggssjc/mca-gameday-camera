@@ -16,6 +16,7 @@ from play_recognizer import (
 from scoreboard_reader import ScoreboardReader
 from smart_auto_tracker import SmartAutoTracker
 from gdrive_utils import upload_to_google_drive
+from review_queue import add_entry, queue_length
 
 
 def process_uploaded_game_film(
@@ -104,6 +105,7 @@ def process_uploaded_game_film(
                 frame_id=frame_index,
                 bbox_id=i,
                 timestamp=ts_str,
+                play_id=play_id,
             )
             if num is not None and conf >= 50.0:
                 jerseys.append(int(num))
@@ -136,11 +138,16 @@ def process_uploaded_game_film(
             if max_frames_per_play > 1 and len(clip_frames) > 1:
                 indices.append(len(clip_frames) // 2)
 
+            saved_frame = None
+            saved_ts = ""
             for idx in indices[:max_frames_per_play]:
                 img, fid, fts, jnums = clip_frames[idx]
                 ts_name = fts.replace(":", "-")
                 frame_path = training_frame_dir / f"play_{play_id}_{ts_name}.jpg"
                 cv2.imwrite(str(frame_path), img)
+                if saved_frame is None:
+                    saved_frame = frame_path
+                    saved_ts = fts
                 label = {
                     "play_id": play_id,
                     "video": path.name,
@@ -153,6 +160,16 @@ def process_uploaded_game_film(
                 label_path = training_label_dir / f"play_{play_id}_{ts_name}.json"
                 with open(label_path, "w", encoding="utf-8") as f:
                     json.dump(label, f, indent=2)
+
+            if name == "unknown" and saved_frame is not None:
+                add_entry(
+                    {
+                        "type": "unknown_play",
+                        "frame": str(saved_frame),
+                        "play_id": play_id,
+                        "timestamp": saved_ts,
+                    }
+                )
 
             play_id += 1
             clip_frames.clear()
@@ -215,6 +232,10 @@ def process_uploaded_game_film(
     print(f"  Summary upload: {'success' if summary_ok else 'FAILED'}")
     if purge_after:
         print("  Local video deleted" if removed else "  Local video retained")
+
+    print(
+        f"\u26a0\ufe0f  Review queue updated: {queue_length()} items pending in /training/review_queue.json"
+    )
 
 
 __all__ = ["process_uploaded_game_film"]
