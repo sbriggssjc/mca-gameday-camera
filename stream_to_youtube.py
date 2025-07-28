@@ -2,6 +2,7 @@ import cv2
 import subprocess
 import time
 import sys
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -136,6 +137,32 @@ def main() -> None:
         if process.stdin:
             process.stdin.close()
         process.wait()
+
+    # Upload the recorded file to Google Drive after streaming finishes
+    drive_folder_id = os.getenv("GDRIVE_FOLDER_ID")
+    if drive_folder_id:
+        try:
+            from pydrive.auth import GoogleAuth
+            from pydrive.drive import GoogleDrive
+
+            token_file = "token.json"
+            gauth = GoogleAuth()
+            gauth.LoadCredentialsFile(token_file)
+            if gauth.credentials is None:
+                gauth.LocalWebserverAuth()
+            elif gauth.access_token_expired:
+                gauth.Refresh()
+            gauth.SaveCredentialsFile(token_file)
+            drive = GoogleDrive(gauth)
+
+            gfile = drive.CreateFile({"title": record_file.name,
+                                     "parents": [{"id": drive_folder_id}]})
+            gfile.SetContentFile(str(record_file))
+            gfile.Upload()
+            view_url = f"https://drive.google.com/file/d/{gfile['id']}/view"
+            print(f"Uploaded {record_file.name} -> {view_url}")
+        except Exception as exc:  # pragma: no cover - network/auth
+            print(f"Google Drive upload failed: {exc}")
 
 
 if __name__ == "__main__":
