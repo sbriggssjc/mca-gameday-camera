@@ -97,13 +97,33 @@ def main() -> None:
     frame_count = 0
     start = time.time()
     last_log = start
+    fps_start = start
+    fps_counter = 0
+    no_frame_secs = 0
+    ffmpeg_error = False
 
     try:
         while True:
             loop_start = time.time()
             ret, frame = cap.read()
-            if not ret or frame is None:
+            now = time.time()
+            if ret and frame is not None:
+                fps_counter += 1
+            else:
                 print("\u26a0\ufe0f Invalid frame received", file=sys.stderr)
+            if now - fps_start >= 1:
+                fps_value = fps_counter / (now - fps_start)
+                fps_counter = 0
+                fps_start = now
+                if fps_value == 0:
+                    no_frame_secs += 1
+                else:
+                    no_frame_secs = 0
+                if no_frame_secs >= 5:
+                    print("[\u26A0\uFE0F ALERT] No frames received for 5 seconds. Stream may have stalled.")
+                    print("\a", end="")
+                    no_frame_secs = 5
+            if not ret or frame is None:
                 continue
             if frame.shape != (HEIGHT, WIDTH, 3):
                 print(
@@ -125,12 +145,17 @@ def main() -> None:
                     log_writer.writerow([ts, char])
                     log_fp.flush()
                     print(f"[LOG] Player {char} logged at {ts}")
-            try:
-                process.stdin.write(frame.tobytes())
-                process.stdin.flush()
-            except BrokenPipeError:
-                print("FFmpeg pipe closed (BrokenPipeError). Exiting.")
-                break
+            if process and process.stdin:
+                try:
+                    process.stdin.write(frame.tobytes())
+                    process.stdin.flush()
+                except BrokenPipeError:
+                    print("[\u274C ERROR] FFmpeg pipe closed (BrokenPipeError)")
+                    print("\a", end="")
+                    ffmpeg_error = True
+                    if process.poll() is not None:
+                        process.wait()
+                    process = None
 
             frame_count += 1
             now = time.time()
@@ -144,18 +169,23 @@ def main() -> None:
                 )
                 last_log = now
 
-            if process.poll() is not None:
-                print(f"FFmpeg exited with code {process.returncode}")
-                break
+            if process and process.poll() is not None and not ffmpeg_error:
+                exit_code = process.poll()
+                print(f"[\u274C ERROR] FFmpeg process exited unexpectedly with code {exit_code}")
+                print("\a", end="")
+                ffmpeg_error = True
+                process.wait()
+                process = None
 
             delay = frame_interval - (time.time() - loop_start)
             if delay > 0:
                 time.sleep(delay)
     finally:
         cap.release()
-        if process.stdin:
+        if process and process.stdin:
             process.stdin.close()
-        process.wait()
+        if process:
+            process.wait()
         log_fp.close()
         cv2.destroyAllWindows()
 
