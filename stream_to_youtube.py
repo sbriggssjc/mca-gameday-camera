@@ -89,6 +89,7 @@ def main() -> None:
     frame_interval = 1.0 / FPS
     frame_count = 0
     start = time.time()
+    last_log = start
 
     try:
         while True:
@@ -112,13 +113,16 @@ def main() -> None:
                 break
 
             frame_count += 1
-            if frame_count % 30 == 0:
-                elapsed = time.time() - start
+            now = time.time()
+            if now - last_log >= 5:
+                elapsed = now - start
+                minutes, seconds = divmod(int(elapsed), 60)
+                avg_fps = frame_count / elapsed if elapsed > 0 else 0.0
                 print(
-                    f"Sent {frame_count} frames in {elapsed:.2f} seconds",
-                    file=sys.stderr,
+                    f"[STREAM STATUS] \u23F1\ufe0f {minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Avg FPS: {avg_fps:.2f}",
                     flush=True,
                 )
+                last_log = now
 
             if process.poll() is not None:
                 print(f"FFmpeg exited with code {process.returncode}")
