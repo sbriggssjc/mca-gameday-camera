@@ -1,0 +1,5759 @@
+[
+  {
+    "frame": 1,
+    "time": 0.033564356435643566,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 2,
+    "time": 0.06712871287128713,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 3,
+    "time": 0.10069306930693069,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 4,
+    "time": 0.13425742574257427,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 5,
+    "time": 0.16782178217821783,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 6,
+    "time": 0.20138613861386137,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 7,
+    "time": 0.23495049504950494,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 8,
+    "time": 0.26851485148514853,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 9,
+    "time": 0.30207920792079207,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 10,
+    "time": 0.33564356435643566,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 11,
+    "time": 0.3692079207920792,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 12,
+    "time": 0.40277227722772274,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 13,
+    "time": 0.43633663366336634,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 14,
+    "time": 0.4699009900990099,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 15,
+    "time": 0.5034653465346535,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 16,
+    "time": 0.5370297029702971,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 17,
+    "time": 0.5705940594059405,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 18,
+    "time": 0.6041584158415841,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 19,
+    "time": 0.6377227722772277,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 20,
+    "time": 0.6712871287128713,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 21,
+    "time": 0.7048514851485148,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 22,
+    "time": 0.7384158415841584,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 23,
+    "time": 0.771980198019802,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 24,
+    "time": 0.8055445544554455,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 25,
+    "time": 0.8391089108910891,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 26,
+    "time": 0.8726732673267327,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 27,
+    "time": 0.9062376237623763,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 28,
+    "time": 0.9398019801980197,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 29,
+    "time": 0.9733663366336633,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 30,
+    "time": 1.006930693069307,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 31,
+    "time": 1.0404950495049505,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 32,
+    "time": 1.0740594059405941,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 33,
+    "time": 1.1076237623762375,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 34,
+    "time": 1.141188118811881,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 35,
+    "time": 1.1747524752475247,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 36,
+    "time": 1.2083168316831683,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 37,
+    "time": 1.2418811881188119,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 38,
+    "time": 1.2754455445544555,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 39,
+    "time": 1.309009900990099,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 40,
+    "time": 1.3425742574257427,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 41,
+    "time": 1.376138613861386,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 42,
+    "time": 1.4097029702970296,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 43,
+    "time": 1.4432673267326732,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 44,
+    "time": 1.4768316831683168,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 45,
+    "time": 1.5103960396039604,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 46,
+    "time": 1.543960396039604,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 47,
+    "time": 1.5775247524752476,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 48,
+    "time": 1.611089108910891,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 49,
+    "time": 1.6446534653465346,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 50,
+    "time": 1.6782178217821782,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 51,
+    "time": 1.7117821782178217,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 52,
+    "time": 1.7453465346534653,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 53,
+    "time": 1.778910891089109,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 54,
+    "time": 1.8124752475247525,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 55,
+    "time": 1.846039603960396,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 56,
+    "time": 1.8796039603960395,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 57,
+    "time": 1.913168316831683,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 58,
+    "time": 1.9467326732673267,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 59,
+    "time": 1.9802970297029703,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 60,
+    "time": 2.013861386138614,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 61,
+    "time": 2.0474257425742572,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 62,
+    "time": 2.080990099009901,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 63,
+    "time": 2.1145544554455444,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 64,
+    "time": 2.1481188118811883,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 65,
+    "time": 2.1816831683168316,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 66,
+    "time": 2.215247524752475,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 67,
+    "time": 2.248811881188119,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 68,
+    "time": 2.282376237623762,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 69,
+    "time": 2.315940594059406,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 70,
+    "time": 2.3495049504950494,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 71,
+    "time": 2.383069306930693,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 72,
+    "time": 2.4166336633663366,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 73,
+    "time": 2.4501980198019804,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 74,
+    "time": 2.4837623762376237,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 75,
+    "time": 2.517326732673267,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 76,
+    "time": 2.550891089108911,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 77,
+    "time": 2.5844554455445543,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 78,
+    "time": 2.618019801980198,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 79,
+    "time": 2.6515841584158415,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 80,
+    "time": 2.6851485148514853,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 81,
+    "time": 2.7187128712871287,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 82,
+    "time": 2.752277227722772,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 83,
+    "time": 2.785841584158416,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 84,
+    "time": 2.8194059405940592,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 85,
+    "time": 2.852970297029703,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 86,
+    "time": 2.8865346534653464,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 87,
+    "time": 2.9200990099009903,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 88,
+    "time": 2.9536633663366336,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 89,
+    "time": 2.987227722772277,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 90,
+    "time": 3.020792079207921,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 91,
+    "time": 3.054356435643564,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 92,
+    "time": 3.087920792079208,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 93,
+    "time": 3.1214851485148514,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 94,
+    "time": 3.155049504950495,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 95,
+    "time": 3.1886138613861386,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 96,
+    "time": 3.222178217821782,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 97,
+    "time": 3.2557425742574257,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 98,
+    "time": 3.289306930693069,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 99,
+    "time": 3.322871287128713,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 100,
+    "time": 3.3564356435643563,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 101,
+    "time": 3.39,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 102,
+    "time": 3.4235643564356435,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 103,
+    "time": 3.457128712871287,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 104,
+    "time": 3.4906930693069307,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 105,
+    "time": 3.524257425742574,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 106,
+    "time": 3.557821782178218,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 107,
+    "time": 3.5913861386138612,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 108,
+    "time": 3.624950495049505,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 109,
+    "time": 3.6585148514851484,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 110,
+    "time": 3.692079207920792,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 111,
+    "time": 3.7256435643564356,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 112,
+    "time": 3.759207920792079,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 113,
+    "time": 3.792772277227723,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 114,
+    "time": 3.826336633663366,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 115,
+    "time": 3.85990099009901,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 116,
+    "time": 3.8934653465346534,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 117,
+    "time": 3.927029702970297,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 118,
+    "time": 3.9605940594059406,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 119,
+    "time": 3.994158415841584,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 120,
+    "time": 4.027722772277228,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 121,
+    "time": 4.061287128712872,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 122,
+    "time": 4.0948514851485145,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 123,
+    "time": 4.128415841584158,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 124,
+    "time": 4.161980198019802,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 125,
+    "time": 4.195544554455445,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 126,
+    "time": 4.229108910891089,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 127,
+    "time": 4.262673267326733,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 128,
+    "time": 4.2962376237623765,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 129,
+    "time": 4.329801980198019,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 130,
+    "time": 4.363366336633663,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 131,
+    "time": 4.396930693069307,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 132,
+    "time": 4.43049504950495,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 133,
+    "time": 4.464059405940594,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 134,
+    "time": 4.497623762376238,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 135,
+    "time": 4.531188118811881,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 136,
+    "time": 4.564752475247524,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 137,
+    "time": 4.598316831683168,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 138,
+    "time": 4.631881188118812,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 139,
+    "time": 4.665445544554456,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 140,
+    "time": 4.699009900990099,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 141,
+    "time": 4.732574257425743,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 142,
+    "time": 4.766138613861386,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 143,
+    "time": 4.799702970297029,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 144,
+    "time": 4.833267326732673,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 145,
+    "time": 4.866831683168317,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 146,
+    "time": 4.900396039603961,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 147,
+    "time": 4.933960396039604,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 148,
+    "time": 4.9675247524752475,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 149,
+    "time": 5.001089108910891,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 150,
+    "time": 5.034653465346534,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 151,
+    "time": 5.068217821782178,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 152,
+    "time": 5.101782178217822,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 153,
+    "time": 5.135346534653466,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 154,
+    "time": 5.168910891089109,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 155,
+    "time": 5.202475247524752,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 156,
+    "time": 5.236039603960396,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 157,
+    "time": 5.269603960396039,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 158,
+    "time": 5.303168316831683,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 159,
+    "time": 5.336732673267327,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 160,
+    "time": 5.370297029702971,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 161,
+    "time": 5.4038613861386136,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 162,
+    "time": 5.437425742574257,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 163,
+    "time": 5.470990099009901,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 164,
+    "time": 5.504554455445544,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 165,
+    "time": 5.538118811881188,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 166,
+    "time": 5.571683168316832,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 167,
+    "time": 5.605247524752476,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 168,
+    "time": 5.6388118811881185,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 169,
+    "time": 5.672376237623762,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 170,
+    "time": 5.705940594059406,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 171,
+    "time": 5.739504950495049,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 172,
+    "time": 5.773069306930693,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 173,
+    "time": 5.806633663366337,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 174,
+    "time": 5.8401980198019805,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 175,
+    "time": 5.873762376237623,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 176,
+    "time": 5.907326732673267,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 177,
+    "time": 5.940891089108911,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 178,
+    "time": 5.974455445544554,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 179,
+    "time": 6.008019801980198,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 180,
+    "time": 6.041584158415842,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 181,
+    "time": 6.075148514851485,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 182,
+    "time": 6.108712871287128,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 183,
+    "time": 6.142277227722772,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 184,
+    "time": 6.175841584158416,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 185,
+    "time": 6.209405940594059,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 186,
+    "time": 6.242970297029703,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 187,
+    "time": 6.276534653465347,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 188,
+    "time": 6.31009900990099,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 189,
+    "time": 6.343663366336633,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 190,
+    "time": 6.377227722772277,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 191,
+    "time": 6.410792079207921,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 192,
+    "time": 6.444356435643564,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 193,
+    "time": 6.477920792079208,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 194,
+    "time": 6.5114851485148515,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 195,
+    "time": 6.545049504950495,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 196,
+    "time": 6.578613861386138,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 197,
+    "time": 6.612178217821782,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 198,
+    "time": 6.645742574257426,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 199,
+    "time": 6.679306930693069,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 200,
+    "time": 6.712871287128713,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 201,
+    "time": 6.746435643564356,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 202,
+    "time": 6.78,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 203,
+    "time": 6.813564356435643,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 204,
+    "time": 6.847128712871287,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 205,
+    "time": 6.880693069306931,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 206,
+    "time": 6.914257425742574,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 207,
+    "time": 6.9478217821782176,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 208,
+    "time": 6.981386138613861,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 209,
+    "time": 7.014950495049505,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 210,
+    "time": 7.048514851485148,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 211,
+    "time": 7.082079207920792,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 212,
+    "time": 7.115643564356436,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 213,
+    "time": 7.149207920792079,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 214,
+    "time": 7.1827722772277225,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 215,
+    "time": 7.216336633663366,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 216,
+    "time": 7.24990099009901,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 217,
+    "time": 7.283465346534653,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 218,
+    "time": 7.317029702970297,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 219,
+    "time": 7.350594059405941,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 220,
+    "time": 7.384158415841584,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 221,
+    "time": 7.417722772277227,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 222,
+    "time": 7.451287128712871,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 223,
+    "time": 7.484851485148515,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 224,
+    "time": 7.518415841584158,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 225,
+    "time": 7.551980198019802,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 226,
+    "time": 7.585544554455446,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 227,
+    "time": 7.619108910891089,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 228,
+    "time": 7.652673267326732,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 229,
+    "time": 7.686237623762376,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 230,
+    "time": 7.71980198019802,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 231,
+    "time": 7.753366336633663,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 232,
+    "time": 7.786930693069307,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 233,
+    "time": 7.820495049504951,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 234,
+    "time": 7.854059405940594,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 235,
+    "time": 7.887623762376237,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 236,
+    "time": 7.921188118811881,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 237,
+    "time": 7.954752475247525,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 238,
+    "time": 7.988316831683168,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 239,
+    "time": 8.021881188118812,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 240,
+    "time": 8.055445544554455,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 241,
+    "time": 8.0890099009901,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 242,
+    "time": 8.122574257425743,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 243,
+    "time": 8.156138613861385,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 244,
+    "time": 8.189702970297029,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 245,
+    "time": 8.223267326732673,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 246,
+    "time": 8.256831683168317,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 247,
+    "time": 8.29039603960396,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 248,
+    "time": 8.323960396039604,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 249,
+    "time": 8.357524752475248,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 250,
+    "time": 8.39108910891089,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 251,
+    "time": 8.424653465346534,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 252,
+    "time": 8.458217821782178,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 253,
+    "time": 8.491782178217822,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 254,
+    "time": 8.525346534653465,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 255,
+    "time": 8.55891089108911,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 256,
+    "time": 8.592475247524753,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 257,
+    "time": 8.626039603960395,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 258,
+    "time": 8.659603960396039,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 259,
+    "time": 8.693168316831683,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 260,
+    "time": 8.726732673267326,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 261,
+    "time": 8.76029702970297,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 262,
+    "time": 8.793861386138614,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 263,
+    "time": 8.827425742574258,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 264,
+    "time": 8.8609900990099,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 265,
+    "time": 8.894554455445544,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 266,
+    "time": 8.928118811881188,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 267,
+    "time": 8.961683168316831,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 268,
+    "time": 8.995247524752475,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 269,
+    "time": 9.028811881188119,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 270,
+    "time": 9.062376237623763,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 271,
+    "time": 9.095940594059407,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 272,
+    "time": 9.129504950495049,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 273,
+    "time": 9.163069306930693,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 274,
+    "time": 9.196633663366336,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 275,
+    "time": 9.23019801980198,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 276,
+    "time": 9.263762376237624,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 277,
+    "time": 9.297326732673268,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 278,
+    "time": 9.330891089108912,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 279,
+    "time": 9.364455445544554,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 280,
+    "time": 9.398019801980197,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 281,
+    "time": 9.431584158415841,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 282,
+    "time": 9.465148514851485,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 283,
+    "time": 9.498712871287129,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 284,
+    "time": 9.532277227722773,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 285,
+    "time": 9.565841584158417,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 286,
+    "time": 9.599405940594059,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 287,
+    "time": 9.632970297029702,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 288,
+    "time": 9.666534653465346,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 289,
+    "time": 9.70009900990099,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 290,
+    "time": 9.733663366336634,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 291,
+    "time": 9.767227722772278,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 292,
+    "time": 9.800792079207922,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 293,
+    "time": 9.834356435643564,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 294,
+    "time": 9.867920792079207,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 295,
+    "time": 9.901485148514851,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 296,
+    "time": 9.935049504950495,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 297,
+    "time": 9.968613861386139,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 298,
+    "time": 10.002178217821783,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 299,
+    "time": 10.035742574257426,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 300,
+    "time": 10.069306930693068,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 301,
+    "time": 10.102871287128712,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 302,
+    "time": 10.136435643564356,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  },
+  {
+    "frame": 303,
+    "time": 10.17,
+    "jerseys": [],
+    "box": [
+      0,
+      0,
+      1280,
+      720
+    ],
+    "scoreboard": {
+      "home": 0,
+      "away": 0,
+      "quarter": 1,
+      "clock": "08:00",
+      "down": null,
+      "distance": null
+    }
+  }
+]
