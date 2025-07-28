@@ -6,7 +6,7 @@ import sys
 WIDTH = 1920
 HEIGHT = 1080
 FPS = 30
-RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/YOUR_STREAM_KEY_HERE"
+RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/xcuz-3x1d-9y7v-ghec-2xmh"
 BITRATE = "6000k"
 BUFSIZE = "12000k"
 
