@@ -42,7 +42,8 @@ def launch_ffmpeg(width: int, height: int) -> subprocess.Popen:
 
 
 def main() -> None:
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, FPS)
@@ -60,8 +61,21 @@ def main() -> None:
             loop_start = time.time()
             ret, frame = cap.read()
             if not ret:
-                print("Failed to read frame")
+                print("\u274c Camera not returning valid frames")
                 break
+            frame_count += 1
+            cv2.putText(
+                frame,
+                f"Frame {frame_count}",
+                (50, 50),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                (0, 255, 0),
+                2,
+            )
+            print(
+                f"Sending frame {frame_count}: shape={frame.shape}, dtype={frame.dtype}"
+            )
             try:
                 process.stdin.write(frame.tobytes())
                 process.stdin.flush()
@@ -69,7 +83,6 @@ def main() -> None:
                 print("FFmpeg pipe closed (BrokenPipeError). Exiting.")
                 break
 
-            frame_count += 1
             if frame_count % 30 == 0:
                 elapsed = time.time() - start
                 print(
