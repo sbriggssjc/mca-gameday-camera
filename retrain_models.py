@@ -6,7 +6,7 @@ from typing import Dict, List
 
 
 def load_confirmed_jerseys() -> List[Dict[str, str]]:
-    path = Path("/training/labels/confirmed_jerseys.json")
+    path = Path("./training/labels/confirmed_jerseys.json")
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -17,12 +17,12 @@ def load_confirmed_jerseys() -> List[Dict[str, str]]:
     for item in data:
         fname = item.get("filename")
         if fname:
-            item["image_path"] = str(Path("/training/uncertain_jerseys") / fname)
+            item["image_path"] = str(Path("./training/uncertain_jerseys") / fname)
     return data
 
 
 def load_confirmed_play_types() -> List[Dict[str, str]]:
-    path = Path("/training/labels/confirmed_play_types.json")
+    path = Path("./training/labels/confirmed_play_types.json")
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -33,7 +33,7 @@ def load_confirmed_play_types() -> List[Dict[str, str]]:
     for item in data:
         fname = item.get("filename")
         if fname:
-            item["image_path"] = str(Path("/training/frames") / fname)
+            item["image_path"] = str(Path("./training/frames") / fname)
     return data
 
 
