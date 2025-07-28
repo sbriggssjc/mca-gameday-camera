@@ -471,11 +471,9 @@ def main() -> None:
     # YouTube expects a full 1080p frame.  Using padding caused the
     # stream to be reported as not filling the frame, so scale directly
     # to the output size.
-    filter_str = f"scale={STREAM_WIDTH}:{STREAM_HEIGHT}"
-    if width == STREAM_WIDTH and height == STREAM_HEIGHT:
-        filter_str = None
-    else:
-        filter_str = f"scale={STREAM_WIDTH}:{STREAM_HEIGHT}"
+    # Always scale to the full output resolution and set the display
+    # aspect ratio so YouTube displays the feed without padding.
+    filter_str = "scale=1920:1080,setdar=16/9"
 
     # Force a 30fps capture rate so FFmpeg receives frames at a
     # consistent realtime pace. Some cameras report incorrect FPS
