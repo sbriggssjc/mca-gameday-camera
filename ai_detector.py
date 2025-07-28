@@ -13,6 +13,9 @@ except Exception:  # pragma: no cover - optional dependency
     pytesseract = None  # type: ignore
 
 
+from review_queue import add_entry
+
+
 def extract_jersey_number(
     frame: np.ndarray,
     player_bbox: Tuple[int, int, int, int],
@@ -21,6 +24,7 @@ def extract_jersey_number(
     frame_id: Optional[int] = None,
     bbox_id: Optional[int] = None,
     timestamp: Optional[str] = None,
+    play_id: Optional[int] = None,
 ) -> Tuple[str | None, float]:
     """Return jersey number string and OCR confidence.
 
@@ -101,6 +105,16 @@ def extract_jersey_number(
 
         with open(label_path, "w", encoding="utf-8") as f:
             json.dump(labels, f, indent=2)
+
+        add_entry(
+            {
+                "type": "uncertain_jersey",
+                "frame": str(out_dir / fname),
+                "bbox": [int(x1), int(y1), int(x2 - x1), int(y2 - y1)],
+                "play_id": play_id,
+                "timestamp": timestamp or "",
+            }
+        )
 
     return result, best_conf
 
