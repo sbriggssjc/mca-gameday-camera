@@ -6,5 +6,8 @@
     "Rit Dive": 3,
     "Rit F Counter": 2,
     "Rit F Screen": 1
+  },
+  "formation_counts": {
+    "Rit": 6
   }
 }
