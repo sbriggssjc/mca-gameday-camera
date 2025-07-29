@@ -1132,5 +1132,716 @@
     "unknown_play_types": 0,
     "frames_saved": 14,
     "timestamp": "2025-07-29T08:24:45"
+  },
+  {
+    "video": "IMG_7581.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 316,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T08:27:06"
+  },
+  {
+    "video": "IMG_7602.MP4",
+    "plays_detected": 4,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 295,
+    "unknown_play_types": 0,
+    "frames_saved": 8,
+    "timestamp": "2025-07-29T08:28:59"
+  },
+  {
+    "video": "IMG_7612.MP4",
+    "plays_detected": 3,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 233,
+    "unknown_play_types": 0,
+    "frames_saved": 6,
+    "timestamp": "2025-07-29T08:30:24"
+  },
+  {
+    "video": "IMG_7679.MP4",
+    "plays_detected": 6,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 412,
+    "unknown_play_types": 0,
+    "frames_saved": 12,
+    "timestamp": "2025-07-29T08:33:13"
+  },
+  {
+    "video": "IMG_7628.MP4",
+    "plays_detected": 6,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 411,
+    "unknown_play_types": 0,
+    "frames_saved": 12,
+    "timestamp": "2025-07-29T08:36:02"
+  },
+  {
+    "video": "IMG_7647.MP4",
+    "plays_detected": 6,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 370,
+    "unknown_play_types": 0,
+    "frames_saved": 12,
+    "timestamp": "2025-07-29T08:38:50"
+  },
+  {
+    "video": "IMG_7631.MP4",
+    "plays_detected": 4,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 276,
+    "unknown_play_types": 0,
+    "frames_saved": 8,
+    "timestamp": "2025-07-29T08:40:42"
+  },
+  {
+    "video": "IMG_7592.MP4",
+    "plays_detected": 7,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 421,
+    "unknown_play_types": 0,
+    "frames_saved": 14,
+    "timestamp": "2025-07-29T08:43:57"
+  },
+  {
+    "video": "IMG_7644.MP4",
+    "plays_detected": 4,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 273,
+    "unknown_play_types": 0,
+    "frames_saved": 8,
+    "timestamp": "2025-07-29T08:45:50"
+  },
+  {
+    "video": "IMG_7650.MP4",
+    "plays_detected": 4,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 274,
+    "unknown_play_types": 0,
+    "frames_saved": 8,
+    "timestamp": "2025-07-29T08:47:43"
+  },
+  {
+    "video": "IMG_7603.MP4",
+    "plays_detected": 3,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 236,
+    "unknown_play_types": 0,
+    "frames_saved": 6,
+    "timestamp": "2025-07-29T08:49:07"
+  },
+  {
+    "video": "IMG_7646.MP4",
+    "plays_detected": 6,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 366,
+    "unknown_play_types": 0,
+    "frames_saved": 12,
+    "timestamp": "2025-07-29T08:51:55"
+  },
+  {
+    "video": "IMG_7611.MP4",
+    "plays_detected": 2,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 138,
+    "unknown_play_types": 0,
+    "frames_saved": 4,
+    "timestamp": "2025-07-29T08:52:52"
+  },
+  {
+    "video": "IMG_7614.MP4",
+    "plays_detected": 4,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 278,
+    "unknown_play_types": 0,
+    "frames_saved": 8,
+    "timestamp": "2025-07-29T08:54:44"
+  },
+  {
+    "video": "IMG_3630.MP4",
+    "plays_detected": 9,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 562,
+    "unknown_play_types": 0,
+    "frames_saved": 18,
+    "timestamp": "2025-07-29T08:58:57"
+  },
+  {
+    "video": "IMG_7583.MP4",
+    "plays_detected": 3,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 236,
+    "unknown_play_types": 0,
+    "frames_saved": 6,
+    "timestamp": "2025-07-29T09:00:22"
+  },
+  {
+    "video": "IMG_7680.MP4",
+    "plays_detected": 6,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 371,
+    "unknown_play_types": 0,
+    "frames_saved": 12,
+    "timestamp": "2025-07-29T09:03:11"
+  },
+  {
+    "video": "IMG_7580.MP4",
+    "plays_detected": 7,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 421,
+    "unknown_play_types": 0,
+    "frames_saved": 14,
+    "timestamp": "2025-07-29T09:06:28"
+  },
+  {
+    "video": "IMG_7655.MP4",
+    "plays_detected": 2,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 132,
+    "unknown_play_types": 0,
+    "frames_saved": 4,
+    "timestamp": "2025-07-29T09:07:25"
+  },
+  {
+    "video": "IMG_7576.MP4",
+    "plays_detected": 7,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 430,
+    "unknown_play_types": 0,
+    "frames_saved": 14,
+    "timestamp": "2025-07-29T09:10:40"
+  },
+  {
+    "video": "IMG_7653.MP4",
+    "plays_detected": 7,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 460,
+    "unknown_play_types": 0,
+    "frames_saved": 14,
+    "timestamp": "2025-07-29T09:13:56"
+  },
+  {
+    "video": "IMG_7673.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 307,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T09:16:18"
+  },
+  {
+    "video": "IMG_7599.MP4",
+    "plays_detected": 3,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 231,
+    "unknown_play_types": 0,
+    "frames_saved": 6,
+    "timestamp": "2025-07-29T09:17:44"
+  },
+  {
+    "video": "IMG_7649.MP4",
+    "plays_detected": 4,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 286,
+    "unknown_play_types": 0,
+    "frames_saved": 8,
+    "timestamp": "2025-07-29T09:19:36"
+  },
+  {
+    "video": "IMG_7660.MP4",
+    "plays_detected": 7,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 467,
+    "unknown_play_types": 0,
+    "frames_saved": 14,
+    "timestamp": "2025-07-29T09:22:53"
+  },
+  {
+    "video": "IMG_7588.MP4",
+    "plays_detected": 6,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 383,
+    "unknown_play_types": 0,
+    "frames_saved": 12,
+    "timestamp": "2025-07-29T09:25:43"
+  },
+  {
+    "video": "IMG_7595.MP4",
+    "plays_detected": 0,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 38,
+    "unknown_play_types": 0,
+    "frames_saved": 0,
+    "timestamp": "2025-07-29T09:25:44"
+  },
+  {
+    "video": "IMG_7600.MP4",
+    "plays_detected": 8,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 525,
+    "unknown_play_types": 0,
+    "frames_saved": 16,
+    "timestamp": "2025-07-29T09:29:27"
+  },
+  {
+    "video": "IMG_7635.MP4",
+    "plays_detected": 3,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 200,
+    "unknown_play_types": 0,
+    "frames_saved": 6,
+    "timestamp": "2025-07-29T09:30:52"
+  },
+  {
+    "video": "IMG_7664.MP4",
+    "plays_detected": 4,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 296,
+    "unknown_play_types": 0,
+    "frames_saved": 8,
+    "timestamp": "2025-07-29T09:32:44"
+  },
+  {
+    "video": "IMG_7652.MP4",
+    "plays_detected": 10,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 622,
+    "unknown_play_types": 0,
+    "frames_saved": 20,
+    "timestamp": "2025-07-29T09:37:23"
+  },
+  {
+    "video": "IMG_7671.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 327,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T09:39:44"
+  },
+  {
+    "video": "IMG_7666.MP4",
+    "plays_detected": 4,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 241,
+    "unknown_play_types": 0,
+    "frames_saved": 8,
+    "timestamp": "2025-07-29T09:41:37"
+  },
+  {
+    "video": "IMG_7632.MP4",
+    "plays_detected": 8,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 497,
+    "unknown_play_types": 0,
+    "frames_saved": 16,
+    "timestamp": "2025-07-29T09:45:20"
+  },
+  {
+    "video": "IMG_7642.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 318,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T09:47:40"
+  },
+  {
+    "video": "IMG_7586.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 357,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T09:50:01"
+  },
+  {
+    "video": "IMG_7584.MP4",
+    "plays_detected": 4,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 243,
+    "unknown_play_types": 0,
+    "frames_saved": 8,
+    "timestamp": "2025-07-29T09:51:53"
+  },
+  {
+    "video": "IMG_7658.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 317,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T09:54:13"
+  },
+  {
+    "video": "IMG_7670.MP4",
+    "plays_detected": 6,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 383,
+    "unknown_play_types": 0,
+    "frames_saved": 12,
+    "timestamp": "2025-07-29T09:57:02"
+  },
+  {
+    "video": "IMG_7639.MP4",
+    "plays_detected": 6,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 385,
+    "unknown_play_types": 0,
+    "frames_saved": 12,
+    "timestamp": "2025-07-29T09:59:50"
+  },
+  {
+    "video": "IMG_7607.MP4",
+    "plays_detected": 8,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 498,
+    "unknown_play_types": 0,
+    "frames_saved": 16,
+    "timestamp": "2025-07-29T10:03:37"
+  },
+  {
+    "video": "IMG_7667.MP4",
+    "plays_detected": 3,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 205,
+    "unknown_play_types": 0,
+    "frames_saved": 6,
+    "timestamp": "2025-07-29T10:05:01"
+  },
+  {
+    "video": "IMG_7643.MP4",
+    "plays_detected": 7,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 475,
+    "unknown_play_types": 0,
+    "frames_saved": 14,
+    "timestamp": "2025-07-29T10:08:17"
+  },
+  {
+    "video": "IMG_7587.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 314,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T10:10:38"
+  },
+  {
+    "video": "IMG_7621.MP4",
+    "plays_detected": 9,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 554,
+    "unknown_play_types": 0,
+    "frames_saved": 18,
+    "timestamp": "2025-07-29T10:14:49"
+  },
+  {
+    "video": "IMG_7590.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 338,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T10:17:10"
+  },
+  {
+    "video": "IMG_7677.MP4",
+    "plays_detected": 3,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 190,
+    "unknown_play_types": 0,
+    "frames_saved": 6,
+    "timestamp": "2025-07-29T10:18:34"
+  },
+  {
+    "video": "IMG_7585.MP4",
+    "plays_detected": 6,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 367,
+    "unknown_play_types": 0,
+    "frames_saved": 12,
+    "timestamp": "2025-07-29T10:21:22"
+  },
+  {
+    "video": "IMG_7657.MP4",
+    "plays_detected": 6,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 387,
+    "unknown_play_types": 0,
+    "frames_saved": 12,
+    "timestamp": "2025-07-29T10:24:10"
+  },
+  {
+    "video": "IMG_7598.MP4",
+    "plays_detected": 3,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 201,
+    "unknown_play_types": 0,
+    "frames_saved": 6,
+    "timestamp": "2025-07-29T10:25:34"
+  },
+  {
+    "video": "IMG_7578.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 347,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T10:27:56"
+  },
+  {
+    "video": "IMG_7661.MP4",
+    "plays_detected": 4,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 267,
+    "unknown_play_types": 0,
+    "frames_saved": 8,
+    "timestamp": "2025-07-29T10:29:49"
+  },
+  {
+    "video": "IMG_7636.MP4",
+    "plays_detected": 4,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 253,
+    "unknown_play_types": 0,
+    "frames_saved": 8,
+    "timestamp": "2025-07-29T10:31:41"
+  },
+  {
+    "video": "IMG_7641.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 350,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T10:34:01"
+  },
+  {
+    "video": "IMG_7604.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 308,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T10:36:22"
+  },
+  {
+    "video": "IMG_7638.MP4",
+    "plays_detected": 2,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 146,
+    "unknown_play_types": 0,
+    "frames_saved": 4,
+    "timestamp": "2025-07-29T10:37:19"
+  },
+  {
+    "video": "IMG_7627.MP4",
+    "plays_detected": 4,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 258,
+    "unknown_play_types": 0,
+    "frames_saved": 8,
+    "timestamp": "2025-07-29T10:39:11"
+  },
+  {
+    "video": "IMG_7577.MP4",
+    "plays_detected": 7,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 476,
+    "unknown_play_types": 0,
+    "frames_saved": 14,
+    "timestamp": "2025-07-29T10:42:28"
+  },
+  {
+    "video": "IMG_7626.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 339,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T10:44:48"
+  },
+  {
+    "video": "IMG_7651.MP4",
+    "plays_detected": 1,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 89,
+    "unknown_play_types": 0,
+    "frames_saved": 2,
+    "timestamp": "2025-07-29T10:45:17"
+  },
+  {
+    "video": "IMG_7668.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 339,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T10:47:37"
+  },
+  {
+    "video": "IMG_3629.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 303,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T10:49:57"
+  },
+  {
+    "video": "IMG_7678.MP4",
+    "plays_detected": 6,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 373,
+    "unknown_play_types": 0,
+    "frames_saved": 12,
+    "timestamp": "2025-07-29T10:52:45"
+  },
+  {
+    "video": "IMG_7629.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 315,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T10:55:07"
+  },
+  {
+    "video": "IMG_7617.MP4",
+    "plays_detected": 6,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 365,
+    "unknown_play_types": 0,
+    "frames_saved": 12,
+    "timestamp": "2025-07-29T10:57:56"
+  },
+  {
+    "video": "IMG_7630.MP4",
+    "plays_detected": 6,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 362,
+    "unknown_play_types": 0,
+    "frames_saved": 12,
+    "timestamp": "2025-07-29T11:00:44"
+  },
+  {
+    "video": "IMG_7579.MP4",
+    "plays_detected": 3,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 201,
+    "unknown_play_types": 0,
+    "frames_saved": 6,
+    "timestamp": "2025-07-29T11:02:10"
+  },
+  {
+    "video": "IMG_7624.MP4",
+    "plays_detected": 7,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 453,
+    "unknown_play_types": 0,
+    "frames_saved": 14,
+    "timestamp": "2025-07-29T11:05:26"
+  },
+  {
+    "video": "IMG_7597.MP4",
+    "plays_detected": 2,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 125,
+    "unknown_play_types": 0,
+    "frames_saved": 4,
+    "timestamp": "2025-07-29T11:06:22"
+  },
+  {
+    "video": "IMG_7654.MP4",
+    "plays_detected": 8,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 497,
+    "unknown_play_types": 0,
+    "frames_saved": 16,
+    "timestamp": "2025-07-29T11:10:07"
+  },
+  {
+    "video": "IMG_7663.MP4",
+    "plays_detected": 4,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 290,
+    "unknown_play_types": 0,
+    "frames_saved": 8,
+    "timestamp": "2025-07-29T11:12:00"
+  },
+  {
+    "video": "IMG_7594.MP4",
+    "plays_detected": 4,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 260,
+    "unknown_play_types": 0,
+    "frames_saved": 8,
+    "timestamp": "2025-07-29T11:13:53"
+  },
+  {
+    "video": "IMG_7622.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 306,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T11:16:15"
+  },
+  {
+    "video": "IMG_7619.MP4",
+    "plays_detected": 6,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 396,
+    "unknown_play_types": 0,
+    "frames_saved": 12,
+    "timestamp": "2025-07-29T11:19:03"
+  },
+  {
+    "video": "IMG_7606.MP4",
+    "plays_detected": 3,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 200,
+    "unknown_play_types": 0,
+    "frames_saved": 6,
+    "timestamp": "2025-07-29T11:20:28"
+  },
+  {
+    "video": "IMG_7589.MP4",
+    "plays_detected": 3,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 231,
+    "unknown_play_types": 0,
+    "frames_saved": 6,
+    "timestamp": "2025-07-29T11:21:54"
+  },
+  {
+    "video": "IMG_7623.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 353,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T11:24:15"
+  },
+  {
+    "video": "IMG_7610.MP4",
+    "plays_detected": 10,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 616,
+    "unknown_play_types": 0,
+    "frames_saved": 20,
+    "timestamp": "2025-07-29T11:28:55"
+  },
+  {
+    "video": "IMG_7648.MP4",
+    "plays_detected": 5,
+    "jersey_numbers_recognized": 0,
+    "jersey_ocr_failures": 301,
+    "unknown_play_types": 0,
+    "frames_saved": 10,
+    "timestamp": "2025-07-29T11:31:16"
   }
 ]
