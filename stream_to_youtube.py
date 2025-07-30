@@ -7,6 +7,8 @@ import os
 import re
 from collections import deque
 
+import roster
+
 try:
     from reportlab.lib.pagesizes import letter
     from reportlab.pdfgen import canvas
@@ -61,7 +63,7 @@ def generate_compliance_report(
         status_str = "Met" if count >= FINAL_MIN_PLAYS else "Below"
         summary.append(
             {
-                "player": f"#{pid}",
+                "player": f"#{pid} {roster.get_player_name(int(pid))}",
                 "plays": count,
                 "status": f"{'✅' if status_str == 'Met' else '❌'} {status_str}",
             }
@@ -296,7 +298,10 @@ def main() -> None:
         if elapsed_secs >= HALFTIME_SECS:
             for pid, cnt in play_counts.items():
                 if cnt < HALFTIME_MIN_PLAYS and pid not in halftime_alerted:
-                    msg = f"[\u26A0\uFE0F ALERT] #{pid} has only {cnt} plays at halftime"
+                    msg = (
+                        f"[\u26A0\uFE0F ALERT] #{pid} {roster.get_player_name(int(pid))} "
+                        f"has only {cnt} plays at halftime"
+                    )
                     print(msg)
                     alert_fp.write(msg + "\n")
                     halftime_alerted.add(pid)
@@ -306,8 +311,8 @@ def main() -> None:
             for pid, cnt in play_counts.items():
                 if cnt < FINAL_MIN_PLAYS and pid not in final_alerted:
                     msg = (
-                        f"[\U0001F6A8 FINAL WARNING] #{pid} has only {cnt} plays "
-                        f"\u2014 {mins}:{secs:02d} remaining"
+                        f"[\U0001F6A8 FINAL WARNING] #{pid} {roster.get_player_name(int(pid))} "
+                        f"has only {cnt} plays \u2014 {mins}:{secs:02d} remaining"
                     )
                     print(msg)
                     alert_fp.write(msg + "\n")
@@ -340,14 +345,14 @@ def main() -> None:
                 new_state = "warn"
                 mins, secs = divmod(remaining_secs, 60)
                 msg = (
-                    f"[\u23F1 TIME WARNING] #{pid} unlikely to hit 7 plays \u2014 "
-                    f"{mins}:{secs:02d} remaining"
+                    f"[\u23F1 TIME WARNING] #{pid} {roster.get_player_name(int(pid))} "
+                    f"unlikely to hit 7 plays \u2014 {mins}:{secs:02d} remaining"
                 )
             elif cnt < 4:
                 new_state = "sub"
                 msg = (
-                    f"[\U0001F45F SUB IN] #{pid} needs {need} more plays \u2014 "
-                    "recommend subbing now"
+                    f"[\U0001F45F SUB IN] #{pid} {roster.get_player_name(int(pid))} "
+                    f"needs {need} more plays \u2014 recommend subbing now"
                 )
             if new_state and sub_state.get(pid) != new_state:
                 print(msg)
