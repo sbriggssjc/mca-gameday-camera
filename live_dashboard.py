@@ -6,10 +6,13 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
+from predict_next_play import predict_play
+
 SCOUTING_PATH = Path("analysis/Victory_Christian_scouting_report.json")
 
 LOG_PATH = Path("live_log.json")
 SCORE_PATH = Path("live_score.json")
+OPPONENT = os.environ.get("OPPONENT_NAME", "Victory Christian")
 
 
 def load_scouting() -> list[dict]:
@@ -61,7 +64,12 @@ def save_score(score: dict) -> None:
 def index() -> str:
     score = load_score()
     stream_id = os.environ.get("YOUTUBE_STREAM_ID")
-    return render_template("dashboard.html", score=score, stream_id=stream_id)
+    return render_template(
+        "dashboard.html",
+        score=score,
+        stream_id=stream_id,
+        opponent=OPPONENT,
+    )
 
 
 @app.route("/api/plays")
@@ -72,6 +80,17 @@ def api_plays() -> tuple[str, int] | tuple[str, int, dict]:
 @app.route("/api/scouting")
 def api_scouting() -> tuple[str, int] | tuple[str, int, dict]:
     return jsonify(SCOUTING_PATTERNS)
+
+
+@app.route("/api/predict")
+def api_predict() -> tuple[str, int] | tuple[str, int, dict]:
+    opponent = request.args.get("opponent", "")
+    formation = request.args.get("formation", "")
+    down = request.args.get("down", type=int)
+    distance = request.args.get("distance", type=int)
+    quarter = request.args.get("quarter", type=int)
+    result = predict_play(opponent, formation, down, distance, quarter)
+    return jsonify(result)
 
 
 @app.route("/api/score", methods=["GET", "POST"])

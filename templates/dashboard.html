@@ -38,6 +38,7 @@
         </div>
     </div>
     <div id="alert-box" class="alert alert-info d-none" role="alert"></div>
+    <div id="prediction-box" class="alert alert-warning d-none" role="alert"></div>
     <table class="table" id="play-table">
         <thead>
             <tr><th>Timestamp</th><th>Label</th><th>Confidence</th></tr>
@@ -54,6 +55,7 @@
 let playChart;
 let scouting = [];
 fetch('/api/scouting').then(r => r.json()).then(data => { scouting = data; });
+const OPPONENT = "{{ opponent }}";
 
 function showAlert(msg) {
     const box = document.getElementById('alert-box');
@@ -61,6 +63,13 @@ function showAlert(msg) {
     box.textContent = msg;
     box.classList.remove('d-none');
     setTimeout(() => box.classList.add('d-none'), 7000);
+}
+function showPrediction(msg) {
+    const box = document.getElementById('prediction-box');
+    if (!msg) return;
+    box.textContent = msg;
+    box.classList.remove('d-none');
+    setTimeout(() => box.classList.add('d-none'), 10000);
 }
 function updatePlays() {
     fetch('/api/plays').then(r => r.json()).then(data => {
@@ -88,13 +97,16 @@ function updatePlays() {
             });
         }
         const last = data[data.length - 1];
-        if (last && scouting.length) {
-            const form = (last.formation || '').toLowerCase();
-            let q = last.quarter;
+        let q = null;
+        if (last) {
+            q = last.quarter;
             if (!q && last.timestamp) {
                 const m = /Q(\d)/.exec(last.timestamp);
                 if (m) q = parseInt(m[1]);
             }
+        }
+        if (last && scouting.length) {
+            const form = (last.formation || '').toLowerCase();
             const pat = scouting.find(s =>
                 s.formation.toLowerCase() === form && parseInt(s.quarter) === parseInt(q)
             );
@@ -102,6 +114,27 @@ function updatePlays() {
                 const conf = last.confidence ? ` (${(last.confidence * 100).toFixed(0)}%)` : '';
                 showAlert(`\uD83D\uDCA1 High ${pat.play} rate from ${pat.formation} in Q${pat.quarter} - Predicted: ${last.label}${conf}`);
             }
+        }
+        if (last) {
+            const params = new URLSearchParams({
+                opponent: OPPONENT,
+                formation: last.formation || '',
+                down: last.down || '',
+                distance: last.distance || '',
+                quarter: q ? String(q) : ''
+            });
+            fetch('/api/predict?' + params.toString()).then(r => r.json()).then(res => {
+                if (Array.isArray(res)) {
+                    if (res.length) {
+                        const txt = res.map(p => `${p.label} (${p.percent}%)`).join(', ');
+                        showPrediction(`\uD83D\uDCA1 Prediction: ${txt}`);
+                    }
+                } else if (res && res.message) {
+                    showPrediction(res.message);
+                } else if (typeof res === 'string') {
+                    showPrediction(res);
+                }
+            });
         }
     });
 }
