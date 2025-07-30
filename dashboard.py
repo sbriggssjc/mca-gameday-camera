@@ -6,6 +6,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List
 
+from play_recommender import recommend_play
+
 import pandas as pd
 import streamlit as st
 
@@ -82,6 +84,13 @@ def main() -> None:
     player_options = ['All'] + sorted(player_counts) if player_counts else ['All']
     selected_play = st.sidebar.selectbox('Play Type', play_options)
     selected_player = st.sidebar.selectbox('Player', player_options)
+
+    if st.sidebar.checkbox('Show Recommended Plays'):
+        defense_look = st.sidebar.text_input('Defense Look', '')
+        recs = recommend_play(pred_data[-5:], defense_look)
+        st.sidebar.markdown('**Top Suggestions**')
+        for r in recs:
+            st.sidebar.write(f"{r['wristband_code']}: {r['play_name']} - {r['reason']}")
 
     filtered_df = df.copy()
     if selected_play != 'All':
