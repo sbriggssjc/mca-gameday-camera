@@ -1,0 +1,52 @@
+[
+  {
+    "play_number": "1",
+    "name": "Rit Dive",
+    "formation": "Rit",
+    "type": "Run",
+    "direction": "Right",
+    "wristband_code": "1",
+    "success_against": ["4-3", "5-2"],
+    "counters": ["Boot Pass", "Jet Fake + Dive"]
+  },
+  {
+    "play_number": "2",
+    "name": "Lit Sweep",
+    "formation": "Lit",
+    "type": "Run",
+    "direction": "Left",
+    "wristband_code": "2",
+    "success_against": ["4-4", "slow edge"],
+    "counters": ["Counter Trey"]
+  },
+  {
+    "play_number": "3",
+    "name": "Reo Flood",
+    "formation": "Reo",
+    "type": "Pass",
+    "direction": "Right",
+    "wristband_code": "10",
+    "success_against": ["soft corners"],
+    "counters": ["Screen Left"]
+  },
+  {
+    "play_number": "4",
+    "name": "Rit Jet Sweep",
+    "formation": "Rit",
+    "type": "Run",
+    "direction": "Right",
+    "wristband_code": "5",
+    "success_against": ["5-2", "slow edge"],
+    "counters": ["Jet Fake + Dive", "8 Option Left"]
+  },
+  {
+    "play_number": "5",
+    "name": "Jet Fake + Dive",
+    "formation": "Rit",
+    "type": "Run",
+    "direction": "Right",
+    "wristband_code": "6",
+    "success_against": ["aggressive flow"],
+    "counters": ["Rit Jet Sweep"]
+  }
+]
