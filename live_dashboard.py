@@ -6,10 +6,29 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
+SCOUTING_PATH = Path("analysis/Victory_Christian_scouting_report.json")
+
 LOG_PATH = Path("live_log.json")
 SCORE_PATH = Path("live_score.json")
 
+
+def load_scouting() -> list[dict]:
+    try:
+        with SCOUTING_PATH.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return [d for d in data if isinstance(d, dict)]
+            if isinstance(data, dict):
+                pats = data.get("patterns", [])
+                if isinstance(pats, list):
+                    return [d for d in pats if isinstance(d, dict)]
+    except Exception:
+        pass
+    return []
+
 app = Flask(__name__)
+
+SCOUTING_PATTERNS = load_scouting()
 
 
 def load_plays() -> list[dict]:
@@ -48,6 +67,11 @@ def index() -> str:
 @app.route("/api/plays")
 def api_plays() -> tuple[str, int] | tuple[str, int, dict]:
     return jsonify(load_plays())
+
+
+@app.route("/api/scouting")
+def api_scouting() -> tuple[str, int] | tuple[str, int, dict]:
+    return jsonify(SCOUTING_PATTERNS)
 
 
 @app.route("/api/score", methods=["GET", "POST"])
