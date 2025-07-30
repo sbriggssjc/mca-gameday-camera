@@ -1,114 +1,64 @@
-import sqlite3
-import threading
-import time
+from __future__ import annotations
+
+import json
+import os
 from pathlib import Path
-from typing import Iterable
 
-from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask import Flask, jsonify, render_template, request
 
-DB_PATH = Path("output/live_play_log.db")
-CLIP_DIR = Path("video/highlights")
+LOG_PATH = Path("live_log.json")
+SCORE_PATH = Path("live_score.json")
 
 app = Flask(__name__)
 
 
-def get_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def load_plays() -> list[dict]:
+    try:
+        with LOG_PATH.open("r", encoding="utf-8") as f:
+            plays = json.load(f)
+            if isinstance(plays, list):
+                return plays
+    except Exception:
+        pass
+    return []
 
 
-def init_db() -> None:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = get_db()
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS predictions ("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "timestamp TEXT, label TEXT, confidence REAL)"
-    )
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS scoreboard ("
-        "id INTEGER PRIMARY KEY CHECK(id=1), home TEXT, away TEXT)"
-    )
-    conn.execute(
-        "INSERT OR IGNORE INTO scoreboard(id, home, away) VALUES (1, '0', '0')"
-    )
-    conn.commit()
-    conn.close()
+def load_score() -> dict:
+    try:
+        with SCORE_PATH.open("r", encoding="utf-8") as f:
+            score = json.load(f)
+            if isinstance(score, dict):
+                return {"MCA": int(score.get("MCA", 0)), "Opp": int(score.get("Opp", 0))}
+    except Exception:
+        pass
+    return {"MCA": 0, "Opp": 0}
 
 
-_last_ts: float | None = None
+def save_score(score: dict) -> None:
+    SCORE_PATH.write_text(json.dumps(score), encoding="utf-8")
 
 
-def classify_clip(path: Path) -> tuple[str, float]:
-    """Placeholder classifier returning a deterministic pseudo-random label."""
-    import random
-
-    labels = ["Jet Sweep", "Dive", "Power R", "Pass", "Screen"]
-    random.seed(path.stat().st_mtime)
-    label = random.choice(labels)
-    confidence = random.uniform(0.75, 0.99)
-    return label, confidence
+@app.route("/")
+def index() -> str:
+    score = load_score()
+    stream_id = os.environ.get("YOUTUBE_STREAM_ID")
+    return render_template("dashboard.html", score=score, stream_id=stream_id)
 
 
-def new_clips() -> Iterable[Path]:
-    global _last_ts
-    clips = sorted(CLIP_DIR.glob("*.mp4"), key=lambda p: p.stat().st_mtime)
-    for clip in clips:
-        mtime = clip.stat().st_mtime
-        if _last_ts is None or mtime > _last_ts:
-            _last_ts = mtime
-            yield clip
+@app.route("/api/plays")
+def api_plays() -> tuple[str, int] | tuple[str, int, dict]:
+    return jsonify(load_plays())
 
 
-def classifier_loop() -> None:
-    CLIP_DIR.mkdir(parents=True, exist_ok=True)
-    while True:
-        for clip in new_clips():
-            label, conf = classify_clip(clip)
-            ts = time.strftime("%H:%M:%S")
-            conn = get_db()
-            conn.execute(
-                "INSERT INTO predictions(timestamp, label, confidence) VALUES (?,?,?)",
-                (ts, label, conf),
-            )
-            conn.commit()
-            conn.close()
-        time.sleep(10)
-
-
-@app.route("/", methods=["GET", "POST"])
-def index():
-    conn = get_db()
+@app.route("/api/score", methods=["GET", "POST"])
+def api_score() -> tuple[str, int] | tuple[str, int, dict]:
     if request.method == "POST":
-        home = request.form.get("home", "0")
-        away = request.form.get("away", "0")
-        conn.execute("UPDATE scoreboard SET home=?, away=? WHERE id=1", (home, away))
-        conn.commit()
-        return redirect(url_for("index"))
-
-    preds = conn.execute(
-        "SELECT timestamp, label, confidence FROM predictions ORDER BY id DESC"
-    ).fetchall()
-    score = conn.execute("SELECT home, away FROM scoreboard WHERE id=1").fetchone()
-    conn.close()
-    log = [dict(r) for r in preds][::-1]
-    latest = log[-1] if log else None
-    return render_template("dashboard.html", log=log, latest=latest, score=score)
-
-
-@app.route("/data.json")
-def data_json():
-    conn = get_db()
-    rows = conn.execute(
-        "SELECT label, COUNT(*) as count FROM predictions GROUP BY label"
-    ).fetchall()
-    conn.close()
-    return jsonify({r["label"]: r["count"] for r in rows})
+        data = request.get_json(force=True) or {}
+        score = {"MCA": int(data.get("MCA", 0)), "Opp": int(data.get("Opp", 0))}
+        save_score(score)
+        return jsonify(score)
+    return jsonify(load_score())
 
 
 if __name__ == "__main__":
-    init_db()
-    thread = threading.Thread(target=classifier_loop, daemon=True)
-    thread.start()
     app.run(host="0.0.0.0", port=5000)
