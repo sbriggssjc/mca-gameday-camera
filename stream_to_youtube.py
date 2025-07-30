@@ -7,6 +7,8 @@ import os
 import re
 from collections import deque
 
+DISPLAY_AVAILABLE = os.environ.get("DISPLAY") is not None
+
 try:
     from reportlab.lib.pagesizes import letter
     from reportlab.pdfgen import canvas
@@ -252,7 +254,8 @@ def main() -> None:
     halftime_alerted: set[str] = set()
     final_alerted: set[str] = set()
     summary_generated = False
-    cv2.namedWindow("Stream Preview", cv2.WINDOW_NORMAL)
+    if DISPLAY_AVAILABLE:
+        cv2.namedWindow("Stream Preview", cv2.WINDOW_NORMAL)
     frame_interval = 1.0 / FPS
     frame_count = 0
     last_log = start
@@ -461,22 +464,23 @@ def main() -> None:
                     summary_generated = True
 
             overlay_info(frame, frame_count, scoreboard)
-            cv2.imshow("Stream Preview", frame)
-            key = cv2.waitKey(1) & 0xFF
-            if key != 255:
-                if key in {ord('q'), 27}:
-                    break
-                char = chr(key).upper()
-                if ('1' <= char <= '9') or ('A' <= char <= 'Z'):
-                    elapsed = int(time.time() - start)
-                    minutes, seconds = divmod(elapsed, 60)
-                    ts = f"{minutes:02d}:{seconds:02d}"
-                    log_writer.writerow([ts, char])
-                    log_fp.flush()
-                    print(f"[LOG] Player {char} logged at {ts}")
-                    play_counts[char] = play_counts.get(char, 0) + 1
-                    plays_since_check += 1
-                    check_alerts()
+            if DISPLAY_AVAILABLE:
+                cv2.imshow("Stream Preview", frame)
+                key = cv2.waitKey(1) & 0xFF
+                if key != 255:
+                    if key in {ord('q'), 27}:
+                        break
+                    char = chr(key).upper()
+                    if ('1' <= char <= '9') or ('A' <= char <= 'Z'):
+                        elapsed = int(time.time() - start)
+                        minutes, seconds = divmod(elapsed, 60)
+                        ts = f"{minutes:02d}:{seconds:02d}"
+                        log_writer.writerow([ts, char])
+                        log_fp.flush()
+                        print(f"[LOG] Player {char} logged at {ts}")
+                        play_counts[char] = play_counts.get(char, 0) + 1
+                        plays_since_check += 1
+                        check_alerts()
             if process and process.stdin:
                 try:
                     process.stdin.write(frame.tobytes())
@@ -523,7 +527,8 @@ def main() -> None:
         drive_log_fp.close()
         sub_log_fp.close()
         alert_fp.close()
-        cv2.destroyAllWindows()
+        if DISPLAY_AVAILABLE:
+            cv2.destroyAllWindows()
 
         if not summary_generated:
             generate_compliance_report(
