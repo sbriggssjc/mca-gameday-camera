@@ -237,45 +237,46 @@ def launch_ffmpeg(width: int, height: int, record_path: Path) -> subprocess.Pope
     return subprocess.Popen(cmd, stdin=subprocess.PIPE)
 
 
-def try_open_camera(idx: int) -> tuple[cv2.VideoCapture, "cv2.Mat"] | tuple[None, None]:
-    """Attempt to open a camera index and return the capture object and test frame."""
-    cap = cv2.VideoCapture(idx, cv2.CAP_V4L2)
-    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-    cap.set(cv2.CAP_PROP_FPS, FPS)
-    if not cap.isOpened():
-        cap.release()
-        return None, None
-    ret, test_frame = cap.read()
-    if not ret or test_frame is None:
-        cap.release()
-        return None, None
-    return cap, test_frame
-
-
 def open_camera() -> tuple[cv2.VideoCapture, "cv2.Mat"] | tuple[None, None]:
-    """Open the first available camera with a valid frame."""
-    for idx in range(3):
-        cap, frame = try_open_camera(idx)
-        if cap is not None:
-            print(f"✅ Opened camera index {idx}")
-            return cap, frame
+    """Attempt to open a USB camera then fall back to a Jetson CSI camera."""
 
-    # Jetson CSI camera fallback using GStreamer
-    gst_str = (
-        f"nvarguscamerasrc ! video/x-raw(memory:NVMM), width={WIDTH}, height={HEIGHT}, "
-        "framerate=30/1 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! appsink"
-    )
-    cap = cv2.VideoCapture(gst_str, cv2.CAP_GSTREAMER)
-    if cap.isOpened():
-        ret, test_frame = cap.read()
-        if ret and test_frame is not None:
-            print("✅ Opened CSI camera via GStreamer")
-            return cap, test_frame
+    cap: cv2.VideoCapture | None = None
+
+    # Try a few USB camera indices
+    for index in range(3):
+        cap = cv2.VideoCapture(index)
+        if cap.isOpened():
+            print(f"✅ Opened USB camera at index {index}")
+            break
         cap.release()
+        cap = None
+    else:
+        cap = None  # mark failure if loop completes without break
 
-    return None, None
+    # Fallback to CSI camera if no USB camera found
+    if cap is None or not cap.isOpened():
+        print("⚠️ USB camera not found. Trying Jetson CSI camera...")
+        gst_str = (
+            "nvarguscamerasrc ! video/x-raw(memory:NVMM), width=1280, height=720, "
+            "format=NV12, framerate=30/1 ! nvvidconv ! video/x-raw, format=BGRx ! "
+            "videoconvert ! video/x-raw, format=BGR ! appsink"
+        )
+        cap = cv2.VideoCapture(gst_str, cv2.CAP_GSTREAMER)
+        if cap.isOpened():
+            print("✅ CSI camera opened via GStreamer.")
+
+    if not cap or not cap.isOpened():
+        print("❌ No camera detected. Check USB or CSI connections.")
+        return None, None
+
+    ret, frame = cap.read()
+    if not ret or frame is None:
+        print("❌ Failed to read initial frame from camera.")
+        cap.release()
+        return None, None
+
+    print("✅ Successfully read first frame:", frame.shape)
+    return cap, frame
 
 
 def main() -> None:
