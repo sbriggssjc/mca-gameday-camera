@@ -3,67 +3,97 @@
 <head>
     <meta charset="UTF-8">
     <title>Live Dashboard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #ddd; padding: 8px; }
-        th { background-color: #f2f2f2; }
-    </style>
 </head>
-<body>
-<h1>Live Play Dashboard</h1>
-<div>
-    <h2>Scoreboard</h2>
-    <form method="post">
-        Home: <input type="text" name="home" value="{{ score['home'] }}" size="3">
-        Away: <input type="text" name="away" value="{{ score['away'] }}" size="3">
-        <button type="submit">Update</button>
-    </form>
-    <p>{{ score['home'] }} - {{ score['away'] }}</p>
-</div>
-
-<div>
-    <h2>Most Recent Prediction</h2>
-    {% if latest %}
-    <p><strong>{{ latest.label }}</strong> ({{ '%.2f'|format(latest.confidence) }}) at {{ latest.timestamp }}</p>
-    {% else %}
-    <p>No predictions yet.</p>
+<body class="p-3">
+<div class="container">
+    <h1 class="mb-4">Live Play Dashboard</h1>
+    <div class="row">
+        <div class="col-md-4">
+            <h3>Scoreboard</h3>
+            <form id="score-form" class="mb-2">
+                <div class="input-group mb-2">
+                    <span class="input-group-text">MCA</span>
+                    <input type="number" class="form-control" id="mca-score" value="{{ score['MCA'] }}">
+                </div>
+                <div class="input-group mb-2">
+                    <span class="input-group-text">Opp</span>
+                    <input type="number" class="form-control" id="opp-score" value="{{ score['Opp'] }}">
+                </div>
+                <button class="btn btn-primary" type="submit">Update</button>
+            </form>
+            <p id="score-display" class="fw-bold fs-4"></p>
+        </div>
+        <div class="col-md-8">
+            <h3>Play Call Breakdown</h3>
+            <canvas id="pie"></canvas>
+        </div>
+    </div>
+    <h3 class="mt-4">Play Log</h3>
+    <table class="table" id="play-table">
+        <thead>
+            <tr><th>Timestamp</th><th>Label</th><th>Confidence</th></tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+    {% if stream_id %}
+    <div class="mt-4">
+        <iframe width="560" height="315" src="https://www.youtube.com/embed/{{ stream_id }}" frameborder="0" allowfullscreen></iframe>
+    </div>
     {% endif %}
 </div>
-
-<div>
-    <h2>Play Type Distribution</h2>
-    <canvas id="pie" width="400" height="400"></canvas>
-</div>
-
-<div>
-    <h2>Play Log</h2>
-    <table>
-        <tr><th>Timestamp</th><th>Label</th><th>Confidence</th></tr>
-        {% for row in log %}
-        <tr>
-            <td>{{ row.timestamp }}</td>
-            <td>{{ row.label }}</td>
-            <td>{{ '%.2f'|format(row.confidence) }}</td>
-        </tr>
-        {% endfor %}
-    </table>
-</div>
-
 <script>
-function loadData() {
-    fetch('/data.json').then(r => r.json()).then(data => {
-        const labels = Object.keys(data);
-        const counts = Object.values(data);
-        new Chart(document.getElementById('pie'), {
-            type: 'pie',
-            data: { labels: labels, datasets: [{ data: counts, backgroundColor: ['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f','#edc949'] }] },
-            options: { responsive: true }
+let playChart;
+function updatePlays() {
+    fetch('/api/plays').then(r => r.json()).then(data => {
+        const tbody = document.querySelector('#play-table tbody');
+        tbody.innerHTML = '';
+        data.forEach(p => {
+            const tr = document.createElement('tr');
+            const conf = (p.confidence || 0).toFixed(2);
+            tr.innerHTML = `<td>${p.timestamp}</td><td>${p.label}</td><td>${conf}</td>`;
+            tbody.appendChild(tr);
         });
+        const counts = {};
+        data.forEach(p => { counts[p.label] = (counts[p.label] || 0) + 1; });
+        const labels = Object.keys(counts);
+        const values = Object.values(counts);
+        if (playChart) {
+            playChart.data.labels = labels;
+            playChart.data.datasets[0].data = values;
+            playChart.update();
+        } else {
+            playChart = new Chart(document.getElementById('pie'), {
+                type: 'pie',
+                data: { labels: labels, datasets: [{ data: values }] },
+                options: { responsive: true }
+            });
+        }
     });
 }
-loadData();
+function updateScore() {
+    fetch('/api/score').then(r => r.json()).then(score => {
+        document.getElementById('mca-score').value = score.MCA;
+        document.getElementById('opp-score').value = score.Opp;
+        document.getElementById('score-display').textContent = `${score.MCA} - ${score.Opp}`;
+    });
+}
+document.getElementById('score-form').addEventListener('submit', e => {
+    e.preventDefault();
+    const payload = {
+        MCA: parseInt(document.getElementById('mca-score').value) || 0,
+        Opp: parseInt(document.getElementById('opp-score').value) || 0
+    };
+    fetch('/api/score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    }).then(updateScore);
+});
+updateScore();
+updatePlays();
+setInterval(updatePlays, 5000);
 </script>
 </body>
 </html>
