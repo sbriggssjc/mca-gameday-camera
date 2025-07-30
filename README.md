@@ -251,3 +251,22 @@ git lfs install
 git lfs track "*.mp4"
 git add .gitattributes
 ```
+
+## generate_scouting_report.py
+
+Create a scouting report summarizing an opponent's play tendencies. The script
+expects a `scouting_data.csv` file with columns:
+
+```
+game_date,opponent,offense,formation,label,down,quarter,yards_gained
+```
+
+Run it with the opponent name to produce a PDF or text report under
+`analysis/`:
+
+```bash
+python generate_scouting_report.py "Victory Christian"
+```
+
+If the optional `fpdf` package is installed the output will be a PDF,
+otherwise a plain text file is generated.
