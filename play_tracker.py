@@ -14,6 +14,8 @@ import time
 from email.message import EmailMessage
 from typing import Iterable, List
 
+import roster
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Track play counts and send periodic email updates.")
@@ -56,7 +58,7 @@ def load_jerseys(args: argparse.Namespace) -> List[int]:
         except Exception as exc:  # pragma: no cover - runtime failure is user error
             raise SystemExit(f"Failed to read config file: {exc}")
     if not jerseys:
-        raise SystemExit("No jersey numbers provided")
+        jerseys.extend(roster.ROSTER.keys())
     return sorted(set(jerseys))
 
 
@@ -96,7 +98,10 @@ def main() -> None:
 
     def email_job() -> None:
         nonlocal quarter
-        lines = [f"#{j} – {play_counts[j]} plays" for j in jerseys]
+        lines = [
+            f"#{j} {roster.get_player_name(j)} – {play_counts[j]} plays"
+            for j in jerseys
+        ]
         body = "\n".join(lines)
         subject = f"Play Count Update – Q{quarter}"
         send_email(

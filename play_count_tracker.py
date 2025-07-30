@@ -14,6 +14,7 @@ from colorama import Fore, Style, init as colorama_init
 from email_alerts import load_env, send_email
 from ai_detector import detect_jerseys
 from google_sheets_uploader import format_row, upload_rows
+import roster
 from twilio.rest import Client
 import pyttsx3
 
@@ -22,16 +23,18 @@ ALERT_THRESHOLD = 7
 # Minutes per quarter when --quarters mode is enabled
 QUARTER_LENGTH = 10
 
-JERSEY_NUMBERS: List[int] = [2, 3, 5, 7, 8, 9, 10, 11, 12, 14, 15, 17, 20, 21, 22, 24, 25]
+JERSEY_NUMBERS: List[int] = sorted(roster.ROSTER.keys())
 COUNTS_PATH = "jersey_counts.csv"
 
 
 def summary_lines(counts: Dict[int, int], *, color: bool = False) -> List[str]:
+    """Return formatted play count lines with player names."""
     lines = []
     for num in JERSEY_NUMBERS:
         cnt = counts.get(num, 0)
         alert = " < 7!" if cnt < ALERT_THRESHOLD else ""
-        text = f"#{num}: {cnt}{alert}"
+        name = roster.get_player_name(num)
+        text = f"#{num} {name}: {cnt}{alert}"
         if color and cnt < ALERT_THRESHOLD:
             text = f"{Fore.RED}{text}{Style.RESET_ALL}"
         lines.append(text)
@@ -100,7 +103,7 @@ def manual_input_loop(
                 q = current_quarter[0]
                 quarter_counts[q][n] = quarter_counts[q].get(n, 0) + 1
                 if alerts and counts[n] < ALERT_THRESHOLD:
-                    msg = f"Player {n} below play count!"
+                    msg = f"Player #{n} {roster.get_player_name(n)} below play count!"
                     print(Fore.RED + msg + Style.RESET_ALL)
                     if voice and engine:
                         engine.say(msg)
@@ -129,7 +132,7 @@ def ai_loop(
                     q = current_quarter[0]
                     quarter_counts[q][n] = quarter_counts[q].get(n, 0) + 1
                     if alerts and counts[n] < ALERT_THRESHOLD:
-                        msg = f"Player {n} below play count!"
+                        msg = f"Player #{n} {roster.get_player_name(n)} below play count!"
                         print(Fore.RED + msg + Style.RESET_ALL)
                         if voice and engine:
                             engine.say(msg)

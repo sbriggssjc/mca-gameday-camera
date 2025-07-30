@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
+
+import roster
 from datetime import datetime
 import zipfile
 
@@ -238,7 +240,8 @@ def process_uploaded_game_film(
     print("Jersey numbers tracked:", sorted(jersey_counts.keys()))
     print("Player participation counts:")
     for j, cnt in participation_counts.items():
-        print(f"  #{j}: {cnt} plays")
+        name = roster.get_player_name(int(j)) if str(j).isdigit() else str(j)
+        print(f"  #{j} {name}: {cnt} plays")
     print("Play types identified:")
     for name, cnt in play_counts.items():
         print(f"  {name}: {cnt}")
