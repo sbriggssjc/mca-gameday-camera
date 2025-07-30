@@ -13,6 +13,9 @@ trained to detect players. It can be loaded from a local path or via
 from typing import List, Tuple
 
 import numpy as np
+import argparse
+import json
+from pathlib import Path
 
 try:
     import cv2  # type: ignore
@@ -21,6 +24,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 try:
     import torch
+    from torchvision import models, transforms
 except Exception:  # pragma: no cover - optional dependency
     torch = None
 
@@ -163,4 +167,99 @@ class PlayClassifier:
         return self.classify_sequence(frames, **kwargs)
 
 
-__all__ = ["PlayClassifier"]
+
+
+
+def classify_play(
+    video_clip_path: str,
+    metadata_json_path: str | None = None,
+    model_path: str = "models/play_classifier/latest.pt",
+) -> dict:
+    """Classify a video clip into a play type using a pretrained model."""
+
+    if torch is None or cv2 is None:
+        raise ImportError("PyTorch and OpenCV are required for classify_play")
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    checkpoint = torch.load(model_path, map_location=device)
+    label_map = checkpoint.get("label_map", {})
+    inv_map = {v: k for k, v in label_map.items()}
+
+    model = models.video.r3d_18(weights=None)
+    model.fc = torch.nn.Linear(model.fc.in_features, len(label_map))
+    model.load_state_dict(checkpoint["model_state"])
+    model = model.to(device)
+    model.eval()
+
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.Lambda(lambda x: x / 255.0),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ])
+
+    cap = cv2.VideoCapture(str(video_clip_path))
+    frames = []
+    success, frame = cap.read()
+    while success:
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        tensor = torch.from_numpy(rgb).permute(2, 0, 1).float()
+        tensor = transform(tensor)
+        frames.append(tensor)
+        success, frame = cap.read()
+    cap.release()
+    if not frames:
+        raise RuntimeError(f"No frames read from {video_clip_path}")
+    clip_len = 16
+    while len(frames) < clip_len:
+        frames.append(frames[-1].clone())
+    clip = torch.stack(frames[:clip_len]).permute(1, 0, 2, 3).unsqueeze(0)
+
+    with torch.no_grad():
+        out = model(clip.to(device))
+        probs = torch.softmax(out, dim=1)
+        conf, pred = probs.max(1)
+
+    label = inv_map.get(int(pred.item()), "unknown")
+    result = {"play_type": label, "confidence": float(conf.item())}
+
+    if metadata_json_path:
+        try:
+            with open(metadata_json_path, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+            result["metadata"] = metadata
+        except Exception:
+            pass
+
+    return result
+
+
+def main() -> None:  # pragma: no cover - CLI helper
+    parser = argparse.ArgumentParser(description="Classify play clips")
+    parser.add_argument("--folder", required=True, help="folder with video clips")
+    parser.add_argument("--output", default="predictions.json", help="output JSON")
+    parser.add_argument("--model", default="models/play_classifier/latest.pt")
+    args = parser.parse_args()
+
+    folder = Path(args.folder)
+    results = []
+    for clip in sorted(folder.glob("*.mp4")):
+        meta = clip.with_suffix(".json")
+        meta_path = str(meta) if meta.exists() else None
+        pred = classify_play(str(clip), meta_path, args.model)
+        results.append({
+            "clip": clip.name,
+            "play_type": pred["play_type"],
+            "confidence": pred["confidence"],
+        })
+
+    with open(args.output, "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2)
+    print(f"\u2705 Saved predictions to {args.output}")
+
+
+__all__ = ["PlayClassifier", "classify_play"]
+
+
+if __name__ == "__main__":
+    main()
