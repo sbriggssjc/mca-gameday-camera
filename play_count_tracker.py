@@ -21,7 +21,7 @@ import pyttsx3
 # Minimum plays before an alert is raised
 ALERT_THRESHOLD = 7
 # Minutes per quarter when --quarters mode is enabled
-QUARTER_LENGTH = 10
+QUARTER_LENGTH = 8
 
 JERSEY_NUMBERS: List[int] = sorted(roster.ROSTER.keys())
 COUNTS_PATH = "jersey_counts.csv"
