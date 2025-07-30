@@ -5,6 +5,7 @@ import time
 import sys
 import os
 import re
+import json
 from collections import deque
 
 DISPLAY_AVAILABLE = os.environ.get("DISPLAY") is not None
@@ -536,6 +537,56 @@ def main() -> None:
             generate_compliance_report(
                 play_counts, timestamp, os.getenv("TEAM_NAME", "Team")
             )
+
+    # --------------------------------------------------------------
+    # Generate additional highlight clips after streaming finishes
+    # --------------------------------------------------------------
+    def detect_highlight_events(path: Path) -> list[dict[str, object]]:
+        """Run ai_detector.py on the recorded video and return events."""
+
+        try:
+            result = subprocess.check_output(
+                ["python", "ai_detector.py", str(path)], text=True
+            )
+            events = json.loads(result)
+            if isinstance(events, list):
+                return events
+        except Exception as exc:  # pragma: no cover - optional dependency
+            print(f"AI detection failed: {exc}")
+        return []
+
+    events = detect_highlight_events(record_file)
+    for event in events:
+        try:
+            start = float(event.get("start", 0))
+            end = float(event.get("end", start + 8))
+            label = str(event.get("label", "highlight")).replace(" ", "_")
+        except Exception:
+            continue
+
+        minutes, seconds = divmod(int(start), 60)
+        clip_name = f"{label}_Q{event.get('quarter', '?')}_{minutes:02d}m{seconds:02d}s.mp4"
+        clip_path = highlight_dir / clip_name
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            str(start),
+            "-to",
+            str(end),
+            "-i",
+            str(record_file),
+            "-c",
+            "copy",
+            str(clip_path),
+        ]
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode == 0:
+            highlight_files.append(clip_path)
+            print(f"Generated AI highlight: {clip_path}")
+        else:
+            err = result.stderr.decode("utf-8", errors="ignore").splitlines()[-1]
+            print(f"FFmpeg failed for {clip_name}: {err}")
 
     # Upload the recorded file and log to Google Drive after streaming finishes
     drive_folder_id = os.getenv("GDRIVE_FOLDER_ID")
