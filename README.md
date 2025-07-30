@@ -271,3 +271,15 @@ python generate_scouting_report.py "Victory Christian"
 
 If the optional `fpdf` package is installed the output will be a PDF,
 otherwise a plain text file is generated.
+
+## generate_hudl_csv.py
+
+Export labeled clips to a HUDL-compatible CSV. The script reads from
+`highlight_log.csv` or `scouting_data.csv` and writes a file under
+`hudl_export/`.
+
+```bash
+python generate_hudl_csv.py --week 3 --opponent "Victory Christian"
+```
+
+Use `--player 23` to limit rows to a specific jersey number.
