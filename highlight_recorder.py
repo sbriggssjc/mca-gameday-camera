@@ -14,6 +14,9 @@ import numpy as np
 import time
 from datetime import datetime
 import subprocess
+from pathlib import Path
+
+from scoreboard_reader import ScoreboardReader, ScoreboardState
 
 
 def open_writer(path: str, fps: float, size: tuple[int, int]):
@@ -27,11 +30,40 @@ def open_writer(path: str, fps: float, size: tuple[int, int]):
     return writer
 
 
+def add_overlay(input_path: str, text: str) -> str:
+    """Return path to a new clip with scoreboard overlay."""
+    safe_text = text.replace(":", "\\:").replace("'", "\\'")
+    input_p = Path(input_path)
+    output_path = input_p.with_name(input_p.stem + "_overlay.mp4")
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(input_p),
+        "-vf",
+        (
+            "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"\
+            f"text='{safe_text}':x=10:y=10:fontsize=30:fontcolor=white:box=1:boxcolor=black@0.5"
+        ),
+        "-c:a",
+        "copy",
+        str(output_path),
+    ]
+    try:
+        subprocess.run(cmd, check=True)
+    except Exception as exc:
+        print(f"Failed to overlay text with ffmpeg: {exc}")
+        return str(input_p)
+    return str(output_path)
+
+
 def monitor(device: str = "/dev/video0", *, output_dir: str = ".", upload: bool = True) -> None:
     cap = cv2.VideoCapture(device)
     if not cap.isOpened():
         print(f"Unable to open camera {device}")
         return
+
+    sb_reader = ScoreboardReader()
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
@@ -50,6 +82,7 @@ def monitor(device: str = "/dev/video0", *, output_dir: str = ".", upload: bool 
     writer = None
     record_end = 0.0
     clip_path = ""
+    overlay_text = ""
     os.makedirs(output_dir, exist_ok=True)
     last_highlight = 0.0
     motion_threshold = 25.0
@@ -63,6 +96,8 @@ def monitor(device: str = "/dev/video0", *, output_dir: str = ".", upload: bool 
                 print("Frame capture failed, stopping.")
                 break
 
+            sb_reader.update(frame)
+
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             diff_val = float(np.mean(cv2.absdiff(prev_gray, gray)))
             now = time.time()
@@ -75,6 +110,12 @@ def monitor(device: str = "/dev/video0", *, output_dir: str = ".", upload: bool 
                     if not writer.isOpened():
                         print("Failed to open video writer")
                         break
+                    state: ScoreboardState = sb_reader.update(frame)
+                    dd = f"{state.down} & {state.distance}" if state.down and state.distance else ""
+                    overlay_text = f"Q{state.quarter} {state.clock}"
+                    if dd:
+                        overlay_text += f" | {dd}"
+                    overlay_text += f" | MCA {state.home} - {state.away}"
                     recording = True
                     record_end = now + 10
                     print(f"Motion detected. Recording started: {clip_path}")
@@ -85,9 +126,10 @@ def monitor(device: str = "/dev/video0", *, output_dir: str = ".", upload: bool 
                     writer.release()
                     recording = False
                     print(f"Clip saved: {clip_path}")
+                    clip_with_overlay = add_overlay(clip_path, overlay_text)
                     if upload:
                         result = subprocess.run(
-                            ["rclone", "copy", clip_path, "gdrive:/MCA/GameDayHighlights/"],
+                            ["rclone", "copy", clip_with_overlay, "gdrive:/MCA/GameDayHighlights/"],
                             capture_output=True,
                             text=True,
                         )
