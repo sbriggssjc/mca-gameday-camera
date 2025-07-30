@@ -30,7 +30,14 @@
             <canvas id="pie"></canvas>
         </div>
     </div>
-    <h3 class="mt-4">Play Log</h3>
+    <div class="d-flex align-items-center mt-4 mb-2">
+        <h3 class="me-auto mb-0">Play Log</h3>
+        <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="alert-toggle" checked>
+            <label class="form-check-label" for="alert-toggle">Show Alerts</label>
+        </div>
+    </div>
+    <div id="alert-box" class="alert alert-info d-none" role="alert"></div>
     <table class="table" id="play-table">
         <thead>
             <tr><th>Timestamp</th><th>Label</th><th>Confidence</th></tr>
@@ -45,6 +52,16 @@
 </div>
 <script>
 let playChart;
+let scouting = [];
+fetch('/api/scouting').then(r => r.json()).then(data => { scouting = data; });
+
+function showAlert(msg) {
+    const box = document.getElementById('alert-box');
+    if (!msg || !document.getElementById('alert-toggle').checked) return;
+    box.textContent = msg;
+    box.classList.remove('d-none');
+    setTimeout(() => box.classList.add('d-none'), 7000);
+}
 function updatePlays() {
     fetch('/api/plays').then(r => r.json()).then(data => {
         const tbody = document.querySelector('#play-table tbody');
@@ -69,6 +86,22 @@ function updatePlays() {
                 data: { labels: labels, datasets: [{ data: values }] },
                 options: { responsive: true }
             });
+        }
+        const last = data[data.length - 1];
+        if (last && scouting.length) {
+            const form = (last.formation || '').toLowerCase();
+            let q = last.quarter;
+            if (!q && last.timestamp) {
+                const m = /Q(\d)/.exec(last.timestamp);
+                if (m) q = parseInt(m[1]);
+            }
+            const pat = scouting.find(s =>
+                s.formation.toLowerCase() === form && parseInt(s.quarter) === parseInt(q)
+            );
+            if (pat) {
+                const conf = last.confidence ? ` (${(last.confidence * 100).toFixed(0)}%)` : '';
+                showAlert(`\uD83D\uDCA1 High ${pat.play} rate from ${pat.formation} in Q${pat.quarter} - Predicted: ${last.label}${conf}`);
+            }
         }
     });
 }
