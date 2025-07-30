@@ -247,6 +247,8 @@ def open_camera() -> tuple[cv2.VideoCapture, "cv2.Mat"] | tuple[None, None]:
         cap = cv2.VideoCapture(index)
         if cap.isOpened():
             print(f"✅ Opened USB camera at index {index}")
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
             break
         cap.release()
         cap = None
@@ -264,10 +266,16 @@ def open_camera() -> tuple[cv2.VideoCapture, "cv2.Mat"] | tuple[None, None]:
         cap = cv2.VideoCapture(gst_str, cv2.CAP_GSTREAMER)
         if cap.isOpened():
             print("✅ CSI camera opened via GStreamer.")
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
 
     if not cap or not cap.isOpened():
         print("❌ No camera detected. Check USB or CSI connections.")
         return None, None
+
+    # Ensure the capture resolution matches the expected output size
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
 
     ret, frame = cap.read()
     if not ret or frame is None:
@@ -315,6 +323,7 @@ def main() -> None:
     ffmpeg_error = False
     last_score_update = 0.0
     scoreboard = ("--:--", "0", "0")
+    warned_shape = False
     highlight_dir = output_dir / "highlights"
     highlight_dir.mkdir(parents=True, exist_ok=True)
     buffer: deque = deque(maxlen=int(30 * FPS))
@@ -445,11 +454,12 @@ def main() -> None:
             if not ret or frame is None:
                 continue
             if frame.shape != (HEIGHT, WIDTH, 3):
-                print(
-                    f"\u26a0\ufe0f Unexpected frame shape {frame.shape}",
-                    file=sys.stderr,
-                )
-                continue
+                if not warned_shape:
+                    print(
+                        f"\u26a0\ufe0f Unexpected frame shape: {frame.shape} — resizing to (1920, 1080)"
+                    )
+                    warned_shape = True
+                frame = cv2.resize(frame, (WIDTH, HEIGHT))
             buffer.append(frame.copy())
             if time.time() - last_score_update >= 1.0:
                 scoreboard = read_scoreboard(frame)
