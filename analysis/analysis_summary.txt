@@ -1,0 +1,9 @@
+MCA Game Analysis Summary - 2025-07-30
+
+Total clips analyzed: 77
+Total plays: 373
+
+Play Type Counts:
+- Rit Dive: 139
+- Rit F Counter: 129
+- Rit F Screen: 105
