@@ -8,6 +8,12 @@ import re
 import json
 from collections import deque
 
+
+def _sanitize(text: str) -> str:
+    """Return ``text`` with spaces replaced by underscores and special characters removed."""
+    text = text.replace(" ", "_")
+    return re.sub(r"[^A-Za-z0-9_-]", "", text)
+
 DISPLAY_AVAILABLE = os.environ.get("DISPLAY") is not None
 
 try:
@@ -560,12 +566,20 @@ def main() -> None:
         try:
             start = float(event.get("start", 0))
             end = float(event.get("end", start + 8))
-            label = str(event.get("label", "highlight")).replace(" ", "_")
+            label = _sanitize(str(event.get("label", "highlight")))
+            player = event.get("player")
+            play_type = event.get("play_type") or event.get("formation")
         except Exception:
             continue
 
         minutes, seconds = divmod(int(start), 60)
-        clip_name = f"{label}_Q{event.get('quarter', '?')}_{minutes:02d}m{seconds:02d}s.mp4"
+        parts = [label]
+        if player:
+            parts.append(_sanitize(str(player)))
+        if play_type:
+            parts.append(_sanitize(str(play_type)))
+        parts.append(f"Q{event.get('quarter', '?')}_{minutes:02d}m{seconds:02d}s")
+        clip_name = "_".join(parts) + ".mp4"
         clip_path = highlight_dir / clip_name
         cmd = [
             "ffmpeg",
