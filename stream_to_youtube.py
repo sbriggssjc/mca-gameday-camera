@@ -554,23 +554,50 @@ def main() -> None:
             gauth.SaveCredentialsFile(token_file)
             drive = GoogleDrive(gauth)
 
-            use_subfolder = os.getenv("GDRIVE_USE_GAME_FOLDER")
-            game_folder_id = drive_folder_id
-            if use_subfolder:
-                folder_meta = {
-                    "title": f"game_{timestamp}",
-                    "parents": [{"id": drive_folder_id}],
+            # Determine opponent and game date for folder naming
+            opponent = os.getenv("OPPONENT")
+            if not opponent:
+                try:
+                    opponent = input("Opponent name: ").strip()
+                except Exception:
+                    opponent = "Unknown"
+            opponent = opponent.replace(" ", "_") or "Unknown"
+
+            game_date = os.getenv(
+                "GAME_DATE", datetime.now().strftime("%Y-%m-%d")
+            )
+
+            team_name = os.getenv("TEAM_NAME", "MCA_5th").replace(" ", "_")
+
+            folder_name = f"{team_name}_{game_date}_vs_{opponent}"
+
+            folder_meta = {
+                "title": folder_name,
+                "parents": [{"id": drive_folder_id}],
+                "mimeType": "application/vnd.google-apps.folder",
+            }
+            folder_file = drive.CreateFile(folder_meta)
+            folder_file.Upload()
+            game_folder_id = folder_file["id"]
+            folder_link = (
+                f"https://drive.google.com/drive/folders/{folder_file['id']}"
+            )
+            print(
+                f"Created folder {folder_name} -> {folder_link}"
+            )
+
+            # Create subfolders for highlights and analysis
+            highlight_folder_id = None
+            for sub in ["highlights", "analysis"]:
+                sub_meta = {
+                    "title": sub,
                     "mimeType": "application/vnd.google-apps.folder",
+                    "parents": [{"id": game_folder_id}],
                 }
-                folder_file = drive.CreateFile(folder_meta)
-                folder_file.Upload()
-                game_folder_id = folder_file["id"]
-                folder_link = (
-                    f"https://drive.google.com/drive/folders/{folder_file['id']}"
-                )
-                print(
-                    f"Created folder game_{timestamp} -> {folder_link}"
-                )
+                sub_file = drive.CreateFile(sub_meta)
+                sub_file.Upload()
+                if sub == "highlights":
+                    highlight_folder_id = sub_file["id"]
 
             # upload video
             gfile = drive.CreateFile(
@@ -611,8 +638,9 @@ def main() -> None:
             print(f"Uploaded {drive_log_path.name} -> {drive_summary_url}")
 
             for clip_path in highlight_files:
+                parent_id = highlight_folder_id or game_folder_id
                 clip_drive = drive.CreateFile(
-                    {"title": clip_path.name, "parents": [{"id": game_folder_id}]}
+                    {"title": clip_path.name, "parents": [{"id": parent_id}]}
                 )
                 clip_drive.SetContentFile(str(clip_path))
                 clip_drive.Upload()
