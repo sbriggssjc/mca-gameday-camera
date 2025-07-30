@@ -367,6 +367,10 @@ def main() -> None:
         while True:
             loop_start = time.time()
             ret, frame = cap.read()
+            if not ret:
+                print("[ERROR] Failed to grab frame from camera")
+            else:
+                print(f"[DEBUG] Captured frame shape: {frame.shape}")
             now = time.time()
             if ret and frame is not None:
                 fps_counter += 1
@@ -486,12 +490,8 @@ def main() -> None:
                     process.stdin.write(frame.tobytes())
                     process.stdin.flush()
                 except BrokenPipeError:
-                    print("[\u274C ERROR] FFmpeg pipe closed (BrokenPipeError)")
-                    print("\a", end="")
-                    ffmpeg_error = True
-                    if process.poll() is not None:
-                        process.wait()
-                    process = None
+                    print("[ERROR] FFmpeg pipe broken. Check if FFmpeg process is running.")
+                    break
 
             frame_count += 1
             now = time.time()
