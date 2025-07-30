@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Live Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body>
+<h1>Live Play Dashboard</h1>
+<div>
+    <h2>Scoreboard</h2>
+    <form method="post">
+        Home: <input type="text" name="home" value="{{ score['home'] }}" size="3">
+        Away: <input type="text" name="away" value="{{ score['away'] }}" size="3">
+        <button type="submit">Update</button>
+    </form>
+    <p>{{ score['home'] }} - {{ score['away'] }}</p>
+</div>
+
+<div>
+    <h2>Most Recent Prediction</h2>
+    {% if latest %}
+    <p><strong>{{ latest.label }}</strong> ({{ '%.2f'|format(latest.confidence) }}) at {{ latest.timestamp }}</p>
+    {% else %}
+    <p>No predictions yet.</p>
+    {% endif %}
+</div>
+
+<div>
+    <h2>Play Type Distribution</h2>
+    <canvas id="pie" width="400" height="400"></canvas>
+</div>
+
+<div>
+    <h2>Play Log</h2>
+    <table>
+        <tr><th>Timestamp</th><th>Label</th><th>Confidence</th></tr>
+        {% for row in log %}
+        <tr>
+            <td>{{ row.timestamp }}</td>
+            <td>{{ row.label }}</td>
+            <td>{{ '%.2f'|format(row.confidence) }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+<script>
+function loadData() {
+    fetch('/data.json').then(r => r.json()).then(data => {
+        const labels = Object.keys(data);
+        const counts = Object.values(data);
+        new Chart(document.getElementById('pie'), {
+            type: 'pie',
+            data: { labels: labels, datasets: [{ data: counts, backgroundColor: ['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f','#edc949'] }] },
+            options: { responsive: true }
+        });
+    });
+}
+loadData();
+</script>
+</body>
+</html>
