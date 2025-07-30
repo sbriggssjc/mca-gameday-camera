@@ -122,6 +122,22 @@ python practice_trainer.py practice_clips/ --output training_set.json
 Then supply `--training-data training_set.json` when running
 `play_recognizer.py` to bias recognition toward those patterns.
 
+You can also build a dataset from highlight clips:
+
+```bash
+python build_highlight_dataset.py highlights/ dataset/
+```
+
+This copies the clips into `dataset` and creates `dataset/metadata.csv`:
+
+```csv
+filepath,label,quarter,time,player
+dataset/TD_JaxonBrunner_Jet_Sweep_Q2_05m12s.mp4,Jet Sweep,Q2,05:12,JaxonBrunner
+```
+
+The `HighlightClipDataset` class in `highlight_dataset.py` loads these clips as
+PyTorch tensors for training models.
+
 ## update_code.sh
 
 Run `update_code.sh` to pull the latest changes from the remote `main` branch. The script handles errors like missing Git or network issues and prints whether new code was retrieved or if the repository was already current.
