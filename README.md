@@ -138,6 +138,23 @@ dataset/TD_JaxonBrunner_Jet_Sweep_Q2_05m12s.mp4,Jet Sweep,Q2,05:12,JaxonBrunner
 The `HighlightClipDataset` class in `highlight_dataset.py` loads these clips as
 PyTorch tensors for training models.
 
+## reclassify_old_clips.py
+
+`reclassify_old_clips.py` runs the latest play classifier on your existing
+highlight clips and updates their labels if the prediction changes. Updates are
+appended to `training/logs/learning_log.json`.
+
+```bash
+python reclassify_old_clips.py dataset/metadata.csv --model_dir models/play_classifier
+```
+
+Add `--schedule` to run weekly (requires the `schedule` package) or create a
+cron entry:
+
+```cron
+0 3 * * 0 /usr/bin/python /path/to/mca-gameday-camera/reclassify_old_clips.py dataset/metadata.csv --model_dir models/play_classifier
+```
+
 ## update_code.sh
 
 Run `update_code.sh` to pull the latest changes from the remote `main` branch. The script handles errors like missing Git or network issues and prints whether new code was retrieved or if the repository was already current.
