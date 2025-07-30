@@ -195,30 +195,41 @@ def parse_clock(clock: str) -> int | None:
 
 
 def launch_ffmpeg(width: int, height: int, record_path: Path) -> subprocess.Popen:
+    """Start the FFmpeg subprocess for streaming and recording."""
     cmd = [
         "ffmpeg",
-        "-re",
-        "-f", "rawvideo",
-        "-pix_fmt", "bgr24",
-        "-s", f"{width}x{height}",
-        "-r", str(FPS),
-        "-i", "-",
-        "-f", "lavfi",
-        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-tune", "zerolatency",
-        "-vf", "scale=1920:1080,fps=30,setsar=1,setdar=16/9",
-        "-pix_fmt", "yuv420p",
-        "-b:v", BITRATE,
-        "-maxrate", BITRATE,
-        "-bufsize", BUFSIZE,
-        "-g", "60",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-ar", "44100",
-        "-ac",
-        "2",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "bgr24",
+        "-s",
+        f"{width}x{height}",
+        "-r",
+        str(FPS),
+        "-i",
+        "pipe:",
+        "-f",
+        "lavfi",
+        "-i",
+        "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-b:v",
+        "3000k",
+        "-maxrate",
+        "3000k",
+        "-bufsize",
+        "6000k",
+        "-g",
+        "60",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-ar",
+        "44100",
         "-f",
         "tee",
         f"[f=flv]{RTMP_URL}|[f=mp4]{record_path}",
@@ -235,6 +246,14 @@ def main() -> None:
 
     if not cap.isOpened():
         sys.exit("Unable to open camera")
+
+    # Read a test frame before starting FFmpeg
+    ret, test_frame = cap.read()
+    if not ret or test_frame is None:
+        print("Camera initialization failed")
+        cap.release()
+        return
+    print("Frame shape:", test_frame.shape)
 
     output_dir = Path("video")
     output_dir.mkdir(exist_ok=True)
@@ -257,6 +276,7 @@ def main() -> None:
     cv2.namedWindow("Stream Preview", cv2.WINDOW_NORMAL)
     frame_interval = 1.0 / FPS
     frame_count = 0
+    failed_reads = 0
     last_log = start
     fps_start = start
     fps_counter = 0
@@ -372,8 +392,13 @@ def main() -> None:
             now = time.time()
             if ret and frame is not None:
                 fps_counter += 1
+                failed_reads = 0
             else:
+                failed_reads += 1
                 print("\u26a0\ufe0f Invalid frame received", file=sys.stderr)
+                if failed_reads >= 5:
+                    print("Camera lost signal. Exiting.")
+                    break
             if now - fps_start >= 1:
                 fps_value = fps_counter / (now - fps_start)
                 fps_counter = 0
@@ -495,6 +520,8 @@ def main() -> None:
                     process = None
 
             frame_count += 1
+            if frame_count % 30 == 0:
+                print(f"Streaming frame #{frame_count}")
             now = time.time()
             if now - last_log >= 5:
                 elapsed = now - start
