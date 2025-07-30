@@ -72,9 +72,11 @@ Output is written with `tee` so a local MP4 recording is saved
 alongside the live RTMP stream.
 
 If `GDRIVE_FOLDER_ID` is set, the MP4 and a matching
-`*_play_log.csv` are uploaded to that Drive folder after streaming
-finishes. Set `GDRIVE_USE_GAME_FOLDER=1` to place both files in a
-dedicated subfolder named after the game timestamp.
+`*_play_log.csv` are uploaded to Google Drive after streaming
+finishes. A new folder is created for each game using the pattern
+`TEAM_NAME_YYYY-MM-DD_vs_OPPONENT`. The opponent name and game date can
+be provided via the `OPPONENT` and `GAME_DATE` environment variables
+(the script prompts for the opponent if unset).
 
 Additional options:
 
