@@ -237,23 +237,53 @@ def launch_ffmpeg(width: int, height: int, record_path: Path) -> subprocess.Pope
     return subprocess.Popen(cmd, stdin=subprocess.PIPE)
 
 
-def main() -> None:
-    cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+def try_open_camera(idx: int) -> tuple[cv2.VideoCapture, "cv2.Mat"] | tuple[None, None]:
+    """Attempt to open a camera index and return the capture object and test frame."""
+    cap = cv2.VideoCapture(idx, cv2.CAP_V4L2)
     cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, FPS)
-
     if not cap.isOpened():
-        sys.exit("Unable to open camera")
-
-    # Read a test frame before starting FFmpeg
+        cap.release()
+        return None, None
     ret, test_frame = cap.read()
     if not ret or test_frame is None:
-        print("Camera initialization failed")
         cap.release()
+        return None, None
+    return cap, test_frame
+
+
+def open_camera() -> tuple[cv2.VideoCapture, "cv2.Mat"] | tuple[None, None]:
+    """Open the first available camera with a valid frame."""
+    for idx in range(3):
+        cap, frame = try_open_camera(idx)
+        if cap is not None:
+            print(f"✅ Opened camera index {idx}")
+            return cap, frame
+
+    # Jetson CSI camera fallback using GStreamer
+    gst_str = (
+        f"nvarguscamerasrc ! video/x-raw(memory:NVMM), width={WIDTH}, height={HEIGHT}, "
+        "framerate=30/1 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! appsink"
+    )
+    cap = cv2.VideoCapture(gst_str, cv2.CAP_GSTREAMER)
+    if cap.isOpened():
+        ret, test_frame = cap.read()
+        if ret and test_frame is not None:
+            print("✅ Opened CSI camera via GStreamer")
+            return cap, test_frame
+        cap.release()
+
+    return None, None
+
+
+def main() -> None:
+    cap, test_frame = open_camera()
+    if cap is None or test_frame is None:
+        print("❌ Camera failed to initialize. Check the camera connection or device index.")
         return
-    print("Frame shape:", test_frame.shape)
+    print("✅ Successfully captured initial frame:", test_frame.shape)
 
     output_dir = Path("video")
     output_dir.mkdir(exist_ok=True)
