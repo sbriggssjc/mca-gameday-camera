@@ -5,6 +5,8 @@ from __future__ import annotations
 import datetime as _dt
 from typing import Iterable, List
 
+from roster import get_player_name
+
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -22,6 +24,7 @@ def upload_rows(service_account_json: str, spreadsheet_id: str, rows: Iterable[L
 
 
 def format_row(jersey: int, total: int, quarters: List[int]) -> List[str]:
+    """Return a row for uploading play counts including the player name."""
     timestamp = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     breakdown = ",".join(str(q) for q in quarters)
-    return [timestamp, str(jersey), str(total), breakdown]
+    return [timestamp, str(jersey), get_player_name(jersey), str(total), breakdown]
