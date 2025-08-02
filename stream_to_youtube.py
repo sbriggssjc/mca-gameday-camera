@@ -19,6 +19,10 @@ try:
     import pytesseract
 except Exception:
     pytesseract = None  # type: ignore
+try:
+    import psutil
+except Exception:
+    psutil = None  # type: ignore
 from datetime import datetime
 from pathlib import Path
 
@@ -561,10 +565,25 @@ def main() -> None:
             now = time.time()
             if now - last_log >= 5:
                 elapsed = now - start
-                minutes, seconds = divmod(int(elapsed), 60)
+                hours, rem = divmod(int(elapsed), 3600)
+                minutes, seconds = divmod(rem, 60)
                 avg_fps = frame_count / elapsed if elapsed > 0 else 0.0
+                expected_frames = elapsed * FPS
+                dropped_frames = max(0, expected_frames - frame_count)
+                drop_rate = (
+                    (dropped_frames / expected_frames) * 100 if expected_frames > 0 else 0
+                )
+                usage_str = ""
+                if psutil is not None:
+                    try:
+                        proc = psutil.Process(os.getpid())
+                        mem_mb = proc.memory_info().rss / (1024 * 1024)
+                        cpu_pct = psutil.cpu_percent(interval=None)
+                        usage_str = f" | CPU: {cpu_pct:.1f}% | Mem: {mem_mb:.1f} MB"
+                    except Exception:
+                        usage_str = ""
                 print(
-                    f"[STREAM STATUS] \u23F1\ufe0f {minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Avg FPS: {avg_fps:.2f}",
+                    f"[STREAM STATUS] \u23F1\ufe0f {hours:02d}:{minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Avg FPS: {avg_fps:.2f} | Frame Drop: {drop_rate:.2f}%{usage_str}",
                     flush=True,
                 )
                 last_log = now
