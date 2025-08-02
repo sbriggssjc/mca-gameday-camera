@@ -6,6 +6,7 @@ import sys
 import os
 import re
 from collections import deque
+from urllib.parse import urlparse
 import argparse
 
 import roster
@@ -52,6 +53,26 @@ HALFTIME_SECS = 20 * 60  # halftime at 20:00
 FINAL_WARNING_SECS = 34 * 60  # 6:00 remaining in a 40 minute game
 HALFTIME_MIN_PLAYS = 3
 FINAL_MIN_PLAYS = 7
+
+
+def validate_rtmp_url(url: str) -> bool:
+    """Return True if the RTMP/RTMPS URL looks valid."""
+    parsed = urlparse(url)
+    return parsed.scheme in {"rtmp", "rtmps"} and bool(parsed.netloc) and bool(parsed.path)
+
+
+def unique_path(path: Path) -> Path:
+    """Return a unique path by appending a counter if the file exists."""
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    counter = 1
+    while True:
+        candidate = path.with_name(f"{stem}_{counter}{suffix}")
+        if not candidate.exists():
+            return candidate
+        counter += 1
 
 
 def generate_compliance_report(
@@ -200,6 +221,9 @@ def parse_clock(clock: str) -> int | None:
     return None
 
 
+def launch_ffmpeg(width: int, height: int, record_path: Path) -> subprocess.Popen | None:
+    """Start the FFmpeg subprocess for streaming and recording."""
+    record_path.parent.mkdir(parents=True, exist_ok=True)
 def launch_ffmpeg(
     width: int,
     height: int,
@@ -255,7 +279,21 @@ def launch_ffmpeg(
         "tee",
         "|".join(outputs),
     ]
+
+    try:
+        return subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+        )
+    except FileNotFoundError:
+        print("❌ ffmpeg not found. Please install FFmpeg.")
+        return None
+
     return subprocess.Popen(ffmpeg_command, stdin=subprocess.PIPE)
+
 
 
 def open_camera() -> tuple[cv2.VideoCapture, "cv2.Mat"] | tuple[None, None]:
@@ -312,12 +350,17 @@ def open_camera() -> tuple[cv2.VideoCapture, "cv2.Mat"] | tuple[None, None]:
 
 
 def main() -> None:
+    if not validate_rtmp_url(RTMP_URL):
+        print(f"❌ Invalid RTMP URL: {RTMP_URL}")
+        return
+
     parser = argparse.ArgumentParser(description="Stream and record game footage")
     parser.add_argument(
         "--filename",
         help="Base name for output files; timestamp and .mp4 will be appended",
     )
     args = parser.parse_args()
+
 
     cap, test_frame = open_camera()
     if cap is None or test_frame is None:
@@ -328,6 +371,13 @@ def main() -> None:
     output_dir = Path("video")
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    record_file = unique_path(output_dir / f"game_{timestamp}.mp4")
+    log_file = unique_path(output_dir / f"game_{timestamp}_play_log.csv")
+    process = launch_ffmpeg(WIDTH, HEIGHT, record_file)
+    if process is None:
+        return
+
     base_name = args.filename if args.filename else "game"
     record_file = output_dir / f"{base_name}_{timestamp}.mp4"
     log_file = output_dir / f"{base_name}_{timestamp}_play_log.csv"
@@ -339,6 +389,7 @@ def main() -> None:
     log_writer = csv.writer(log_fp)
     log_writer.writerow(["timestamp", "player_id"])
     start = time.time()
+    alert_log_file = unique_path(output_dir / f"game_{timestamp}_alerts.log")
     alert_log_file = output_dir / f"{base_name}_{timestamp}_alerts.log"
     alert_fp = open(alert_log_file, "w", encoding="utf-8")
     play_counts: dict[str, int] = {}
@@ -350,6 +401,7 @@ def main() -> None:
     cv2.namedWindow("Stream Preview", cv2.WINDOW_NORMAL)
     frame_interval = 1.0 / FPS
     frame_count = 0
+    bytes_sent = 0
     failed_reads = 0
     last_log = start
     fps_start = start
@@ -374,6 +426,7 @@ def main() -> None:
     drive_start_clock = "--:--"
     drive_start_time = time.time()
 
+    sub_log_path = unique_path(output_dir / f"game_{timestamp}_substitution_log.csv")
     sub_log_path = output_dir / f"{base_name}_{timestamp}_substitution_log.csv"
     sub_log_fp = open(sub_log_path, "w", newline="")
     sub_log_writer = csv.writer(sub_log_fp)
@@ -472,8 +525,15 @@ def main() -> None:
                 failed_reads += 1
                 print("\u26a0\ufe0f Invalid frame received", file=sys.stderr)
                 if failed_reads >= 5:
-                    print("Camera lost signal. Exiting.")
-                    break
+                    print("Camera lost signal. Attempting to reopen...")
+                    cap.release()
+                    cap, new_frame = open_camera()
+                    if cap is None or new_frame is None:
+                        print("❌ Unable to reopen camera. Exiting.")
+                        break
+                    frame = new_frame
+                    failed_reads = 0
+                    continue
             if now - fps_start >= 1:
                 fps_value = fps_counter / (now - fps_start)
                 fps_counter = 0
@@ -584,7 +644,17 @@ def main() -> None:
                     plays_since_check += 1
                     check_alerts()
             if process and process.stdin:
+                frame_bytes = frame.tobytes()
                 try:
+                    process.stdin.write(frame_bytes)
+                    bytes_sent += len(frame_bytes)
+                except (BrokenPipeError, OSError) as exc:
+                    print(f"[\u274C ERROR] FFmpeg pipe closed ({exc.__class__.__name__})")
+                    print("\a", end="")
+                    ffmpeg_error = True
+                    if process.poll() is not None:
+                        process.wait()
+                    process = None
                     process.stdin.write(frame.tobytes())
                     process.stdin.flush()
                 except BrokenPipeError:
@@ -600,6 +670,11 @@ def main() -> None:
                 hours, rem = divmod(int(elapsed), 3600)
                 minutes, seconds = divmod(rem, 60)
                 avg_fps = frame_count / elapsed if elapsed > 0 else 0.0
+                file_size = record_file.stat().st_size if record_file.exists() else 0
+                bitrate = (file_size * 8 / elapsed / 1000) if elapsed > 0 else 0.0
+                input_bitrate = (bytes_sent * 8 / elapsed / 1000) if elapsed > 0 else 0.0
+                print(
+                    f"[STREAM STATUS] \u23F1\ufe0f {minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Avg FPS: {avg_fps:.2f} | In: {input_bitrate:.0f} kbps | Out: {bitrate:.0f} kbps",
                 expected_frames = elapsed * FPS
                 dropped_frames = max(0, expected_frames - frame_count)
                 drop_rate = (
@@ -632,6 +707,8 @@ def main() -> None:
             if delay > 0:
                 time.sleep(delay)
             check_alerts()
+    except KeyboardInterrupt:
+        print("\nKeyboard interrupt received. Stopping stream...")
     finally:
         cap.release()
         if process and process.stdin:
