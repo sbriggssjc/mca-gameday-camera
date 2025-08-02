@@ -20,6 +20,10 @@ try:
     import pytesseract
 except Exception:
     pytesseract = None  # type: ignore
+try:
+    import psutil
+except Exception:
+    psutil = None  # type: ignore
 from datetime import datetime
 from pathlib import Path
 
@@ -29,6 +33,7 @@ FPS = 30
 RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/xcuz-3x1d-9y7v-ghec-2xmh"
 BITRATE = "6000k"
 BUFSIZE = "12000k"
+TEST_MODE = "--test" in sys.argv
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 FONT_SCALE = 0.7
@@ -195,9 +200,28 @@ def parse_clock(clock: str) -> int | None:
     return None
 
 
-def launch_ffmpeg(width: int, height: int, record_path: Path) -> subprocess.Popen:
+def launch_ffmpeg(
+    width: int,
+    height: int,
+    record_path: Path,
+    rtmp_url: str,
+    test_mode: bool = False,
+) -> subprocess.Popen:
     """Start the FFmpeg subprocess for streaming and recording."""
+
+    outputs = [f"[f=mp4]{record_path}"]
+    if not test_mode:
+        if rtmp_url.startswith("rtmp://"):
+            outputs.insert(0, f"[f=flv]{rtmp_url}")
+        else:
+            print(f"⚠️ Invalid RTMP URL: {rtmp_url}. Recording to MP4 only.")
+    else:
+        print("⚠️ Test mode: recording to MP4 only, skipping RTMP.")
+
     cmd = [
+
+    ffmpeg_command = [
+
         "ffmpeg",
         "-f",
         "rawvideo",
@@ -222,46 +246,41 @@ def launch_ffmpeg(width: int, height: int, record_path: Path) -> subprocess.Pope
         "-preset",
         "veryfast",
         "-b:v",
-        "3000k",
-        "-maxrate",
-        "3000k",
-        "-bufsize",
-        "6000k",
-        "-g",
-        "60",
+        "2500k",
         "-c:a",
         "aac",
-        "-b:a",
-        "128k",
         "-ar",
         "44100",
         "-f",
         "tee",
-        f"[f=flv]{RTMP_URL}|[f=mp4]{record_path}",
+        "|".join(outputs),
     ]
-    return subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    return subprocess.Popen(ffmpeg_command, stdin=subprocess.PIPE)
 
 
 def open_camera() -> tuple[cv2.VideoCapture, "cv2.Mat"] | tuple[None, None]:
-    """Attempt to open a USB camera then fall back to a Jetson CSI camera."""
+    """Open the first available camera, trying indices 0, 1 and 2."""
 
     cap: cv2.VideoCapture | None = None
+    frame: "cv2.Mat" | None = None
+    working_index: int | None = None
 
-    # Try a few USB camera indices
+    # Try common USB camera indices first
     for index in range(3):
         cap = cv2.VideoCapture(index)
         if cap.isOpened():
-            print(f"✅ Opened USB camera at index {index}")
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-            break
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                working_index = index
+                print(f"✅ Opened USB camera at index {index}")
+                break
         cap.release()
         cap = None
-    else:
-        cap = None  # mark failure if loop completes without break
 
     # Fallback to CSI camera if no USB camera found
-    if cap is None or not cap.isOpened():
+    if cap is None or frame is None:
         print("⚠️ USB camera not found. Trying Jetson CSI camera...")
         gst_str = (
             "nvarguscamerasrc ! video/x-raw(memory:NVMM), width=1280, height=720, "
@@ -270,23 +289,23 @@ def open_camera() -> tuple[cv2.VideoCapture, "cv2.Mat"] | tuple[None, None]:
         )
         cap = cv2.VideoCapture(gst_str, cv2.CAP_GSTREAMER)
         if cap.isOpened():
-            print("✅ CSI camera opened via GStreamer.")
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                working_index = -1  # Indicates CSI camera
+            else:
+                cap.release()
+                cap = None
 
-    if not cap or not cap.isOpened():
-        print("❌ No camera detected. Check USB or CSI connections.")
+    if cap is None or frame is None:
+        print("❌ No camera available. Tried indices 0, 1, 2 and CSI camera.")
         return None, None
 
-    # Ensure the capture resolution matches the expected output size
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-
-    ret, frame = cap.read()
-    if not ret or frame is None:
-        print("❌ Failed to read initial frame from camera.")
-        cap.release()
-        return None, None
+    if working_index >= 0:
+        print(f"✅ Using camera index {working_index}")
+    else:
+        print("✅ Using CSI camera via GStreamer")
 
     print("✅ Successfully read first frame:", frame.shape)
     return cap, frame
@@ -313,6 +332,9 @@ def main() -> None:
     record_file = output_dir / f"{base_name}_{timestamp}.mp4"
     log_file = output_dir / f"{base_name}_{timestamp}_play_log.csv"
     process = launch_ffmpeg(WIDTH, HEIGHT, record_file)
+    record_file = output_dir / f"game_{timestamp}.mp4"
+    log_file = output_dir / f"game_{timestamp}_play_log.csv"
+    process = launch_ffmpeg(WIDTH, HEIGHT, record_file, RTMP_URL, TEST_MODE)
     log_fp = open(log_file, "w", newline="")
     log_writer = csv.writer(log_fp)
     log_writer.writerow(["timestamp", "player_id"])
@@ -566,12 +588,8 @@ def main() -> None:
                     process.stdin.write(frame.tobytes())
                     process.stdin.flush()
                 except BrokenPipeError:
-                    print("[\u274C ERROR] FFmpeg pipe closed (BrokenPipeError)")
-                    print("\a", end="")
-                    ffmpeg_error = True
-                    if process.poll() is not None:
-                        process.wait()
-                    process = None
+                    print("[\u274C Streaming ended: BrokenPipeError]")
+                    break
 
             frame_count += 1
             if frame_count % 30 == 0:
@@ -579,10 +597,25 @@ def main() -> None:
             now = time.time()
             if now - last_log >= 5:
                 elapsed = now - start
-                minutes, seconds = divmod(int(elapsed), 60)
+                hours, rem = divmod(int(elapsed), 3600)
+                minutes, seconds = divmod(rem, 60)
                 avg_fps = frame_count / elapsed if elapsed > 0 else 0.0
+                expected_frames = elapsed * FPS
+                dropped_frames = max(0, expected_frames - frame_count)
+                drop_rate = (
+                    (dropped_frames / expected_frames) * 100 if expected_frames > 0 else 0
+                )
+                usage_str = ""
+                if psutil is not None:
+                    try:
+                        proc = psutil.Process(os.getpid())
+                        mem_mb = proc.memory_info().rss / (1024 * 1024)
+                        cpu_pct = psutil.cpu_percent(interval=None)
+                        usage_str = f" | CPU: {cpu_pct:.1f}% | Mem: {mem_mb:.1f} MB"
+                    except Exception:
+                        usage_str = ""
                 print(
-                    f"[STREAM STATUS] \u23F1\ufe0f {minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Avg FPS: {avg_fps:.2f}",
+                    f"[STREAM STATUS] \u23F1\ufe0f {hours:02d}:{minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Avg FPS: {avg_fps:.2f} | Frame Drop: {drop_rate:.2f}%{usage_str}",
                     flush=True,
                 )
                 last_log = now
