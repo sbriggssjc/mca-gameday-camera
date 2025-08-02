@@ -196,7 +196,7 @@ def parse_clock(clock: str) -> int | None:
 
 def launch_ffmpeg(width: int, height: int, record_path: Path) -> subprocess.Popen:
     """Start the FFmpeg subprocess for streaming and recording."""
-    cmd = [
+    ffmpeg_command = [
         "ffmpeg",
         "-f",
         "rawvideo",
@@ -221,24 +221,16 @@ def launch_ffmpeg(width: int, height: int, record_path: Path) -> subprocess.Pope
         "-preset",
         "veryfast",
         "-b:v",
-        "3000k",
-        "-maxrate",
-        "3000k",
-        "-bufsize",
-        "6000k",
-        "-g",
-        "60",
+        "2500k",
         "-c:a",
         "aac",
-        "-b:a",
-        "128k",
         "-ar",
         "44100",
         "-f",
         "tee",
         f"[f=flv]{RTMP_URL}|[f=mp4]{record_path}",
     ]
-    return subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    return subprocess.Popen(ffmpeg_command, stdin=subprocess.PIPE)
 
 
 def open_camera() -> tuple[cv2.VideoCapture, "cv2.Mat"] | tuple[None, None]:
