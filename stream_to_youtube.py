@@ -6,6 +6,7 @@ import sys
 import os
 import re
 from collections import deque
+import argparse
 
 import roster
 
@@ -292,6 +293,13 @@ def open_camera() -> tuple[cv2.VideoCapture, "cv2.Mat"] | tuple[None, None]:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Stream and record game footage")
+    parser.add_argument(
+        "--filename",
+        help="Base name for output files; timestamp and .mp4 will be appended",
+    )
+    args = parser.parse_args()
+
     cap, test_frame = open_camera()
     if cap is None or test_frame is None:
         print("❌ Camera failed to initialize. Check the camera connection or device index.")
@@ -299,16 +307,17 @@ def main() -> None:
     print("✅ Successfully captured initial frame:", test_frame.shape)
 
     output_dir = Path("video")
-    output_dir.mkdir(exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    record_file = output_dir / f"game_{timestamp}.mp4"
-    log_file = output_dir / f"game_{timestamp}_play_log.csv"
+    base_name = args.filename if args.filename else "game"
+    record_file = output_dir / f"{base_name}_{timestamp}.mp4"
+    log_file = output_dir / f"{base_name}_{timestamp}_play_log.csv"
     process = launch_ffmpeg(WIDTH, HEIGHT, record_file)
     log_fp = open(log_file, "w", newline="")
     log_writer = csv.writer(log_fp)
     log_writer.writerow(["timestamp", "player_id"])
     start = time.time()
-    alert_log_file = output_dir / f"game_{timestamp}_alerts.log"
+    alert_log_file = output_dir / f"{base_name}_{timestamp}_alerts.log"
     alert_fp = open(alert_log_file, "w", encoding="utf-8")
     play_counts: dict[str, int] = {}
     plays_since_check = 0
@@ -343,7 +352,7 @@ def main() -> None:
     drive_start_clock = "--:--"
     drive_start_time = time.time()
 
-    sub_log_path = output_dir / f"game_{timestamp}_substitution_log.csv"
+    sub_log_path = output_dir / f"{base_name}_{timestamp}_substitution_log.csv"
     sub_log_fp = open(sub_log_path, "w", newline="")
     sub_log_writer = csv.writer(sub_log_fp)
     sub_log_writer.writerow(["timestamp", "type", "player_id", "message"])
@@ -628,7 +637,7 @@ def main() -> None:
             game_folder_id = drive_folder_id
             if use_subfolder:
                 folder_meta = {
-                    "title": f"game_{timestamp}",
+                    "title": f"{base_name}_{timestamp}",
                     "parents": [{"id": drive_folder_id}],
                     "mimeType": "application/vnd.google-apps.folder",
                 }
@@ -639,7 +648,7 @@ def main() -> None:
                     f"https://drive.google.com/drive/folders/{folder_file['id']}"
                 )
                 print(
-                    f"Created folder game_{timestamp} -> {folder_link}"
+                    f"Created folder {base_name}_{timestamp} -> {folder_link}"
                 )
 
             # upload video
