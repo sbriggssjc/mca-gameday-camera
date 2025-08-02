@@ -242,25 +242,28 @@ def launch_ffmpeg(width: int, height: int, record_path: Path) -> subprocess.Pope
 
 
 def open_camera() -> tuple[cv2.VideoCapture, "cv2.Mat"] | tuple[None, None]:
-    """Attempt to open a USB camera then fall back to a Jetson CSI camera."""
+    """Open the first available camera, trying indices 0, 1 and 2."""
 
     cap: cv2.VideoCapture | None = None
+    frame: "cv2.Mat" | None = None
+    working_index: int | None = None
 
-    # Try a few USB camera indices
+    # Try common USB camera indices first
     for index in range(3):
         cap = cv2.VideoCapture(index)
         if cap.isOpened():
-            print(f"✅ Opened USB camera at index {index}")
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-            break
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                working_index = index
+                print(f"✅ Opened USB camera at index {index}")
+                break
         cap.release()
         cap = None
-    else:
-        cap = None  # mark failure if loop completes without break
 
     # Fallback to CSI camera if no USB camera found
-    if cap is None or not cap.isOpened():
+    if cap is None or frame is None:
         print("⚠️ USB camera not found. Trying Jetson CSI camera...")
         gst_str = (
             "nvarguscamerasrc ! video/x-raw(memory:NVMM), width=1280, height=720, "
@@ -269,23 +272,23 @@ def open_camera() -> tuple[cv2.VideoCapture, "cv2.Mat"] | tuple[None, None]:
         )
         cap = cv2.VideoCapture(gst_str, cv2.CAP_GSTREAMER)
         if cap.isOpened():
-            print("✅ CSI camera opened via GStreamer.")
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                working_index = -1  # Indicates CSI camera
+            else:
+                cap.release()
+                cap = None
 
-    if not cap or not cap.isOpened():
-        print("❌ No camera detected. Check USB or CSI connections.")
+    if cap is None or frame is None:
+        print("❌ No camera available. Tried indices 0, 1, 2 and CSI camera.")
         return None, None
 
-    # Ensure the capture resolution matches the expected output size
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-
-    ret, frame = cap.read()
-    if not ret or frame is None:
-        print("❌ Failed to read initial frame from camera.")
-        cap.release()
-        return None, None
+    if working_index >= 0:
+        print(f"✅ Using camera index {working_index}")
+    else:
+        print("✅ Using CSI camera via GStreamer")
 
     print("✅ Successfully read first frame:", frame.shape)
     return cap, frame
