@@ -242,10 +242,7 @@ def launch_ffmpeg(
     else:
         print("⚠️ Test mode: recording to MP4 only, skipping RTMP.")
 
-    cmd = [
-
     ffmpeg_command = [
-
         "ffmpeg",
         "-f",
         "rawvideo",
@@ -282,7 +279,7 @@ def launch_ffmpeg(
 
     try:
         return subprocess.Popen(
-            cmd,
+            ffmpeg_command,
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
@@ -291,8 +288,6 @@ def launch_ffmpeg(
     except FileNotFoundError:
         print("❌ ffmpeg not found. Please install FFmpeg.")
         return None
-
-    return subprocess.Popen(ffmpeg_command, stdin=subprocess.PIPE)
 
 
 
@@ -675,6 +670,7 @@ def main() -> None:
                 input_bitrate = (bytes_sent * 8 / elapsed / 1000) if elapsed > 0 else 0.0
                 print(
                     f"[STREAM STATUS] \u23F1\ufe0f {minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Avg FPS: {avg_fps:.2f} | In: {input_bitrate:.0f} kbps | Out: {bitrate:.0f} kbps",
+                )
                 expected_frames = elapsed * FPS
                 dropped_frames = max(0, expected_frames - frame_count)
                 drop_rate = (
