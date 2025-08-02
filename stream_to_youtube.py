@@ -221,9 +221,6 @@ def parse_clock(clock: str) -> int | None:
     return None
 
 
-def launch_ffmpeg(width: int, height: int, record_path: Path) -> subprocess.Popen | None:
-    """Start the FFmpeg subprocess for streaming and recording."""
-    record_path.parent.mkdir(parents=True, exist_ok=True)
 def launch_ffmpeg(
     width: int,
     height: int,
@@ -232,6 +229,8 @@ def launch_ffmpeg(
     test_mode: bool = False,
 ) -> subprocess.Popen:
     """Start the FFmpeg subprocess for streaming and recording."""
+
+    record_path.parent.mkdir(parents=True, exist_ok=True)
 
     outputs = [f"[f=mp4]{record_path}"]
     if not test_mode:
@@ -367,25 +366,19 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    record_file = unique_path(output_dir / f"game_{timestamp}.mp4")
-    log_file = unique_path(output_dir / f"game_{timestamp}_play_log.csv")
-    process = launch_ffmpeg(WIDTH, HEIGHT, record_file)
+    base_name = args.filename if args.filename else "game"
+    record_file = unique_path(output_dir / f"{base_name}_{timestamp}.mp4")
+    log_file = unique_path(output_dir / f"{base_name}_{timestamp}_play_log.csv")
+
+    process = launch_ffmpeg(WIDTH, HEIGHT, record_file, RTMP_URL, TEST_MODE)
     if process is None:
         return
 
-    base_name = args.filename if args.filename else "game"
-    record_file = output_dir / f"{base_name}_{timestamp}.mp4"
-    log_file = output_dir / f"{base_name}_{timestamp}_play_log.csv"
-    process = launch_ffmpeg(WIDTH, HEIGHT, record_file)
-    record_file = output_dir / f"game_{timestamp}.mp4"
-    log_file = output_dir / f"game_{timestamp}_play_log.csv"
-    process = launch_ffmpeg(WIDTH, HEIGHT, record_file, RTMP_URL, TEST_MODE)
     log_fp = open(log_file, "w", newline="")
     log_writer = csv.writer(log_fp)
     log_writer.writerow(["timestamp", "player_id"])
     start = time.time()
-    alert_log_file = unique_path(output_dir / f"game_{timestamp}_alerts.log")
-    alert_log_file = output_dir / f"{base_name}_{timestamp}_alerts.log"
+    alert_log_file = unique_path(output_dir / f"{base_name}_{timestamp}_alerts.log")
     alert_fp = open(alert_log_file, "w", encoding="utf-8")
     play_counts: dict[str, int] = {}
     plays_since_check = 0
@@ -421,8 +414,7 @@ def main() -> None:
     drive_start_clock = "--:--"
     drive_start_time = time.time()
 
-    sub_log_path = unique_path(output_dir / f"game_{timestamp}_substitution_log.csv")
-    sub_log_path = output_dir / f"{base_name}_{timestamp}_substitution_log.csv"
+    sub_log_path = unique_path(output_dir / f"{base_name}_{timestamp}_substitution_log.csv")
     sub_log_fp = open(sub_log_path, "w", newline="")
     sub_log_writer = csv.writer(sub_log_fp)
     sub_log_writer.writerow(["timestamp", "type", "player_id", "message"])
