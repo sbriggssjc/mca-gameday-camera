@@ -32,6 +32,7 @@ FPS = 30
 RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/xcuz-3x1d-9y7v-ghec-2xmh"
 BITRATE = "6000k"
 BUFSIZE = "12000k"
+TEST_MODE = "--test" in sys.argv
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 FONT_SCALE = 0.7
@@ -198,9 +199,28 @@ def parse_clock(clock: str) -> int | None:
     return None
 
 
-def launch_ffmpeg(width: int, height: int, record_path: Path) -> subprocess.Popen:
+def launch_ffmpeg(
+    width: int,
+    height: int,
+    record_path: Path,
+    rtmp_url: str,
+    test_mode: bool = False,
+) -> subprocess.Popen:
     """Start the FFmpeg subprocess for streaming and recording."""
+
+    outputs = [f"[f=mp4]{record_path}"]
+    if not test_mode:
+        if rtmp_url.startswith("rtmp://"):
+            outputs.insert(0, f"[f=flv]{rtmp_url}")
+        else:
+            print(f"⚠️ Invalid RTMP URL: {rtmp_url}. Recording to MP4 only.")
+    else:
+        print("⚠️ Test mode: recording to MP4 only, skipping RTMP.")
+
+    cmd = [
+
     ffmpeg_command = [
+
         "ffmpeg",
         "-f",
         "rawvideo",
@@ -232,7 +252,7 @@ def launch_ffmpeg(width: int, height: int, record_path: Path) -> subprocess.Pope
         "44100",
         "-f",
         "tee",
-        f"[f=flv]{RTMP_URL}|[f=mp4]{record_path}",
+        "|".join(outputs),
     ]
     return subprocess.Popen(ffmpeg_command, stdin=subprocess.PIPE)
 
@@ -302,7 +322,7 @@ def main() -> None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     record_file = output_dir / f"game_{timestamp}.mp4"
     log_file = output_dir / f"game_{timestamp}_play_log.csv"
-    process = launch_ffmpeg(WIDTH, HEIGHT, record_file)
+    process = launch_ffmpeg(WIDTH, HEIGHT, record_file, RTMP_URL, TEST_MODE)
     log_fp = open(log_file, "w", newline="")
     log_writer = csv.writer(log_fp)
     log_writer.writerow(["timestamp", "player_id"])
