@@ -5,6 +5,7 @@ import time
 import sys
 import os
 import re
+import threading
 from collections import deque
 from urllib.parse import urlparse
 import argparse
@@ -221,9 +222,19 @@ def parse_clock(clock: str) -> int | None:
     return None
 
 
+def _log_ffmpeg_errors(pipe) -> None:
+    """Stream FFmpeg stderr output in real time."""
+    for line in iter(pipe.readline, b""):
+        text = line.decode("utf-8", errors="replace").rstrip()
+        if text:
+            print(f"[ffmpeg] {text}")
+    pipe.close()
+
+
 def launch_ffmpeg(
     width: int,
     height: int,
+    fps: float,
     record_path: Path,
     rtmp_url: str,
     test_mode: bool = False,
@@ -250,7 +261,7 @@ def launch_ffmpeg(
         "-s",
         f"{width}x{height}",
         "-r",
-        str(FPS),
+        str(int(fps)),
         "-i",
         "pipe:",
         "-f",
@@ -266,31 +277,61 @@ def launch_ffmpeg(
         "-preset",
         "veryfast",
         "-b:v",
-        "2500k",
+        "4500k",
+        "-maxrate",
+        "5000k",
+        "-bufsize",
+        "10000k",
+        "-g",
+        "60",
+        "-r",
+        str(int(fps)),
+        "-threads",
+        "2",
         "-c:a",
         "aac",
         "-ar",
         "44100",
+        "-ac",
+        "2",
+        "-shortest",
         "-f",
         "tee",
         "|".join(outputs),
     ]
 
     try:
-        return subprocess.Popen(
+        process = subprocess.Popen(
             ffmpeg_command,
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             bufsize=0,
         )
+        if process.stderr is not None:
+            threading.Thread(
+                target=_log_ffmpeg_errors, args=(process.stderr,), daemon=True
+            ).start()
+        return process
     except FileNotFoundError:
         print("❌ ffmpeg not found. Please install FFmpeg.")
         return None
 
 
+def measure_fps(cap: cv2.VideoCapture, frames: int = 60) -> float:
+    """Measure camera FPS by grabbing a number of frames."""
+    start = time.time()
+    count = 0
+    while count < frames:
+        ret, _ = cap.read()
+        if not ret:
+            break
+        count += 1
+    elapsed = time.time() - start
+    return count / elapsed if elapsed > 0 else 0.0
 
-def open_camera() -> tuple[cv2.VideoCapture, "cv2.Mat"] | tuple[None, None]:
+
+def open_camera() -> tuple[cv2.VideoCapture, "cv2.Mat", int, int, float] | tuple[None, None, int, int, float]:
     """Open the first available camera, trying indices 0, 1 and 2."""
 
     cap: cv2.VideoCapture | None = None
@@ -332,15 +373,37 @@ def open_camera() -> tuple[cv2.VideoCapture, "cv2.Mat"] | tuple[None, None]:
 
     if cap is None or frame is None:
         print("❌ No camera available. Tried indices 0, 1, 2 and CSI camera.")
-        return None, None
+        return None, None, 0, 0, 0.0
 
     if working_index >= 0:
         print(f"✅ Using camera index {working_index}")
     else:
         print("✅ Using CSI camera via GStreamer")
 
-    print("✅ Successfully read first frame:", frame.shape)
-    return cap, frame
+    actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = measure_fps(cap)
+    print("✅ Initial capture:", frame.shape, f"{fps:.1f} FPS")
+    if (
+        actual_width < WIDTH
+        or actual_height < HEIGHT
+        or fps < 25
+    ):
+        print("⚠️ Low resolution or FPS detected; switching to 1280x720")
+        actual_width, actual_height = 1280, 720
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, actual_width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, actual_height)
+        ret, frame = cap.read()
+        if ret and frame is not None:
+            fps = measure_fps(cap)
+            print(
+                f"✅ Fallback capture: {frame.shape}, {fps:.1f} FPS"
+            )
+        else:
+            print("❌ Fallback resolution failed.")
+            return None, None, 0, 0, 0.0
+
+    return cap, frame, actual_width, actual_height, fps
 
 
 def main() -> None:
@@ -356,11 +419,15 @@ def main() -> None:
     args = parser.parse_args()
 
 
-    cap, test_frame = open_camera()
+    cap, test_frame, cam_width, cam_height, cam_fps = open_camera()
     if cap is None or test_frame is None:
         print("❌ Camera failed to initialize. Check the camera connection or device index.")
         return
     print("✅ Successfully captured initial frame:", test_frame.shape)
+
+    global WIDTH, HEIGHT, FPS
+    WIDTH, HEIGHT = cam_width, cam_height
+    FPS = 60 if cam_fps >= 50 else 30
 
     output_dir = Path("video")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -370,7 +437,7 @@ def main() -> None:
     record_file = unique_path(output_dir / f"{base_name}_{timestamp}.mp4")
     log_file = unique_path(output_dir / f"{base_name}_{timestamp}_play_log.csv")
 
-    process = launch_ffmpeg(WIDTH, HEIGHT, record_file, RTMP_URL, TEST_MODE)
+    process = launch_ffmpeg(WIDTH, HEIGHT, FPS, record_file, RTMP_URL, TEST_MODE)
     if process is None:
         return
 
