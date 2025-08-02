@@ -557,12 +557,8 @@ def main() -> None:
                     process.stdin.write(frame.tobytes())
                     process.stdin.flush()
                 except BrokenPipeError:
-                    print("[\u274C ERROR] FFmpeg pipe closed (BrokenPipeError)")
-                    print("\a", end="")
-                    ffmpeg_error = True
-                    if process.poll() is not None:
-                        process.wait()
-                    process = None
+                    print("[\u274C Streaming ended: BrokenPipeError]")
+                    break
 
             frame_count += 1
             if frame_count % 30 == 0:
