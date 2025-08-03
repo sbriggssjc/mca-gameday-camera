@@ -298,47 +298,26 @@ def launch_ffmpeg() -> subprocess.Popen | None:
         return None
 
 
-def measure_fps(cap: cv2.VideoCapture, frames: int = 60) -> float:
-    """Measure camera FPS by grabbing a number of frames."""
-    start = time.time()
-    count = 0
-    while count < frames:
-        ret, _ = cap.read()
-        if not ret:
-            break
-        count += 1
-    elapsed = time.time() - start
-    return count / elapsed if elapsed > 0 else 0.0
+def initialize_camera(index: int, width: int, height: int, fps: int) -> cv2.VideoCapture | None:
+    """Attempt to open a camera with the given settings.
 
+    Returns the ``cv2.VideoCapture`` object if successful, otherwise ``None``.
+    """
 
-def initialize_camera(
-    index: int, width: int, height: int, fps: int
-) -> tuple[cv2.VideoCapture, "cv2.Mat", int, int, float] | tuple[None, None, int, int, float]:
-    """Initialize a camera at the given index and resolution."""
-
-    print(f"🎥 Attempting camera index {index} at {width}x{height}@{fps}fps")
-    cap = cv2.VideoCapture(index)
+    cap = cv2.VideoCapture(index, cv2.CAP_V4L2)
     if not cap.isOpened():
-        print(f"❌ Unable to open camera index {index}")
-        return None, None, 0, 0, 0.0
+        return None
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     cap.set(cv2.CAP_PROP_FPS, fps)
 
-    ret, frame = cap.read()
-    if not ret or frame is None:
-        print(f"❌ Failed to read frame from camera index {index}")
+    ret, _ = cap.read()
+    if not ret:
         cap.release()
-        return None, None, 0, 0, 0.0
+        return None
 
-    actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    measured_fps = measure_fps(cap)
-    print(
-        f"✅ Camera index {index} initialized at {actual_width}x{actual_height} ({measured_fps:.1f} FPS)"
-    )
-    return cap, frame, actual_width, actual_height, measured_fps
+    return cap
 
 
 
@@ -357,24 +336,27 @@ def main() -> None:
     global WIDTH, HEIGHT, FPS
 
     cap: cv2.VideoCapture | None = None
-    test_frame: "cv2.Mat" | None = None
-    cam_width, cam_height, cam_fps = WIDTH, HEIGHT, FPS
-    for idx in range(3):
-        cap, test_frame, cam_width, cam_height, cam_fps = initialize_camera(
-            idx, WIDTH, HEIGHT, FPS
-        )
-        if cap and cam_width >= WIDTH and cam_height >= HEIGHT and cam_fps >= 25:
-            break
-        if cap:
-            cap.release()
-        cap, test_frame, cam_width, cam_height, cam_fps = initialize_camera(
-            idx, 1280, 720, FPS
-        )
-        if cap:
-            break
-    if cap is None or test_frame is None:
+
+    print("🎥 Trying camera index 0 at 1920x1080")
+    cap = initialize_camera(0, 1920, 1080, FPS)
+    if cap is None:
+        print("🎥 Trying camera index 1 at 1280x720")
+        cap = initialize_camera(1, 1280, 720, FPS)
+
+    if cap is None:
         print("❌ Camera failed to initialize. Check the camera connection or device index.")
         return
+
+    cam_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    cam_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    print(f"✅ Camera resolution: {cam_width}x{cam_height}")
+
+    ret, test_frame = cap.read()
+    if not ret or test_frame is None:
+        print("❌ Failed to read initial frame from camera.")
+        cap.release()
+        return
+
     print("✅ Successfully captured initial frame:", test_frame.shape)
 
     # Force 720p/24fps output; rotate later if camera delivers portrait frames
