@@ -182,6 +182,15 @@ def overlay_info(
     draw_label(frame, frame_text, (10, frame.shape[0] - 10))
 
 
+def preprocess_frame(frame: "cv2.Mat") -> "cv2.Mat":
+    """Rotate portrait frames and resize to the target resolution."""
+    if frame.shape[0] > frame.shape[1]:
+        frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+    if frame.shape[:2] != (HEIGHT, WIDTH):
+        frame = cv2.resize(frame, (WIDTH, HEIGHT))
+    return frame
+
+
 def extract_roi_text(roi: "cv2.Mat") -> str:
     """Return OCR text from the given ROI."""
     if pytesseract is None:
@@ -233,7 +242,7 @@ def _log_ffmpeg_errors(pipe) -> None:
 def launch_ffmpeg() -> subprocess.Popen | None:
     """Start an FFmpeg process configured for 720p/15fps streaming."""
 
-    width, height, fps = 1280, 720, 15
+    width, height, fps = WIDTH, HEIGHT, FPS
     ffmpeg_command = [
         "ffmpeg",
         "-f",
@@ -243,7 +252,7 @@ def launch_ffmpeg() -> subprocess.Popen | None:
         "-s",
         f"{width}x{height}",
         "-r",
-        "15",
+        str(fps),
         "-i",
         "-",
         "-f",
@@ -256,10 +265,12 @@ def launch_ffmpeg() -> subprocess.Popen | None:
         "1:a",
         "-c:v",
         "libx264",
-        "-preset",
-        "ultrafast",
         "-tune",
         "zerolatency",
+        "-preset",
+        "ultrafast",
+        "-pix_fmt",
+        "yuv420p",
         "-b:v",
         "1800k",
         "-maxrate",
@@ -267,9 +278,13 @@ def launch_ffmpeg() -> subprocess.Popen | None:
         "-bufsize",
         "5000k",
         "-g",
-        "30",
+        str(fps * 2),
         "-r",
-        "15",
+        str(fps),
+        "-flush_packets",
+        "1",
+        "-fflags",
+        "nobuffer",
         "-c:a",
         "aac",
         "-b:a",
@@ -299,6 +314,22 @@ def launch_ffmpeg() -> subprocess.Popen | None:
     except FileNotFoundError:
         print("❌ ffmpeg not found. Please install FFmpeg.")
         return None
+
+
+def restart_ffmpeg(process: subprocess.Popen | None) -> subprocess.Popen | None:
+    """Restart the FFmpeg process if the stream stalls."""
+    if process is not None:
+        try:
+            if process.stdin:
+                process.stdin.close()
+        except Exception:
+            pass
+        try:
+            process.terminate()
+            process.wait(timeout=5)
+        except Exception:
+            pass
+    return launch_ffmpeg()
 
 
 def initialize_camera(index: int, width: int, height: int, fps: int) -> cv2.VideoCapture | None:
@@ -350,7 +381,7 @@ def main() -> None:
         print("❌ Camera failed to initialize. Check the camera connection or device index.")
         return
 
-    cap.set(cv2.CAP_PROP_FPS, 15)
+    cap.set(cv2.CAP_PROP_FPS, FPS)
     cam_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     cam_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"✅ Camera resolution: {cam_width}x{cam_height}")
@@ -399,6 +430,7 @@ def main() -> None:
     last_log = start
     fps_start = start
     fps_counter = 0
+    current_fps = 0.0
     no_frame_secs = 0
     ffmpeg_error = False
     last_score_update = 0.0
@@ -428,6 +460,9 @@ def main() -> None:
     last_sub_check_time = start
     prev_clock_secs: int | None = None
     game_half = 1
+
+    out_zero_start: float | None = None
+    out_zero_warned = False
 
     def check_alerts() -> None:
         nonlocal plays_since_check, last_check_time
@@ -514,16 +549,16 @@ def main() -> None:
                 if failed_reads >= 3:
                     print("❌ cap.read() failed 3 times, shutting down.")
                     break
-                time.sleep(1 / 15)
+                time.sleep(1 / FPS)
                 continue
             failed_reads = 0
             fps_counter += 1
             now = time.time()
             if now - fps_start >= 1:
-                fps_value = fps_counter / (now - fps_start)
+                current_fps = fps_counter / (now - fps_start)
                 fps_counter = 0
                 fps_start = now
-                if fps_value == 0:
+                if current_fps == 0:
                     no_frame_secs += 1
                 else:
                     no_frame_secs = 0
@@ -531,15 +566,13 @@ def main() -> None:
                     print("[\u26A0\uFE0F ALERT] No frames received for 5 seconds. Stream may have stalled.")
                     print("\a", end="")
                     no_frame_secs = 5
-            if frame.shape[0] > frame.shape[1]:
-                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-            if frame.shape != (HEIGHT, WIDTH, 3):
-                if not warned_shape:
+            if frame.shape[0] > frame.shape[1] or frame.shape[:2] != (HEIGHT, WIDTH):
+                if frame.shape[:2] != (HEIGHT, WIDTH) and not warned_shape:
                     print(
                         f"\u26a0\ufe0f Unexpected frame shape: {frame.shape} — resizing to ({WIDTH}, {HEIGHT})"
                     )
                     warned_shape = True
-                frame = cv2.resize(frame, (WIDTH, HEIGHT))
+                frame = preprocess_frame(frame)
             buffer.append(frame.copy())
             if time.time() - last_score_update >= 1.0:
                 scoreboard = read_scoreboard(frame)
@@ -646,23 +679,36 @@ def main() -> None:
                     print("[\u274C Streaming ended: BrokenPipeError]")
                     break
 
-            time.sleep(1 / 15)
+            time.sleep(1 / FPS)
 
             frame_count += 1
-            if frame_count % 30 == 0:
+            if frame_count % (2 * FPS) == 0:
                 print(f"Streaming frame #{frame_count}")
             now = time.time()
             if now - last_log >= 5:
                 elapsed = now - start
                 hours, rem = divmod(int(elapsed), 3600)
                 minutes, seconds = divmod(rem, 60)
-                avg_fps = frame_count / elapsed if elapsed > 0 else 0.0
                 file_size = record_file.stat().st_size if record_file.exists() else 0
                 bitrate = (file_size * 8 / elapsed / 1000) if elapsed > 0 else 0.0
                 input_bitrate = (bytes_sent * 8 / elapsed / 1000) if elapsed > 0 else 0.0
                 print(
-                    f"[STREAM STATUS] \u23F1\ufe0f {minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Avg FPS: {avg_fps:.2f} | In: {input_bitrate:.0f} kbps | Out: {bitrate:.0f} kbps",
+                    f"[STREAM STATUS] \u23F1\ufe0f {minutes:02d}:{seconds:02d} | Frame: {frame_count} | FPS: {current_fps:.2f} | In: {input_bitrate:.0f} kbps | Out: {bitrate:.0f} kbps",
                 )
+                if bitrate <= 0:
+                    if out_zero_start is None:
+                        out_zero_start = now
+                    elif now - out_zero_start >= 5 and not out_zero_warned:
+                        print("[\u26A0\uFE0F ALERT] Out: 0 kbps for over 5 seconds")
+                        out_zero_warned = True
+                    elif now - out_zero_start >= 10:
+                        print("[\u26A0\uFE0F ALERT] Restarting FFmpeg due to stalled output")
+                        process = restart_ffmpeg(process)
+                        out_zero_start = now
+                else:
+                    out_zero_start = None
+                    out_zero_warned = False
+                avg_fps = frame_count / elapsed if elapsed > 0 else 0.0
                 expected_frames = elapsed * FPS
                 dropped_frames = max(0, expected_frames - frame_count)
                 drop_rate = (
