@@ -331,79 +331,35 @@ def measure_fps(cap: cv2.VideoCapture, frames: int = 60) -> float:
     return count / elapsed if elapsed > 0 else 0.0
 
 
-def open_camera() -> tuple[cv2.VideoCapture, "cv2.Mat", int, int, float] | tuple[None, None, int, int, float]:
-    """Open the first available camera, trying indices 0, 1 and 2."""
+def initialize_camera(
+    index: int, width: int, height: int, fps: int
+) -> tuple[cv2.VideoCapture, "cv2.Mat", int, int, float] | tuple[None, None, int, int, float]:
+    """Initialize a camera at the given index and resolution."""
 
-    cap: cv2.VideoCapture | None = None
-    frame: "cv2.Mat" | None = None
-    working_index: int | None = None
-
-    # Try common USB camera indices first
-    for index in range(3):
-        cap = cv2.VideoCapture(index)
-        if cap.isOpened():
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-            ret, frame = cap.read()
-            if ret and frame is not None:
-                working_index = index
-                print(f"✅ Opened USB camera at index {index}")
-                break
-        cap.release()
-        cap = None
-
-    # Fallback to CSI camera if no USB camera found
-    if cap is None or frame is None:
-        print("⚠️ USB camera not found. Trying Jetson CSI camera...")
-        gst_str = (
-            "nvarguscamerasrc ! video/x-raw(memory:NVMM), width=1280, height=720, "
-            "format=NV12, framerate=30/1 ! nvvidconv ! video/x-raw, format=BGRx ! "
-            "videoconvert ! video/x-raw, format=BGR ! appsink"
-        )
-        cap = cv2.VideoCapture(gst_str, cv2.CAP_GSTREAMER)
-        if cap.isOpened():
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-            ret, frame = cap.read()
-            if ret and frame is not None:
-                working_index = -1  # Indicates CSI camera
-            else:
-                cap.release()
-                cap = None
-
-    if cap is None or frame is None:
-        print("❌ No camera available. Tried indices 0, 1, 2 and CSI camera.")
+    print(f"🎥 Attempting camera index {index} at {width}x{height}@{fps}fps")
+    cap = cv2.VideoCapture(index)
+    if not cap.isOpened():
+        print(f"❌ Unable to open camera index {index}")
         return None, None, 0, 0, 0.0
 
-    if working_index >= 0:
-        print(f"✅ Using camera index {working_index}")
-    else:
-        print("✅ Using CSI camera via GStreamer")
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    cap.set(cv2.CAP_PROP_FPS, fps)
+
+    ret, frame = cap.read()
+    if not ret or frame is None:
+        print(f"❌ Failed to read frame from camera index {index}")
+        cap.release()
+        return None, None, 0, 0, 0.0
 
     actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = measure_fps(cap)
-    print("✅ Initial capture:", frame.shape, f"{fps:.1f} FPS")
-    if (
-        actual_width < WIDTH
-        or actual_height < HEIGHT
-        or fps < 25
-    ):
-        print("⚠️ Low resolution or FPS detected; switching to 1280x720")
-        actual_width, actual_height = 1280, 720
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, actual_width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, actual_height)
-        ret, frame = cap.read()
-        if ret and frame is not None:
-            fps = measure_fps(cap)
-            print(
-                f"✅ Fallback capture: {frame.shape}, {fps:.1f} FPS"
-            )
-        else:
-            print("❌ Fallback resolution failed.")
-            return None, None, 0, 0, 0.0
+    measured_fps = measure_fps(cap)
+    print(
+        f"✅ Camera index {index} initialized at {actual_width}x{actual_height} ({measured_fps:.1f} FPS)"
+    )
+    return cap, frame, actual_width, actual_height, measured_fps
 
-    return cap, frame, actual_width, actual_height, fps
 
 
 def main() -> None:
@@ -418,14 +374,29 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    global WIDTH, HEIGHT, FPS
 
-    cap, test_frame, cam_width, cam_height, cam_fps = open_camera()
+    cap: cv2.VideoCapture | None = None
+    test_frame: "cv2.Mat" | None = None
+    cam_width, cam_height, cam_fps = WIDTH, HEIGHT, FPS
+    for idx in range(3):
+        cap, test_frame, cam_width, cam_height, cam_fps = initialize_camera(
+            idx, WIDTH, HEIGHT, FPS
+        )
+        if cap and cam_width >= WIDTH and cam_height >= HEIGHT and cam_fps >= 25:
+            break
+        if cap:
+            cap.release()
+        cap, test_frame, cam_width, cam_height, cam_fps = initialize_camera(
+            idx, 1280, 720, FPS
+        )
+        if cap:
+            break
     if cap is None or test_frame is None:
         print("❌ Camera failed to initialize. Check the camera connection or device index.")
         return
     print("✅ Successfully captured initial frame:", test_frame.shape)
 
-    global WIDTH, HEIGHT, FPS
     WIDTH, HEIGHT = cam_width, cam_height
     FPS = 60 if cam_fps >= 50 else 30
 
@@ -581,11 +552,29 @@ def main() -> None:
                 if failed_reads >= 5:
                     print("Camera lost signal. Attempting to reopen...")
                     cap.release()
-                    cap, new_frame = open_camera()
-                    if cap is None or new_frame is None:
+                    reopened = False
+                    for idx in range(3):
+                        cap, new_frame, cam_width, cam_height, cam_fps = initialize_camera(
+                            idx, WIDTH, HEIGHT, FPS
+                        )
+                        if cap and cam_width >= WIDTH and cam_height >= HEIGHT and cam_fps >= 25:
+                            reopened = True
+                            break
+                        if cap:
+                            cap.release()
+                        cap, new_frame, cam_width, cam_height, cam_fps = initialize_camera(
+                            idx, 1280, 720, FPS
+                        )
+                        if cap:
+                            reopened = True
+                            break
+                    if not reopened or cap is None or new_frame is None:
                         print("❌ Unable to reopen camera. Exiting.")
                         break
                     frame = new_frame
+                    WIDTH, HEIGHT = cam_width, cam_height
+                    FPS = 60 if cam_fps >= 50 else 30
+                    frame_interval = 1.0 / FPS
                     failed_reads = 0
                     continue
             if now - fps_start >= 1:
