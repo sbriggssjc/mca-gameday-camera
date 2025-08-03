@@ -31,7 +31,7 @@ from pathlib import Path
 
 WIDTH = 1280
 HEIGHT = 720
-FPS = 15
+FPS = 30
 # Replace with your actual YouTube stream key
 RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/xcuz-3x1d-9y7v-ghec-2xmh"
 TEST_MODE = "--test" in sys.argv
@@ -240,7 +240,7 @@ def _log_ffmpeg_errors(pipe) -> None:
 
 
 def launch_ffmpeg() -> subprocess.Popen | None:
-    """Start an FFmpeg process configured for 720p/15fps streaming."""
+    """Start an FFmpeg process configured for 720p/30fps streaming."""
 
     width, height, fps = WIDTH, HEIGHT, FPS
     ffmpeg_command = [
@@ -258,33 +258,27 @@ def launch_ffmpeg() -> subprocess.Popen | None:
         "-f",
         "lavfi",
         "-i",
-        "anullsrc=cl=stereo:r=44100",
-        "-map",
-        "0:v",
-        "-map",
-        "1:a",
+        "anullsrc=channel_layout=stereo:sample_rate=44100",
         "-c:v",
         "libx264",
-        "-tune",
-        "zerolatency",
-        "-preset",
-        "ultrafast",
         "-pix_fmt",
         "yuv420p",
+        "-preset",
+        "ultrafast",
+        "-tune",
+        "zerolatency",
+        "-g",
+        "60",
+        "-keyint_min",
+        "30",
         "-b:v",
         "1800k",
-        "-maxrate",
-        "2500k",
         "-bufsize",
-        "5000k",
-        "-g",
-        str(fps * 2),
-        "-r",
-        str(fps),
-        "-flush_packets",
-        "1",
+        "3000k",
         "-fflags",
         "nobuffer",
+        "-flush_packets",
+        "1",
         "-c:a",
         "aac",
         "-b:a",
@@ -394,10 +388,13 @@ def main() -> None:
 
     print("✅ Successfully captured initial frame:", test_frame.shape)
 
-    # Force 720p/15fps output; rotate later if camera delivers portrait frames
+    # Force 720p/30fps output; rotate later if camera delivers portrait frames
     if test_frame.shape[0] > test_frame.shape[1]:
         print("🔄 Rotating input frames for landscape orientation")
-    WIDTH, HEIGHT, FPS = 1280, 720, 15
+    WIDTH, HEIGHT, FPS = 1280, 720, 30
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
+    cap.set(cv2.CAP_PROP_FPS, FPS)
 
     output_dir = Path("video")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -430,7 +427,9 @@ def main() -> None:
     last_log = start
     fps_start = start
     fps_counter = 0
-    current_fps = 0.0
+    encode_counter = 0
+    capture_fps = 0.0
+    encode_fps = 0.0
     no_frame_secs = 0
     ffmpeg_error = False
     last_score_update = 0.0
@@ -555,10 +554,12 @@ def main() -> None:
             fps_counter += 1
             now = time.time()
             if now - fps_start >= 1:
-                current_fps = fps_counter / (now - fps_start)
+                capture_fps = fps_counter / (now - fps_start)
+                encode_fps = encode_counter / (now - fps_start)
                 fps_counter = 0
+                encode_counter = 0
                 fps_start = now
-                if current_fps == 0:
+                if capture_fps == 0:
                     no_frame_secs += 1
                 else:
                     no_frame_secs = 0
@@ -665,18 +666,20 @@ def main() -> None:
                 frame_bytes = frame.tobytes()
                 try:
                     process.stdin.write(frame_bytes)
+                    process.stdin.flush()
                     bytes_sent += len(frame_bytes)
-                except (BrokenPipeError, OSError) as exc:
+                    encode_counter += 1
+                    print(
+                        f"[FFMPEG DEBUG] Wrote {len(frame_bytes)} bytes for frame {frame_count}",
+                        flush=True,
+                    )
+                except (BrokenPipeError, IOError) as exc:
                     print(f"[\u274C ERROR] FFmpeg pipe closed ({exc.__class__.__name__})")
                     print("\a", end="")
                     ffmpeg_error = True
                     if process.poll() is not None:
                         process.wait()
                     process = None
-                    process.stdin.write(frame.tobytes())
-                    process.stdin.flush()
-                except BrokenPipeError:
-                    print("[\u274C Streaming ended: BrokenPipeError]")
                     break
 
             time.sleep(1 / FPS)
@@ -690,12 +693,12 @@ def main() -> None:
                 hours, rem = divmod(int(elapsed), 3600)
                 minutes, seconds = divmod(rem, 60)
                 file_size = record_file.stat().st_size if record_file.exists() else 0
-                bitrate = (file_size * 8 / elapsed / 1000) if elapsed > 0 else 0.0
-                input_bitrate = (bytes_sent * 8 / elapsed / 1000) if elapsed > 0 else 0.0
+                output_kbps = (file_size * 8 / elapsed / 1000) if elapsed > 0 else 0.0
+                encoded_kbps = (bytes_sent * 8 / elapsed / 1000) if elapsed > 0 else 0.0
                 print(
-                    f"[STREAM STATUS] \u23F1\ufe0f {minutes:02d}:{seconds:02d} | Frame: {frame_count} | FPS: {current_fps:.2f} | In: {input_bitrate:.0f} kbps | Out: {bitrate:.0f} kbps",
+                    f"[STREAM DEBUG] Sent frame {frame_count}, Encoded: {encoded_kbps:.0f} kbps, Output: {output_kbps:.0f} kbps",
                 )
-                if bitrate <= 0:
+                if output_kbps <= 0:
                     if out_zero_start is None:
                         out_zero_start = now
                     elif now - out_zero_start >= 5 and not out_zero_warned:
@@ -724,7 +727,7 @@ def main() -> None:
                     except Exception:
                         usage_str = ""
                 print(
-                    f"[STREAM STATUS] \u23F1\ufe0f {hours:02d}:{minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Avg FPS: {avg_fps:.2f} | Frame Drop: {drop_rate:.2f}%{usage_str}",
+                    f"[STREAM STATUS] \u23F1\ufe0f {hours:02d}:{minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Capture FPS: {capture_fps:.2f} | Encode FPS: {encode_fps:.2f} | Frame Drop: {drop_rate:.2f}%{usage_str}",
                     flush=True,
                 )
                 last_log = now
