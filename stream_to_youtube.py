@@ -31,8 +31,9 @@ from pathlib import Path
 
 WIDTH = 1280
 HEIGHT = 720
-FPS = 24
-RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/YOUR_KEY"
+FPS = 15
+# Replace with your actual YouTube stream key
+RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/YOUR_STREAM_KEY"
 TEST_MODE = "--test" in sys.argv
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
@@ -230,9 +231,9 @@ def _log_ffmpeg_errors(pipe) -> None:
 
 
 def launch_ffmpeg() -> subprocess.Popen | None:
-    """Start an FFmpeg process configured for 720p/24fps streaming."""
+    """Start an FFmpeg process configured for 720p/15fps streaming."""
 
-    width, height, fps = 1280, 720, 24
+    width, height, fps = 1280, 720, 15
     ffmpeg_command = [
         "ffmpeg",
         "-f",
@@ -242,7 +243,7 @@ def launch_ffmpeg() -> subprocess.Popen | None:
         "-s",
         f"{width}x{height}",
         "-r",
-        str(fps),
+        "15",
         "-i",
         "-",
         "-f",
@@ -260,13 +261,15 @@ def launch_ffmpeg() -> subprocess.Popen | None:
         "-tune",
         "zerolatency",
         "-b:v",
-        "3500k",
+        "1800k",
         "-maxrate",
-        "4500k",
+        "2500k",
         "-bufsize",
-        "9000k",
+        "5000k",
         "-g",
-        "48",
+        "30",
+        "-r",
+        "15",
         "-c:a",
         "aac",
         "-b:a",
@@ -347,6 +350,7 @@ def main() -> None:
         print("❌ Camera failed to initialize. Check the camera connection or device index.")
         return
 
+    cap.set(cv2.CAP_PROP_FPS, 15)
     cam_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     cam_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"✅ Camera resolution: {cam_width}x{cam_height}")
@@ -359,10 +363,10 @@ def main() -> None:
 
     print("✅ Successfully captured initial frame:", test_frame.shape)
 
-    # Force 720p/24fps output; rotate later if camera delivers portrait frames
+    # Force 720p/15fps output; rotate later if camera delivers portrait frames
     if test_frame.shape[0] > test_frame.shape[1]:
         print("🔄 Rotating input frames for landscape orientation")
-    WIDTH, HEIGHT, FPS = 1280, 720, 24
+    WIDTH, HEIGHT, FPS = 1280, 720, 15
 
     output_dir = Path("video")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -510,7 +514,7 @@ def main() -> None:
                 if failed_reads >= 3:
                     print("❌ cap.read() failed 3 times, shutting down.")
                     break
-                time.sleep(1/24)
+                time.sleep(1 / 15)
                 continue
             failed_reads = 0
             fps_counter += 1
@@ -642,7 +646,7 @@ def main() -> None:
                     print("[\u274C Streaming ended: BrokenPipeError]")
                     break
 
-            time.sleep(1/24)
+            time.sleep(1 / 15)
 
             frame_count += 1
             if frame_count % 30 == 0:
