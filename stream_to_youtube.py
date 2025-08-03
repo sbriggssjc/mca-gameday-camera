@@ -267,7 +267,7 @@ def launch_ffmpeg(
         "-f",
         "lavfi",
         "-i",
-        "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "anullsrc=r=44100:cl=stereo",
         "-map",
         "0:v",
         "-map",
@@ -275,26 +275,27 @@ def launch_ffmpeg(
         "-c:v",
         "libx264",
         "-preset",
-        "veryfast",
+        "ultrafast",
         "-b:v",
-        "4500k",
+        "9000k",
         "-maxrate",
-        "5000k",
+        "12000k",
         "-bufsize",
-        "10000k",
+        "15000k",
         "-g",
         "60",
-        "-r",
-        str(int(fps)),
+        "-pix_fmt",
+        "yuv420p",
         "-threads",
         "2",
         "-c:a",
         "aac",
+        "-b:a",
+        "128k",
         "-ar",
         "44100",
         "-ac",
         "2",
-        "-shortest",
         "-f",
         "tee",
         "|".join(outputs),
@@ -397,8 +398,13 @@ def main() -> None:
         return
     print("✅ Successfully captured initial frame:", test_frame.shape)
 
+    # Ensure output is landscape; rotate later if camera delivers portrait frames
     WIDTH, HEIGHT = cam_width, cam_height
+    if HEIGHT > WIDTH:
+        print("🔄 Rotating input frames for landscape orientation")
+        WIDTH, HEIGHT = HEIGHT, WIDTH
     FPS = 60 if cam_fps >= 50 else 30
+    FPS = min(FPS, 30)
 
     output_dir = Path("video")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -426,6 +432,7 @@ def main() -> None:
     summary_generated = False
     cv2.namedWindow("Stream Preview", cv2.WINDOW_NORMAL)
     frame_interval = 1.0 / FPS
+    last_frame_time = time.time()
     frame_count = 0
     bytes_sent = 0
     failed_reads = 0
@@ -439,7 +446,7 @@ def main() -> None:
     warned_shape = False
     highlight_dir = output_dir / "highlights"
     highlight_dir.mkdir(parents=True, exist_ok=True)
-    buffer: deque = deque(maxlen=int(30 * FPS))
+    buffer: deque = deque(maxlen=int(10 * FPS))
     highlight_files: list[Path] = []
     prev_home = -1
     prev_away = -1
@@ -540,7 +547,6 @@ def main() -> None:
 
     try:
         while True:
-            loop_start = time.time()
             ret, frame = cap.read()
             now = time.time()
             if ret and frame is not None:
@@ -573,8 +579,12 @@ def main() -> None:
                         break
                     frame = new_frame
                     WIDTH, HEIGHT = cam_width, cam_height
+                    if HEIGHT > WIDTH:
+                        WIDTH, HEIGHT = HEIGHT, WIDTH
                     FPS = 60 if cam_fps >= 50 else 30
+                    FPS = min(FPS, 30)
                     frame_interval = 1.0 / FPS
+                    last_frame_time = time.time()
                     failed_reads = 0
                     continue
             if now - fps_start >= 1:
@@ -591,6 +601,8 @@ def main() -> None:
                     no_frame_secs = 5
             if not ret or frame is None:
                 continue
+            if frame.shape[0] > frame.shape[1]:
+                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
             if frame.shape != (HEIGHT, WIDTH, 3):
                 if not warned_shape:
                     print(
@@ -704,6 +716,12 @@ def main() -> None:
                     print("[\u274C Streaming ended: BrokenPipeError]")
                     break
 
+            # Cap output frame rate to avoid overloading the Jetson
+            elapsed_since_send = time.time() - last_frame_time
+            if elapsed_since_send < frame_interval:
+                time.sleep(frame_interval - elapsed_since_send)
+            last_frame_time = time.time()
+
             frame_count += 1
             if frame_count % 30 == 0:
                 print(f"Streaming frame #{frame_count}")
@@ -746,10 +764,6 @@ def main() -> None:
                 ffmpeg_error = True
                 process.wait()
                 process = None
-
-            delay = frame_interval - (time.time() - loop_start)
-            if delay > 0:
-                time.sleep(delay)
             check_alerts()
     except KeyboardInterrupt:
         print("\nKeyboard interrupt received. Stopping stream...")
