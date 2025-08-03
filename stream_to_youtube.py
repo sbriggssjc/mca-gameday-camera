@@ -29,12 +29,10 @@ except Exception:
 from datetime import datetime
 from pathlib import Path
 
-WIDTH = 1920
-HEIGHT = 1080
-FPS = 30
-RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/xcuz-3x1d-9y7v-ghec-2xmh"
-BITRATE = "6000k"
-BUFSIZE = "12000k"
+WIDTH = 1280
+HEIGHT = 720
+FPS = 24
+RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/YOUR_KEY"
 TEST_MODE = "--test" in sys.argv
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
@@ -231,27 +229,10 @@ def _log_ffmpeg_errors(pipe) -> None:
     pipe.close()
 
 
-def launch_ffmpeg(
-    width: int,
-    height: int,
-    fps: float,
-    record_path: Path,
-    rtmp_url: str,
-    test_mode: bool = False,
-) -> subprocess.Popen:
-    """Start the FFmpeg subprocess for streaming and recording."""
+def launch_ffmpeg() -> subprocess.Popen | None:
+    """Start an FFmpeg process configured for 720p/24fps streaming."""
 
-    record_path.parent.mkdir(parents=True, exist_ok=True)
-
-    outputs = [f"[f=mp4]{record_path}"]
-    if not test_mode:
-        if rtmp_url.startswith("rtmp://"):
-            outputs.insert(0, f"[f=flv]{rtmp_url}")
-        else:
-            print(f"⚠️ Invalid RTMP URL: {rtmp_url}. Recording to MP4 only.")
-    else:
-        print("⚠️ Test mode: recording to MP4 only, skipping RTMP.")
-
+    width, height, fps = 1280, 720, 24
     ffmpeg_command = [
         "ffmpeg",
         "-f",
@@ -261,13 +242,13 @@ def launch_ffmpeg(
         "-s",
         f"{width}x{height}",
         "-r",
-        str(int(fps)),
+        str(fps),
         "-i",
-        "pipe:",
+        "-",
         "-f",
         "lavfi",
         "-i",
-        "anullsrc=r=44100:cl=stereo",
+        "anullsrc=cl=stereo:r=44100",
         "-map",
         "0:v",
         "-map",
@@ -276,18 +257,16 @@ def launch_ffmpeg(
         "libx264",
         "-preset",
         "ultrafast",
+        "-tune",
+        "zerolatency",
         "-b:v",
-        "9000k",
+        "3500k",
         "-maxrate",
-        "12000k",
+        "4500k",
         "-bufsize",
-        "15000k",
+        "9000k",
         "-g",
-        "60",
-        "-pix_fmt",
-        "yuv420p",
-        "-threads",
-        "2",
+        "48",
         "-c:a",
         "aac",
         "-b:a",
@@ -297,8 +276,8 @@ def launch_ffmpeg(
         "-ac",
         "2",
         "-f",
-        "tee",
-        "|".join(outputs),
+        "flv",
+        RTMP_URL,
     ]
 
     try:
@@ -398,13 +377,10 @@ def main() -> None:
         return
     print("✅ Successfully captured initial frame:", test_frame.shape)
 
-    # Ensure output is landscape; rotate later if camera delivers portrait frames
-    WIDTH, HEIGHT = cam_width, cam_height
-    if HEIGHT > WIDTH:
+    # Force 720p/24fps output; rotate later if camera delivers portrait frames
+    if test_frame.shape[0] > test_frame.shape[1]:
         print("🔄 Rotating input frames for landscape orientation")
-        WIDTH, HEIGHT = HEIGHT, WIDTH
-    FPS = 60 if cam_fps >= 50 else 30
-    FPS = min(FPS, 30)
+    WIDTH, HEIGHT, FPS = 1280, 720, 24
 
     output_dir = Path("video")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -414,7 +390,7 @@ def main() -> None:
     record_file = unique_path(output_dir / f"{base_name}_{timestamp}.mp4")
     log_file = unique_path(output_dir / f"{base_name}_{timestamp}_play_log.csv")
 
-    process = launch_ffmpeg(WIDTH, HEIGHT, FPS, record_file, RTMP_URL, TEST_MODE)
+    process = launch_ffmpeg()
     if process is None:
         return
 
@@ -431,8 +407,6 @@ def main() -> None:
     final_alerted: set[str] = set()
     summary_generated = False
     cv2.namedWindow("Stream Preview", cv2.WINDOW_NORMAL)
-    frame_interval = 1.0 / FPS
-    last_frame_time = time.time()
     frame_count = 0
     bytes_sent = 0
     failed_reads = 0
@@ -548,45 +522,17 @@ def main() -> None:
     try:
         while True:
             ret, frame = cap.read()
-            now = time.time()
-            if ret and frame is not None:
-                fps_counter += 1
-                failed_reads = 0
-            else:
+            if not ret or frame is None:
                 failed_reads += 1
                 print("\u26a0\ufe0f Invalid frame received", file=sys.stderr)
-                if failed_reads >= 5:
-                    print("Camera lost signal. Attempting to reopen...")
-                    cap.release()
-                    reopened = False
-                    for idx in range(3):
-                        cap, new_frame, cam_width, cam_height, cam_fps = initialize_camera(
-                            idx, WIDTH, HEIGHT, FPS
-                        )
-                        if cap and cam_width >= WIDTH and cam_height >= HEIGHT and cam_fps >= 25:
-                            reopened = True
-                            break
-                        if cap:
-                            cap.release()
-                        cap, new_frame, cam_width, cam_height, cam_fps = initialize_camera(
-                            idx, 1280, 720, FPS
-                        )
-                        if cap:
-                            reopened = True
-                            break
-                    if not reopened or cap is None or new_frame is None:
-                        print("❌ Unable to reopen camera. Exiting.")
-                        break
-                    frame = new_frame
-                    WIDTH, HEIGHT = cam_width, cam_height
-                    if HEIGHT > WIDTH:
-                        WIDTH, HEIGHT = HEIGHT, WIDTH
-                    FPS = 60 if cam_fps >= 50 else 30
-                    FPS = min(FPS, 30)
-                    frame_interval = 1.0 / FPS
-                    last_frame_time = time.time()
-                    failed_reads = 0
-                    continue
+                if failed_reads >= 3:
+                    print("❌ cap.read() failed 3 times, shutting down.")
+                    break
+                time.sleep(1/24)
+                continue
+            failed_reads = 0
+            fps_counter += 1
+            now = time.time()
             if now - fps_start >= 1:
                 fps_value = fps_counter / (now - fps_start)
                 fps_counter = 0
@@ -599,14 +545,12 @@ def main() -> None:
                     print("[\u26A0\uFE0F ALERT] No frames received for 5 seconds. Stream may have stalled.")
                     print("\a", end="")
                     no_frame_secs = 5
-            if not ret or frame is None:
-                continue
             if frame.shape[0] > frame.shape[1]:
                 frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
             if frame.shape != (HEIGHT, WIDTH, 3):
                 if not warned_shape:
                     print(
-                        f"\u26a0\ufe0f Unexpected frame shape: {frame.shape} — resizing to (1920, 1080)"
+                        f"\u26a0\ufe0f Unexpected frame shape: {frame.shape} — resizing to ({WIDTH}, {HEIGHT})"
                     )
                     warned_shape = True
                 frame = cv2.resize(frame, (WIDTH, HEIGHT))
@@ -716,11 +660,7 @@ def main() -> None:
                     print("[\u274C Streaming ended: BrokenPipeError]")
                     break
 
-            # Cap output frame rate to avoid overloading the Jetson
-            elapsed_since_send = time.time() - last_frame_time
-            if elapsed_since_send < frame_interval:
-                time.sleep(frame_interval - elapsed_since_send)
-            last_frame_time = time.time()
+            time.sleep(1/24)
 
             frame_count += 1
             if frame_count % 30 == 0:
