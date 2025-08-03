@@ -33,7 +33,7 @@ WIDTH = 1280
 HEIGHT = 720
 FPS = 15
 # Replace with your actual YouTube stream key
-RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/YOUR_STREAM_KEY"
+RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/xcuz-3x1d-9y7v-ghec-2xmh"
 TEST_MODE = "--test" in sys.argv
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
