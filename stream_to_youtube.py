@@ -48,32 +48,26 @@ def find_usb_microphone() -> str:
 
 
 def get_available_video_encoder() -> str:
-    """Return an available H.264 encoder for the current system.
+    """Detect and return a supported H.264 encoder."""
 
-    Checks for Jetson's ``h264_nvmpi`` encoder first and falls back to
-    ``libx264``. Raises ``RuntimeError`` if neither encoder is available and
-    logs when falling back to ``libx264``.
-    """
+    import subprocess
 
     try:
-        encoders = subprocess.run(
-            ["ffmpeg", "-hide_banner", "-encoders"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-    except FileNotFoundError as exc:
-        raise RuntimeError("FFmpeg not found. Please install FFmpeg.") from exc
-
-    if "h264_nvmpi" in encoders:
-        return "h264_nvmpi"
-    if "libx264" in encoders:
-        print("[DEBUG] h264_nvmpi not found; falling back to libx264")
-        return "libx264"
-
-    raise RuntimeError(
-        "No supported H.264 encoder found (requires h264_nvmpi or libx264)."
-    )
+        encoders = subprocess.check_output(
+            ["ffmpeg", "-encoders"], stderr=subprocess.STDOUT
+        ).decode()
+        if "h264_nvmpi" in encoders:
+            print("[DEBUG] Using encoder: h264_nvmpi")
+            return "h264_nvmpi"
+        elif "libx264" in encoders:
+            print("[DEBUG] Using encoder: libx264")
+            return "libx264"
+        else:
+            raise RuntimeError(
+                "❌ No compatible H.264 encoder found (tried h264_nvmpi and libx264)."
+            )
+    except Exception as e:  # pragma: no cover - defensive
+        raise RuntimeError(f"❌ Failed to detect available encoder: {e}")
 
 
 # SETTINGS
@@ -309,14 +303,14 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
 
     width, height, fps = WIDTH, HEIGHT, FPS
     try:
-        video_codec = get_available_video_encoder()
+        video_encoder = get_available_video_encoder()
     except RuntimeError as exc:
         print(f"❌ {exc}")
         return None
-    if video_codec not in {"h264_nvmpi", "libx264"}:
-        print(f"❌ Unsupported encoder: {video_codec}")
+    if video_encoder not in {"h264_nvmpi", "libx264"}:
+        print(f"❌ Unsupported encoder: {video_encoder}")
         return None
-    print(f"[DEBUG] Using encoder: {video_codec}")
+    print("[SELECTED ENCODER]", video_encoder)
     log_dir = Path("livestream_logs")
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"ffmpeg_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -344,9 +338,15 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
         "-i",
         mic_input,
         "-c:v",
-        video_codec,
+        video_encoder,
         "-pix_fmt",
         "yuv420p",
+    ]
+
+    if video_encoder == "libx264":
+        ffmpeg_command += ["-preset", "veryfast", "-tune", "zerolatency"]
+
+    ffmpeg_command += [
         "-b:v",
         "4500k",
         "-maxrate",
@@ -363,31 +363,21 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
         "nobuffer",
         "-flush_packets",
         "1",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-f",
+        "flv",
+        RTMP_URL,
     ]
 
-    if video_codec == "libx264":
-        ffmpeg_command.extend(["-preset", "veryfast", "-tune", "zerolatency"])
-
-    ffmpeg_command.extend(
-        [
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            "-ar",
-            "44100",
-            "-ac",
-            "2",
-            "-f",
-            "flv",
-            RTMP_URL,
-        ]
-    )
-
-    debug_cmd = [mask_stream_url(arg) if arg == RTMP_URL else arg for arg in ffmpeg_command]
-    debug_str = " ".join(debug_cmd)
-    print("FFmpeg command:", debug_str)
-    log_fp.write("FFmpeg command: " + debug_str + "\n")
+    print("[FFMPEG COMMAND]", " ".join(ffmpeg_command))
+    log_fp.write("FFMPEG COMMAND: " + " ".join(ffmpeg_command) + "\n")
     log_fp.flush()
 
     try:
