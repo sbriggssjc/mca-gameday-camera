@@ -47,14 +47,13 @@ def find_usb_microphone() -> str:
     return "default"  # fallback
 
 
-def detect_hw_encoder() -> str | None:
-    """Detect Jetson hardware encoder if available."""
-    hw_libs = [
-        Path("/usr/lib/aarch64-linux-gnu/tegra/libnvomx.so"),
-        Path("/usr/lib/aarch64-linux-gnu/tegra/libnvmpi.so"),
-    ]
-    if not any(lib.exists() for lib in hw_libs):
-        return None
+def get_available_encoder() -> str:
+    """Return the first available H.264 encoder.
+
+    Checks for Jetson's ``h264_nvmpi`` encoder first and falls back to
+    ``libx264``. Raises ``RuntimeError`` if neither encoder is available.
+    """
+
     try:
         encoders = subprocess.run(
             ["ffmpeg", "-hide_banner", "-encoders"],
@@ -62,11 +61,16 @@ def detect_hw_encoder() -> str | None:
             text=True,
             check=True,
         ).stdout
-        if "h264_nvmpi" in encoders:
-            return "h264_nvmpi"
-    except Exception:
-        return None
-    return None
+    except FileNotFoundError as exc:
+        raise RuntimeError("FFmpeg not found. Please install FFmpeg.") from exc
+
+    for encoder in ("h264_nvmpi", "libx264"):
+        if encoder in encoders:
+            return encoder
+
+    raise RuntimeError(
+        "No supported H.264 encoder found (requires h264_nvmpi or libx264)."
+    )
 
 
 # SETTINGS
@@ -301,8 +305,12 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
     """Start an FFmpeg process configured for 720p/30fps streaming."""
 
     width, height, fps = WIDTH, HEIGHT, FPS
-    video_codec = detect_hw_encoder() or "libx264"
-    print(f"[DEBUG] Using video encoder: {video_codec}")
+    try:
+        video_codec = get_available_encoder()
+    except RuntimeError as exc:
+        print(f"❌ {exc}")
+        return None
+    print(f"[DEBUG] Using encoder: {video_codec}")
     log_dir = Path("livestream_logs")
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"ffmpeg_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -329,33 +337,33 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
         "44100",
         "-i",
         mic_input,
+        "-c:v",
+        video_codec,
+        "-pix_fmt",
+        "yuv420p",
+        "-b:v",
+        "4500k",
+        "-maxrate",
+        "6000k",
+        "-bufsize",
+        "6000k",
+        "-g",
+        "60",
+        "-keyint_min",
+        "30",
+        "-r",
+        str(fps),
+        "-fflags",
+        "nobuffer",
+        "-flush_packets",
+        "1",
     ]
+
+    if video_codec == "libx264":
+        ffmpeg_command.extend(["-preset", "veryfast", "-tune", "zerolatency"])
+
     ffmpeg_command.extend(
         [
-            "-c:v",
-            video_codec,
-            "-pix_fmt",
-            "yuv420p",
-            "-preset",
-            "veryfast",
-            "-tune",
-            "zerolatency",
-            "-b:v",
-            "4500k",
-            "-maxrate",
-            "6000k",
-            "-bufsize",
-            "6000k",
-            "-g",
-            "60",
-            "-keyint_min",
-            "30",
-            "-r",
-            str(fps),
-            "-fflags",
-            "nobuffer",
-            "-flush_packets",
-            "1",
             "-c:a",
             "aac",
             "-b:a",
@@ -364,10 +372,10 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
             "44100",
             "-ac",
             "2",
-        "-f",
-        "flv",
-        RTMP_URL,
-    ]
+            "-f",
+            "flv",
+            RTMP_URL,
+        ]
     )
 
     debug_cmd = [mask_stream_url(arg) if arg == RTMP_URL else arg for arg in ffmpeg_command]
