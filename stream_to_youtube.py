@@ -29,6 +29,34 @@ except Exception:
 from datetime import datetime
 from pathlib import Path
 
+
+def detect_audio_device() -> str | None:
+    """Return default ALSA device if available, otherwise ``None``."""
+    snd_path = Path("/dev/snd")
+    if snd_path.exists() and any(snd_path.iterdir()):
+        return "default"
+    return None
+
+
+def detect_hw_encoder() -> str | None:
+    """Detect Jetson hardware encoder if available."""
+    if not Path("/etc/nv_tegra_release").exists():
+        return None
+    try:
+        encoders = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        for codec in ("h264_nvmpi", "h264_omx"):
+            if codec in encoders:
+                return codec
+    except Exception:
+        return None
+    return None
+
+
 WIDTH = 1280
 HEIGHT = 720
 FPS = 30
@@ -231,18 +259,30 @@ def parse_clock(clock: str) -> int | None:
 
 
 def _log_ffmpeg_errors(pipe) -> None:
-    """Stream FFmpeg stderr output in real time."""
+    """Stream FFmpeg stderr output in real time and monitor bitrate."""
+    zero_count = 0
     for line in iter(pipe.readline, b""):
         text = line.decode("utf-8", errors="replace").rstrip()
-        if text:
-            print(f"[ffmpeg] {text}")
+        if not text:
+            continue
+        print(f"[ffmpeg] {text}")
+        match = re.search(r"bitrate=\s*(\d+\.?\d*)kbits/s", text)
+        if match:
+            bitrate = float(match.group(1))
+            if bitrate == 0:
+                zero_count += 1
+                if zero_count >= 3:
+                    print("[FFMPEG WARNING] Output bitrate 0 kbps - stream might have stalled")
+            else:
+                zero_count = 0
     pipe.close()
 
 
-def launch_ffmpeg() -> subprocess.Popen | None:
+def launch_ffmpeg(audio_device: str | None) -> subprocess.Popen | None:
     """Start an FFmpeg process configured for 720p/30fps streaming."""
 
     width, height, fps = WIDTH, HEIGHT, FPS
+    video_codec = detect_hw_encoder() or "libx264"
     ffmpeg_command = [
         "ffmpeg",
         "-f",
@@ -251,46 +291,64 @@ def launch_ffmpeg() -> subprocess.Popen | None:
         "bgr24",
         "-s",
         f"{width}x{height}",
-        "-r",
+        "-framerate",
         str(fps),
         "-i",
         "-",
-        "-f",
-        "lavfi",
-        "-i",
-        "anullsrc=channel_layout=stereo:sample_rate=44100",
-        "-c:v",
-        "libx264",
-        "-pix_fmt",
-        "yuv420p",
-        "-preset",
-        "ultrafast",
-        "-tune",
-        "zerolatency",
-        "-g",
-        "60",
-        "-keyint_min",
-        "30",
-        "-b:v",
-        "1800k",
-        "-bufsize",
-        "3000k",
-        "-fflags",
-        "nobuffer",
-        "-flush_packets",
-        "1",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-ar",
-        "44100",
-        "-ac",
-        "2",
-        "-f",
-        "flv",
-        RTMP_URL,
     ]
+    if audio_device:
+        ffmpeg_command.extend(
+            ["-f", "alsa", "-thread_queue_size", "512", "-i", audio_device]
+        )
+    else:
+        print("[AUDIO WARNING] No audio device found, using silence stream.")
+        ffmpeg_command.extend(
+            [
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=channel_layout=stereo:sample_rate=44100",
+            ]
+        )
+    ffmpeg_command.extend(
+        [
+            "-c:v",
+            video_codec,
+            "-pix_fmt",
+            "yuv420p",
+            "-preset",
+            "veryfast",
+            "-tune",
+            "zerolatency",
+            "-b:v",
+            "4500k",
+            "-maxrate",
+            "6000k",
+            "-bufsize",
+            "6000k",
+            "-g",
+            "60",
+            "-keyint_min",
+            "30",
+            "-r",
+            str(fps),
+            "-fflags",
+            "nobuffer",
+            "-flush_packets",
+            "1",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-ar",
+            "44100",
+            "-ac",
+            "2",
+            "-f",
+            "flv",
+            RTMP_URL,
+        ]
+    )
 
     try:
         process = subprocess.Popen(
@@ -310,7 +368,9 @@ def launch_ffmpeg() -> subprocess.Popen | None:
         return None
 
 
-def restart_ffmpeg(process: subprocess.Popen | None) -> subprocess.Popen | None:
+def restart_ffmpeg(
+    process: subprocess.Popen | None, audio_device: str | None
+) -> subprocess.Popen | None:
     """Restart the FFmpeg process if the stream stalls."""
     if process is not None:
         try:
@@ -323,7 +383,7 @@ def restart_ffmpeg(process: subprocess.Popen | None) -> subprocess.Popen | None:
             process.wait(timeout=5)
         except Exception:
             pass
-    return launch_ffmpeg()
+    return launch_ffmpeg(audio_device)
 
 
 def initialize_camera(index: int, width: int, height: int, fps: int) -> cv2.VideoCapture | None:
@@ -395,6 +455,13 @@ def main() -> None:
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, FPS)
+    actual_fps = cap.get(cv2.CAP_PROP_FPS)
+    if abs(actual_fps - FPS) > 0.1:
+        print(f"⚠️ Camera FPS not locked at {FPS}, actual: {actual_fps:.2f}")
+    else:
+        print(f"✅ Camera FPS locked at {actual_fps:.2f}")
+
+    audio_device = detect_audio_device()
 
     output_dir = Path("video")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -404,7 +471,7 @@ def main() -> None:
     record_file = unique_path(output_dir / f"{base_name}_{timestamp}.mp4")
     log_file = unique_path(output_dir / f"{base_name}_{timestamp}_play_log.csv")
 
-    process = launch_ffmpeg()
+    process = launch_ffmpeg(audio_device)
     if process is None:
         return
 
@@ -541,6 +608,7 @@ def main() -> None:
 
     try:
         while True:
+            loop_start = time.time()
             ret, frame = cap.read()
             if not ret or frame is None:
                 failed_reads += 1
@@ -559,6 +627,9 @@ def main() -> None:
                 fps_counter = 0
                 encode_counter = 0
                 fps_start = now
+                print(
+                    f"[FPS] Capture: {capture_fps:.2f} | Encode: {encode_fps:.2f}"
+                )
                 if capture_fps == 0:
                     no_frame_secs += 1
                 else:
@@ -682,7 +753,8 @@ def main() -> None:
                     process = None
                     break
 
-            time.sleep(1 / FPS)
+            elapsed_loop = time.time() - loop_start
+            time.sleep(max(0, (1 / FPS) - elapsed_loop))
 
             frame_count += 1
             if frame_count % (2 * FPS) == 0:
@@ -706,7 +778,7 @@ def main() -> None:
                         out_zero_warned = True
                     elif now - out_zero_start >= 10:
                         print("[\u26A0\uFE0F ALERT] Restarting FFmpeg due to stalled output")
-                        process = restart_ffmpeg(process)
+                        process = restart_ffmpeg(process, audio_device)
                         out_zero_start = now
                 else:
                     out_zero_start = None
