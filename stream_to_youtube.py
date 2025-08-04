@@ -30,12 +30,14 @@ from datetime import datetime
 from pathlib import Path
 
 
-def detect_audio_device() -> str | None:
-    """Return default ALSA device if available, otherwise ``None``."""
-    snd_path = Path("/dev/snd")
-    if snd_path.exists() and any(snd_path.iterdir()):
-        return "default"
-    return None
+def find_usb_microphone() -> str:
+    """Return ALSA identifier for a USB/RØDE microphone if present."""
+    result = subprocess.run(["arecord", "-l"], capture_output=True, text=True)
+    matches = re.findall(r"card (\d+): ([^\[]+)\[([^\]]+)\], device (\d+):", result.stdout)
+    for card, name, desc, device in matches:
+        if "rode" in name.lower() or "usb" in desc.lower():
+            return f"hw:{card},{device}"
+    return "default"  # fallback
 
 
 def detect_hw_encoder() -> str | None:
@@ -278,7 +280,7 @@ def _log_ffmpeg_errors(pipe) -> None:
     pipe.close()
 
 
-def launch_ffmpeg(audio_device: str | None) -> subprocess.Popen | None:
+def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
     """Start an FFmpeg process configured for 720p/30fps streaming."""
 
     width, height, fps = WIDTH, HEIGHT, FPS
@@ -295,21 +297,15 @@ def launch_ffmpeg(audio_device: str | None) -> subprocess.Popen | None:
         str(fps),
         "-i",
         "-",
+        "-f",
+        "alsa",
+        "-ac",
+        "2",
+        "-ar",
+        "44100",
+        "-i",
+        mic_input,
     ]
-    if audio_device:
-        ffmpeg_command.extend(
-            ["-f", "alsa", "-thread_queue_size", "512", "-i", audio_device]
-        )
-    else:
-        print("[AUDIO WARNING] No audio device found, using silence stream.")
-        ffmpeg_command.extend(
-            [
-                "-f",
-                "lavfi",
-                "-i",
-                "anullsrc=channel_layout=stereo:sample_rate=44100",
-            ]
-        )
     ffmpeg_command.extend(
         [
             "-c:v",
@@ -368,9 +364,7 @@ def launch_ffmpeg(audio_device: str | None) -> subprocess.Popen | None:
         return None
 
 
-def restart_ffmpeg(
-    process: subprocess.Popen | None, audio_device: str | None
-) -> subprocess.Popen | None:
+def restart_ffmpeg(process: subprocess.Popen | None, mic_input: str) -> subprocess.Popen | None:
     """Restart the FFmpeg process if the stream stalls."""
     if process is not None:
         try:
@@ -383,7 +377,7 @@ def restart_ffmpeg(
             process.wait(timeout=5)
         except Exception:
             pass
-    return launch_ffmpeg(audio_device)
+    return launch_ffmpeg(mic_input)
 
 
 def initialize_camera(index: int, width: int, height: int, fps: int) -> cv2.VideoCapture | None:
@@ -461,7 +455,8 @@ def main() -> None:
     else:
         print(f"✅ Camera FPS locked at {actual_fps:.2f}")
 
-    audio_device = detect_audio_device()
+    mic_input = find_usb_microphone()
+    print(f"🎤 Using microphone: {mic_input}")
 
     output_dir = Path("video")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -471,7 +466,7 @@ def main() -> None:
     record_file = unique_path(output_dir / f"{base_name}_{timestamp}.mp4")
     log_file = unique_path(output_dir / f"{base_name}_{timestamp}_play_log.csv")
 
-    process = launch_ffmpeg(audio_device)
+    process = launch_ffmpeg(mic_input)
     if process is None:
         return
 
@@ -778,7 +773,7 @@ def main() -> None:
                         out_zero_warned = True
                     elif now - out_zero_start >= 10:
                         print("[\u26A0\uFE0F ALERT] Restarting FFmpeg due to stalled output")
-                        process = restart_ffmpeg(process, audio_device)
+                        process = restart_ffmpeg(process, mic_input)
                         out_zero_start = now
                 else:
                     out_zero_start = None
