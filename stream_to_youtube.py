@@ -47,11 +47,12 @@ def find_usb_microphone() -> str:
     return "default"  # fallback
 
 
-def get_available_encoder() -> str:
-    """Return the first available H.264 encoder.
+def get_available_video_encoder() -> str:
+    """Return an available H.264 encoder for the current system.
 
     Checks for Jetson's ``h264_nvmpi`` encoder first and falls back to
-    ``libx264``. Raises ``RuntimeError`` if neither encoder is available.
+    ``libx264``. Raises ``RuntimeError`` if neither encoder is available and
+    logs when falling back to ``libx264``.
     """
 
     try:
@@ -64,9 +65,11 @@ def get_available_encoder() -> str:
     except FileNotFoundError as exc:
         raise RuntimeError("FFmpeg not found. Please install FFmpeg.") from exc
 
-    for encoder in ("h264_nvmpi", "libx264"):
-        if encoder in encoders:
-            return encoder
+    if "h264_nvmpi" in encoders:
+        return "h264_nvmpi"
+    if "libx264" in encoders:
+        print("[DEBUG] h264_nvmpi not found; falling back to libx264")
+        return "libx264"
 
     raise RuntimeError(
         "No supported H.264 encoder found (requires h264_nvmpi or libx264)."
@@ -306,9 +309,12 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
 
     width, height, fps = WIDTH, HEIGHT, FPS
     try:
-        video_codec = get_available_encoder()
+        video_codec = get_available_video_encoder()
     except RuntimeError as exc:
         print(f"❌ {exc}")
+        return None
+    if video_codec not in {"h264_nvmpi", "libx264"}:
+        print(f"❌ Unsupported encoder: {video_codec}")
         return None
     print(f"[DEBUG] Using encoder: {video_codec}")
     log_dir = Path("livestream_logs")
