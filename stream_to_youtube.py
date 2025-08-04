@@ -49,7 +49,11 @@ def find_usb_microphone() -> str:
 
 def detect_hw_encoder() -> str | None:
     """Detect Jetson hardware encoder if available."""
-    if not Path("/etc/nv_tegra_release").exists():
+    hw_libs = [
+        Path("/usr/lib/aarch64-linux-gnu/tegra/libnvomx.so"),
+        Path("/usr/lib/aarch64-linux-gnu/tegra/libnvmpi.so"),
+    ]
+    if not any(lib.exists() for lib in hw_libs):
         return None
     try:
         encoders = subprocess.run(
@@ -58,9 +62,8 @@ def detect_hw_encoder() -> str | None:
             text=True,
             check=True,
         ).stdout
-        for codec in ("h264_nvmpi", "h264_omx"):
-            if codec in encoders:
-                return codec
+        if "h264_nvmpi" in encoders:
+            return "h264_nvmpi"
     except Exception:
         return None
     return None
@@ -268,7 +271,7 @@ def parse_clock(clock: str) -> int | None:
     return None
 
 
-def _log_ffmpeg_errors(pipe) -> None:
+def _log_ffmpeg_errors(pipe, log_fp) -> None:
     """Stream FFmpeg stderr output in real time and monitor bitrate."""
     zero_count = 0
     for line in iter(pipe.readline, b""):
@@ -276,16 +279,22 @@ def _log_ffmpeg_errors(pipe) -> None:
         if not text:
             continue
         print(f"[ffmpeg] {text}")
+        log_fp.write(text + "\n")
+        log_fp.flush()
         match = re.search(r"bitrate=\s*(\d+\.?\d*)kbits/s", text)
         if match:
             bitrate = float(match.group(1))
             if bitrate == 0:
                 zero_count += 1
                 if zero_count >= 3:
-                    print("[FFMPEG WARNING] Output bitrate 0 kbps - stream might have stalled")
+                    warn = "[FFMPEG WARNING] Output bitrate 0 kbps - stream might have stalled"
+                    print(warn)
+                    log_fp.write(warn + "\n")
+                    log_fp.flush()
             else:
                 zero_count = 0
     pipe.close()
+    log_fp.close()
 
 
 def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
@@ -293,6 +302,11 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
 
     width, height, fps = WIDTH, HEIGHT, FPS
     video_codec = detect_hw_encoder() or "libx264"
+    print(f"[DEBUG] Using video encoder: {video_codec}")
+    log_dir = Path("livestream_logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"ffmpeg_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    log_fp = log_file.open("w", encoding="utf-8", errors="replace")
     ffmpeg_command = [
         "ffmpeg",
         "-f",
@@ -305,6 +319,8 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
         str(fps),
         "-i",
         "-",
+        "-thread_queue_size",
+        "512",
         "-f",
         "alsa",
         "-ac",
@@ -355,7 +371,10 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
     )
 
     debug_cmd = [mask_stream_url(arg) if arg == RTMP_URL else arg for arg in ffmpeg_command]
-    print("FFmpeg command:", " ".join(debug_cmd))
+    debug_str = " ".join(debug_cmd)
+    print("FFmpeg command:", debug_str)
+    log_fp.write("FFmpeg command: " + debug_str + "\n")
+    log_fp.flush()
 
     try:
         process = subprocess.Popen(
@@ -367,11 +386,12 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
         )
         if process.stderr is not None:
             threading.Thread(
-                target=_log_ffmpeg_errors, args=(process.stderr,), daemon=True
+                target=_log_ffmpeg_errors, args=(process.stderr, log_fp), daemon=True
             ).start()
         return process
     except FileNotFoundError:
         print("❌ ffmpeg not found. Please install FFmpeg.")
+        log_fp.close()
         return None
 
 
