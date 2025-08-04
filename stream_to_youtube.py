@@ -108,6 +108,11 @@ def validate_rtmp_url(url: str) -> bool:
     return parsed.scheme in {"rtmp", "rtmps"} and bool(parsed.netloc) and bool(parsed.path)
 
 
+def mask_stream_url(url: str) -> str:
+    """Return the stream URL with the secret key portion hidden."""
+    return re.sub(r"/[^/]+$", "/<hidden>", url)
+
+
 def generate_compliance_report(
     play_counts: dict[str, int], timestamp: str, team_name: str = "Team"
 ) -> None:
@@ -343,11 +348,14 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
             "44100",
             "-ac",
             "2",
-            "-f",
-            "flv",
-            RTMP_URL,
-        ]
+        "-f",
+        "flv",
+        RTMP_URL,
+    ]
     )
+
+    debug_cmd = [mask_stream_url(arg) if arg == RTMP_URL else arg for arg in ffmpeg_command]
+    print("FFmpeg command:", " ".join(debug_cmd))
 
     try:
         process = subprocess.Popen(
@@ -459,18 +467,24 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    stream_key = args.stream_key or os.getenv("YOUTUBE_STREAM_KEY", "")
+    stream_key = (args.stream_key or os.getenv("YOUTUBE_STREAM_KEY", "")).strip()
     if not stream_key or stream_key == "YOUR_STREAM_KEY":
         print(
             "❌ Error: YouTube stream key not found or invalid. Please set YOUTUBE_STREAM_KEY in your environment or config file."
         )
         return
 
+    stream_url = f"rtmp://a.rtmp.youtube.com/live2/{stream_key}"
+    if "YOUR_STREAM_KEY" in stream_url or not stream_url.endswith(stream_key):
+        raise ValueError("❌ Invalid or placeholder stream key detected. Aborting stream.")
+
     global RTMP_URL
-    RTMP_URL = f"rtmp://a.rtmp.youtube.com/live2/{stream_key}"
+    RTMP_URL = stream_url
     if not validate_rtmp_url(RTMP_URL):
         print(f"❌ Invalid RTMP URL: {RTMP_URL}")
         return
+
+    print(f"📡 Streaming to: {mask_stream_url(RTMP_URL)}")
 
     global WIDTH, HEIGHT, FPS
 
