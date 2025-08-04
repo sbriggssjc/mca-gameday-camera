@@ -1,8 +1,7 @@
 import cv2
-import csv
 import subprocess
 import time
-import sys
+import numpy as np
 import os
 import re
 import threading
@@ -59,45 +58,61 @@ def detect_hw_encoder() -> str | None:
     return None
 
 
+# SETTINGS
+CAMERA_INDEX = 0
 WIDTH = 1280
 HEIGHT = 720
 FPS = 30
-# Replace with your actual YouTube stream key
-RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/xcuz-3x1d-9y7v-ghec-2xmh"
-TEST_MODE = "--test" in sys.argv
+RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/YOUR_STREAM_KEY"  # Replace with your actual stream key
 
-FONT = cv2.FONT_HERSHEY_SIMPLEX
-FONT_SCALE = 0.7
-THICKNESS = 2
-# Larger font scale for the scoreboard overlay
-SB_FONT_SCALE = 1.2
+# OPEN CAMERA
+cap = cv2.VideoCapture(CAMERA_INDEX)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
+cap.set(cv2.CAP_PROP_FPS, FPS)
 
-# Static scoreboard ROIs (y1, y2, x1, x2)
-# Adjust these values to match the on-screen scoreboard layout
-CLOCK_ROI = (50, 100, 900, 1100)
-HOME_ROI = (100, 150, 830, 930)
-AWAY_ROI = (100, 150, 1090, 1190)
+ret, frame = cap.read()
+if not ret:
+    print("❌ Failed to grab initial frame.")
+    exit()
 
-# Play count alert settings
-HALFTIME_SECS = 20 * 60  # halftime at 20:00
-FINAL_WARNING_SECS = 34 * 60  # 6:00 remaining in a 40 minute game
-HALFTIME_MIN_PLAYS = 3
-FINAL_MIN_PLAYS = 7
+print(f"✅ Camera resolution: {frame.shape[1]}x{frame.shape[0]}")
+print("✅ Successfully captured initial frame")
 
+# FFmpeg Command
+ffmpeg_cmd = [
+    'ffmpeg',
+    '-y',
+    '-f', 'rawvideo',
+    '-pix_fmt', 'bgr24',
+    '-s', f'{WIDTH}x{HEIGHT}',
+    '-r', str(FPS),
+    '-i', '-',  # video input from stdin
+    '-f', 'lavfi',
+    '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',  # silent fallback
+    '-c:v', 'libx264',
+    '-preset', 'veryfast',
+    '-tune', 'zerolatency',
+    '-b:v', '4500k',
+    '-maxrate', '6000k',
+    '-bufsize', '6000k',
+    '-pix_fmt', 'yuv420p',
+    '-g', str(FPS * 2),
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-ar', '44100',
+    '-ac', '2',
+    '-f', 'flv',
+    RTMP_URL
+]
 
-def validate_rtmp_url(url: str) -> bool:
-    """Return True if the RTMP/RTMPS URL looks valid."""
-    parsed = urlparse(url)
-    return parsed.scheme in {"rtmp", "rtmps"} and bool(parsed.netloc) and bool(parsed.path)
+print(f"🚀 Launching FFmpeg stream to: {RTMP_URL}")
+ffmpeg = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
 
+frame_count = 0
+start_time = time.time()
 
-def unique_path(path: Path) -> Path:
-    """Return a unique path by appending a counter if the file exists."""
-    if not path.exists():
-        return path
-    stem = path.stem
-    suffix = path.suffix
-    counter = 1
+try:
     while True:
         candidate = path.with_name(f"{stem}_{counter}{suffix}")
         if not candidate.exists():
@@ -939,3 +954,33 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+        loop_start = time.time()
+
+        ret, frame = cap.read()
+        if not ret:
+            print("❌ Frame grab failed.")
+            break
+
+        # Resize if needed (already set at init)
+        resized_frame = cv2.resize(frame, (WIDTH, HEIGHT))
+        ffmpeg.stdin.write(resized_frame.tobytes())
+        frame_count += 1
+
+        elapsed = time.time() - start_time
+        if elapsed > 0:
+            fps = frame_count / elapsed
+            print(f"[STREAM STATUS] ⏱️ {elapsed:.2f}s | Frames: {frame_count} | Avg FPS: {fps:.2f}")
+
+        # Frame pacing
+        time.sleep(max(0, 1/FPS - (time.time() - loop_start)))
+
+except KeyboardInterrupt:
+    print("\n🛑 Keyboard interrupt received. Stopping stream...")
+
+finally:
+    cap.release()
+    ffmpeg.stdin.close()
+    ffmpeg.wait()
+    print("✅ Stream ended and resources released.")
+
