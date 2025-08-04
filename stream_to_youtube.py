@@ -1,8 +1,7 @@
 import cv2
-import csv
 import subprocess
 import time
-import sys
+import numpy as np
 import os
 import re
 import threading
@@ -29,45 +28,91 @@ except Exception:
 from datetime import datetime
 from pathlib import Path
 
+
+def find_usb_microphone() -> str:
+    """Return ALSA identifier for a USB/RØDE microphone if present."""
+    result = subprocess.run(["arecord", "-l"], capture_output=True, text=True)
+    matches = re.findall(r"card (\d+): ([^\[]+)\[([^\]]+)\], device (\d+):", result.stdout)
+    for card, name, desc, device in matches:
+        if "rode" in name.lower() or "usb" in desc.lower():
+            return f"hw:{card},{device}"
+    return "default"  # fallback
+
+
+def detect_hw_encoder() -> str | None:
+    """Detect Jetson hardware encoder if available."""
+    if not Path("/etc/nv_tegra_release").exists():
+        return None
+    try:
+        encoders = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        for codec in ("h264_nvmpi", "h264_omx"):
+            if codec in encoders:
+                return codec
+    except Exception:
+        return None
+    return None
+
+
+# SETTINGS
+CAMERA_INDEX = 0
 WIDTH = 1280
 HEIGHT = 720
 FPS = 30
-# Replace with your actual YouTube stream key
-RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/xcuz-3x1d-9y7v-ghec-2xmh"
-TEST_MODE = "--test" in sys.argv
+RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/YOUR_STREAM_KEY"  # Replace with your actual stream key
 
-FONT = cv2.FONT_HERSHEY_SIMPLEX
-FONT_SCALE = 0.7
-THICKNESS = 2
-# Larger font scale for the scoreboard overlay
-SB_FONT_SCALE = 1.2
+# OPEN CAMERA
+cap = cv2.VideoCapture(CAMERA_INDEX)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
+cap.set(cv2.CAP_PROP_FPS, FPS)
 
-# Static scoreboard ROIs (y1, y2, x1, x2)
-# Adjust these values to match the on-screen scoreboard layout
-CLOCK_ROI = (50, 100, 900, 1100)
-HOME_ROI = (100, 150, 830, 930)
-AWAY_ROI = (100, 150, 1090, 1190)
+ret, frame = cap.read()
+if not ret:
+    print("❌ Failed to grab initial frame.")
+    exit()
 
-# Play count alert settings
-HALFTIME_SECS = 20 * 60  # halftime at 20:00
-FINAL_WARNING_SECS = 34 * 60  # 6:00 remaining in a 40 minute game
-HALFTIME_MIN_PLAYS = 3
-FINAL_MIN_PLAYS = 7
+print(f"✅ Camera resolution: {frame.shape[1]}x{frame.shape[0]}")
+print("✅ Successfully captured initial frame")
 
+# FFmpeg Command
+ffmpeg_cmd = [
+    'ffmpeg',
+    '-y',
+    '-f', 'rawvideo',
+    '-pix_fmt', 'bgr24',
+    '-s', f'{WIDTH}x{HEIGHT}',
+    '-r', str(FPS),
+    '-i', '-',  # video input from stdin
+    '-f', 'lavfi',
+    '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',  # silent fallback
+    '-c:v', 'libx264',
+    '-preset', 'veryfast',
+    '-tune', 'zerolatency',
+    '-b:v', '4500k',
+    '-maxrate', '6000k',
+    '-bufsize', '6000k',
+    '-pix_fmt', 'yuv420p',
+    '-g', str(FPS * 2),
+    '-c:a', 'aac',
+    '-b:a', '128k',
+    '-ar', '44100',
+    '-ac', '2',
+    '-f', 'flv',
+    RTMP_URL
+]
 
-def validate_rtmp_url(url: str) -> bool:
-    """Return True if the RTMP/RTMPS URL looks valid."""
-    parsed = urlparse(url)
-    return parsed.scheme in {"rtmp", "rtmps"} and bool(parsed.netloc) and bool(parsed.path)
+print(f"🚀 Launching FFmpeg stream to: {RTMP_URL}")
+ffmpeg = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
 
+frame_count = 0
+start_time = time.time()
 
-def unique_path(path: Path) -> Path:
-    """Return a unique path by appending a counter if the file exists."""
-    if not path.exists():
-        return path
-    stem = path.stem
-    suffix = path.suffix
-    counter = 1
+try:
     while True:
         candidate = path.with_name(f"{stem}_{counter}{suffix}")
         if not candidate.exists():
@@ -231,18 +276,30 @@ def parse_clock(clock: str) -> int | None:
 
 
 def _log_ffmpeg_errors(pipe) -> None:
-    """Stream FFmpeg stderr output in real time."""
+    """Stream FFmpeg stderr output in real time and monitor bitrate."""
+    zero_count = 0
     for line in iter(pipe.readline, b""):
         text = line.decode("utf-8", errors="replace").rstrip()
-        if text:
-            print(f"[ffmpeg] {text}")
+        if not text:
+            continue
+        print(f"[ffmpeg] {text}")
+        match = re.search(r"bitrate=\s*(\d+\.?\d*)kbits/s", text)
+        if match:
+            bitrate = float(match.group(1))
+            if bitrate == 0:
+                zero_count += 1
+                if zero_count >= 3:
+                    print("[FFMPEG WARNING] Output bitrate 0 kbps - stream might have stalled")
+            else:
+                zero_count = 0
     pipe.close()
 
 
-def launch_ffmpeg() -> subprocess.Popen | None:
+def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
     """Start an FFmpeg process configured for 720p/30fps streaming."""
 
     width, height, fps = WIDTH, HEIGHT, FPS
+    video_codec = detect_hw_encoder() or "libx264"
     ffmpeg_command = [
         "ffmpeg",
         "-f",
@@ -251,46 +308,58 @@ def launch_ffmpeg() -> subprocess.Popen | None:
         "bgr24",
         "-s",
         f"{width}x{height}",
-        "-r",
+        "-framerate",
         str(fps),
         "-i",
         "-",
         "-f",
-        "lavfi",
-        "-i",
-        "anullsrc=channel_layout=stereo:sample_rate=44100",
-        "-c:v",
-        "libx264",
-        "-pix_fmt",
-        "yuv420p",
-        "-preset",
-        "ultrafast",
-        "-tune",
-        "zerolatency",
-        "-g",
-        "60",
-        "-keyint_min",
-        "30",
-        "-b:v",
-        "1800k",
-        "-bufsize",
-        "3000k",
-        "-fflags",
-        "nobuffer",
-        "-flush_packets",
-        "1",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-ar",
-        "44100",
+        "alsa",
         "-ac",
         "2",
-        "-f",
-        "flv",
-        RTMP_URL,
+        "-ar",
+        "44100",
+        "-i",
+        mic_input,
     ]
+    ffmpeg_command.extend(
+        [
+            "-c:v",
+            video_codec,
+            "-pix_fmt",
+            "yuv420p",
+            "-preset",
+            "veryfast",
+            "-tune",
+            "zerolatency",
+            "-b:v",
+            "4500k",
+            "-maxrate",
+            "6000k",
+            "-bufsize",
+            "6000k",
+            "-g",
+            "60",
+            "-keyint_min",
+            "30",
+            "-r",
+            str(fps),
+            "-fflags",
+            "nobuffer",
+            "-flush_packets",
+            "1",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-ar",
+            "44100",
+            "-ac",
+            "2",
+            "-f",
+            "flv",
+            RTMP_URL,
+        ]
+    )
 
     try:
         process = subprocess.Popen(
@@ -310,7 +379,7 @@ def launch_ffmpeg() -> subprocess.Popen | None:
         return None
 
 
-def restart_ffmpeg(process: subprocess.Popen | None) -> subprocess.Popen | None:
+def restart_ffmpeg(process: subprocess.Popen | None, mic_input: str) -> subprocess.Popen | None:
     """Restart the FFmpeg process if the stream stalls."""
     if process is not None:
         try:
@@ -323,7 +392,7 @@ def restart_ffmpeg(process: subprocess.Popen | None) -> subprocess.Popen | None:
             process.wait(timeout=5)
         except Exception:
             pass
-    return launch_ffmpeg()
+    return launch_ffmpeg(mic_input)
 
 
 def initialize_camera(index: int, width: int, height: int, fps: int) -> cv2.VideoCapture | None:
@@ -395,6 +464,14 @@ def main() -> None:
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, FPS)
+    actual_fps = cap.get(cv2.CAP_PROP_FPS)
+    if abs(actual_fps - FPS) > 0.1:
+        print(f"⚠️ Camera FPS not locked at {FPS}, actual: {actual_fps:.2f}")
+    else:
+        print(f"✅ Camera FPS locked at {actual_fps:.2f}")
+
+    mic_input = find_usb_microphone()
+    print(f"🎤 Using microphone: {mic_input}")
 
     output_dir = Path("video")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -404,7 +481,7 @@ def main() -> None:
     record_file = unique_path(output_dir / f"{base_name}_{timestamp}.mp4")
     log_file = unique_path(output_dir / f"{base_name}_{timestamp}_play_log.csv")
 
-    process = launch_ffmpeg()
+    process = launch_ffmpeg(mic_input)
     if process is None:
         return
 
@@ -541,6 +618,7 @@ def main() -> None:
 
     try:
         while True:
+            loop_start = time.time()
             ret, frame = cap.read()
             if not ret or frame is None:
                 failed_reads += 1
@@ -559,6 +637,9 @@ def main() -> None:
                 fps_counter = 0
                 encode_counter = 0
                 fps_start = now
+                print(
+                    f"[FPS] Capture: {capture_fps:.2f} | Encode: {encode_fps:.2f}"
+                )
                 if capture_fps == 0:
                     no_frame_secs += 1
                 else:
@@ -682,7 +763,8 @@ def main() -> None:
                     process = None
                     break
 
-            time.sleep(1 / FPS)
+            elapsed_loop = time.time() - loop_start
+            time.sleep(max(0, (1 / FPS) - elapsed_loop))
 
             frame_count += 1
             if frame_count % (2 * FPS) == 0:
@@ -706,7 +788,7 @@ def main() -> None:
                         out_zero_warned = True
                     elif now - out_zero_start >= 10:
                         print("[\u26A0\uFE0F ALERT] Restarting FFmpeg due to stalled output")
-                        process = restart_ffmpeg(process)
+                        process = restart_ffmpeg(process, mic_input)
                         out_zero_start = now
                 else:
                     out_zero_start = None
@@ -872,3 +954,33 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+        loop_start = time.time()
+
+        ret, frame = cap.read()
+        if not ret:
+            print("❌ Frame grab failed.")
+            break
+
+        # Resize if needed (already set at init)
+        resized_frame = cv2.resize(frame, (WIDTH, HEIGHT))
+        ffmpeg.stdin.write(resized_frame.tobytes())
+        frame_count += 1
+
+        elapsed = time.time() - start_time
+        if elapsed > 0:
+            fps = frame_count / elapsed
+            print(f"[STREAM STATUS] ⏱️ {elapsed:.2f}s | Frames: {frame_count} | Avg FPS: {fps:.2f}")
+
+        # Frame pacing
+        time.sleep(max(0, 1/FPS - (time.time() - loop_start)))
+
+except KeyboardInterrupt:
+    print("\n🛑 Keyboard interrupt received. Stopping stream...")
+
+finally:
+    cap.release()
+    ffmpeg.stdin.close()
+    ffmpeg.wait()
+    print("✅ Stream ended and resources released.")
+
