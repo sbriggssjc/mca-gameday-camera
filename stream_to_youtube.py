@@ -116,8 +116,10 @@ try:
     while True:
         candidate = path.with_name(f"{stem}_{counter}{suffix}")
         if not candidate.exists():
-            return candidate
+            break
         counter += 1
+except Exception as e:
+    print(f"⚠️ {e}")
 
 
 def generate_compliance_report(
@@ -954,33 +956,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-        loop_start = time.time()
-
-        ret, frame = cap.read()
-        if not ret:
-            print("❌ Frame grab failed.")
-            break
-
-        # Resize if needed (already set at init)
-        resized_frame = cv2.resize(frame, (WIDTH, HEIGHT))
-        ffmpeg.stdin.write(resized_frame.tobytes())
-        frame_count += 1
-
-        elapsed = time.time() - start_time
-        if elapsed > 0:
-            fps = frame_count / elapsed
-            print(f"[STREAM STATUS] ⏱️ {elapsed:.2f}s | Frames: {frame_count} | Avg FPS: {fps:.2f}")
-
-        # Frame pacing
-        time.sleep(max(0, 1/FPS - (time.time() - loop_start)))
-
-except KeyboardInterrupt:
-    print("\n🛑 Keyboard interrupt received. Stopping stream...")
-
-finally:
-    cap.release()
-    ffmpeg.stdin.close()
-    ffmpeg.wait()
-    print("✅ Stream ended and resources released.")
 
