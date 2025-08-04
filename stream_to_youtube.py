@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 import argparse
 
 import roster
+import csv
+import sys
 
 try:
     from reportlab.lib.pagesizes import letter
@@ -112,14 +114,37 @@ ffmpeg = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
 frame_count = 0
 start_time = time.time()
 
-try:
-    while True:
+
+def unique_path(path: Path) -> Path:
+    """Return a unique file path by appending a counter if needed."""
+    counter = 1
+    stem = path.stem
+    suffix = path.suffix
+    candidate = path
+    while candidate.exists():
         candidate = path.with_name(f"{stem}_{counter}{suffix}")
-        if not candidate.exists():
-            break
         counter += 1
-except Exception as e:
-    print(f"⚠️ {e}")
+    return candidate
+
+
+# Overlay and alert settings
+FONT = cv2.FONT_HERSHEY_SIMPLEX
+FONT_SCALE = 0.6
+SB_FONT_SCALE = 0.5
+THICKNESS = 1
+CLOCK_ROI = (0, 0, 0, 0)
+HOME_ROI = (0, 0, 0, 0)
+AWAY_ROI = (0, 0, 0, 0)
+HALFTIME_SECS = 720
+HALFTIME_MIN_PLAYS = 4
+FINAL_WARNING_SECS = 1440
+FINAL_MIN_PLAYS = 7
+
+
+def validate_rtmp_url(url: str) -> bool:
+    """Basic validation for RTMP URLs."""
+    parsed = urlparse(url)
+    return parsed.scheme in {"rtmp", "rtmps"} and bool(parsed.netloc) and bool(parsed.path)
 
 
 def generate_compliance_report(
