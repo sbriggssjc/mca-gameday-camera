@@ -65,54 +65,14 @@ CAMERA_INDEX = 0
 WIDTH = 1280
 HEIGHT = 720
 FPS = 30
-RTMP_URL = "rtmp://a.rtmp.youtube.com/live2/YOUR_STREAM_KEY"  # Replace with your actual stream key
 
-# OPEN CAMERA
-cap = cv2.VideoCapture(CAMERA_INDEX)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-cap.set(cv2.CAP_PROP_FPS, FPS)
+# Obtain the YouTube stream key from the environment.
+STREAM_KEY = os.getenv("YOUTUBE_STREAM_KEY", "")
+if not STREAM_KEY or STREAM_KEY == "YOUR_STREAM_KEY":
+    print("❌ Missing or invalid YouTube stream key. Set YOUTUBE_STREAM_KEY.")
+    sys.exit(1)
 
-ret, frame = cap.read()
-if not ret:
-    print("❌ Failed to grab initial frame.")
-    exit()
-
-print(f"✅ Camera resolution: {frame.shape[1]}x{frame.shape[0]}")
-print("✅ Successfully captured initial frame")
-
-# FFmpeg Command
-ffmpeg_cmd = [
-    'ffmpeg',
-    '-y',
-    '-f', 'rawvideo',
-    '-pix_fmt', 'bgr24',
-    '-s', f'{WIDTH}x{HEIGHT}',
-    '-r', str(FPS),
-    '-i', '-',  # video input from stdin
-    '-f', 'lavfi',
-    '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',  # silent fallback
-    '-c:v', 'libx264',
-    '-preset', 'veryfast',
-    '-tune', 'zerolatency',
-    '-b:v', '4500k',
-    '-maxrate', '6000k',
-    '-bufsize', '6000k',
-    '-pix_fmt', 'yuv420p',
-    '-g', str(FPS * 2),
-    '-c:a', 'aac',
-    '-b:a', '128k',
-    '-ar', '44100',
-    '-ac', '2',
-    '-f', 'flv',
-    RTMP_URL
-]
-
-print(f"🚀 Launching FFmpeg stream to: {RTMP_URL}")
-ffmpeg = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
-
-frame_count = 0
-start_time = time.time()
+RTMP_URL = f"rtmp://a.rtmp.youtube.com/live2/{STREAM_KEY}"
 
 
 def unique_path(path: Path) -> Path:
@@ -444,6 +404,47 @@ def initialize_camera(index: int, width: int, height: int, fps: int) -> cv2.Vide
     return cap
 
 
+def initialize_camera_path(width: int, height: int, fps: int) -> cv2.VideoCapture | None:
+    """Attempt to open cameras using /dev/video* paths."""
+
+    for idx in range(10):
+        device_path = Path(f"/dev/video{idx}")
+        if not device_path.exists():
+            continue
+        print(f"🎥 Trying device path {device_path}")
+        cap = cv2.VideoCapture(str(device_path), cv2.CAP_V4L2)
+        if not cap.isOpened():
+            continue
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        cap.set(cv2.CAP_PROP_FPS, fps)
+        ret, _ = cap.read()
+        if ret:
+            return cap
+        cap.release()
+    return None
+
+
+def print_available_cameras() -> None:
+    """Print a list of available video devices for debugging."""
+
+    try:
+        result = subprocess.run(
+            ["v4l2-ctl", "--list-devices"], capture_output=True, text=True, check=True
+        )
+        if result.stdout.strip():
+            print("📷 Available cameras:\n" + result.stdout)
+            return
+    except Exception:
+        pass
+
+    devices = sorted(str(p) for p in Path("/dev").glob("video*"))
+    if devices:
+        print("📷 Available /dev/video* devices: " + ", ".join(devices))
+    else:
+        print("❌ No /dev/video* devices found.")
+
+
 
 def main() -> None:
     if not validate_rtmp_url(RTMP_URL):
@@ -461,6 +462,8 @@ def main() -> None:
 
     cap: cv2.VideoCapture | None = None
 
+    print_available_cameras()
+
     print("🎥 Trying camera index 0 at 1920x1080")
     cap = initialize_camera(0, 1920, 1080, FPS)
     if cap is None:
@@ -468,7 +471,12 @@ def main() -> None:
         cap = initialize_camera(1, 1280, 720, FPS)
 
     if cap is None:
-        print("❌ Camera failed to initialize. Check the camera connection or device index.")
+        print("🔍 Scanning /dev/video* paths")
+        cap = initialize_camera_path(1280, 720, FPS)
+
+    if cap is None:
+        print("❌ Camera failed to initialize after scanning all paths.")
+        print_available_cameras()
         return
 
     cap.set(cv2.CAP_PROP_FPS, FPS)
