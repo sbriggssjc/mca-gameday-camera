@@ -463,29 +463,18 @@ def main() -> None:
     )
     parser.add_argument(
         "--stream_key",
-        help="YouTube stream key; overrides env var YOUTUBE_STREAM_KEY",
+        type=str,
+        help="YouTube stream key",
     )
     args = parser.parse_args()
 
-    stream_key = (args.stream_key or os.getenv("YOUTUBE_STREAM_KEY", "")).strip()
-    if not stream_key:
-        cfg_path = Path("youtube_stream_key.txt")
-        if cfg_path.exists():
-            stream_key = cfg_path.read_text().strip()
+    stream_key = args.stream_key or os.getenv("YOUTUBE_STREAM_KEY")
 
     if not stream_key or "YOUR_STREAM_KEY" in stream_key:
         raise ValueError("❌ Stream key is missing or invalid. Aborting stream.")
 
-    if not (16 <= len(stream_key) <= 40) or not re.fullmatch(r"^[A-Za-z0-9-]+$", stream_key):
-        raise ValueError("❌ Stream key appears malformed. Aborting stream.")
-
-    print(f"[DEBUG] Injected stream key length: {len(stream_key)}")
-
     stream_url = f"rtmp://a.rtmp.youtube.com/live2/{stream_key}"
-    assert "YOUR_STREAM_KEY" not in stream_url, "Placeholder stream key detected"
-    if not stream_url.endswith(stream_key):
-        raise ValueError("❌ Stream URL does not contain the provided stream key.")
-    print(f"[DEBUG] Final FFmpeg stream URL: {stream_url}")
+    print(f"[DEBUG] Using stream URL: {stream_url}")
 
     global RTMP_URL
     RTMP_URL = stream_url
