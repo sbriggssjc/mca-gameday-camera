@@ -50,14 +50,13 @@ YouTube. The optional `device_index` selects which local camera to use
 
 `stream_to_youtube.py` streams a video device (default `/dev/video0`) to
 YouTube using `ffmpeg`. Set the `VIDEO_DEVICE` environment variable if you need
-to use a different camera. The YouTube RTMP URL should be placed in a `.env`
-file:
+to use a different camera. Place your YouTube stream key in a `.env` file:
 
 ```ini
-YOUTUBE_RTMP_URL=rtmp://a.rtmp.youtube.com/live2/YOUR_STREAM_KEY
+YOUTUBE_STREAM_KEY=your_actual_stream_key
 ```
 
-Logs are written to the `livestream_logs` folder and the script will
+You can also provide the key at runtime with `--stream-key`. Logs are written to the `livestream_logs` folder and the script will
 automatically restart `ffmpeg` if it exits unexpectedly.
 
 Run it with:
