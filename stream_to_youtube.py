@@ -30,6 +30,12 @@ except Exception:
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
 
 def find_usb_microphone() -> str:
     """Return ALSA identifier for a USB/RØDE microphone if present."""
@@ -66,13 +72,8 @@ WIDTH = 1280
 HEIGHT = 720
 FPS = 30
 
-# Obtain the YouTube stream key from the environment.
-STREAM_KEY = os.getenv("YOUTUBE_STREAM_KEY", "")
-if not STREAM_KEY or STREAM_KEY == "YOUR_STREAM_KEY":
-    print("❌ Missing or invalid YouTube stream key. Set YOUTUBE_STREAM_KEY.")
-    sys.exit(1)
-
-RTMP_URL = f"rtmp://a.rtmp.youtube.com/live2/{STREAM_KEY}"
+# RTMP destination will be set after stream key validation in main()
+RTMP_URL = ""
 
 
 def unique_path(path: Path) -> Path:
@@ -447,16 +448,29 @@ def print_available_cameras() -> None:
 
 
 def main() -> None:
-    if not validate_rtmp_url(RTMP_URL):
-        print(f"❌ Invalid RTMP URL: {RTMP_URL}")
-        return
-
     parser = argparse.ArgumentParser(description="Stream and record game footage")
     parser.add_argument(
         "--filename",
         help="Base name for output files; timestamp and .mp4 will be appended",
     )
+    parser.add_argument(
+        "--stream-key",
+        help="YouTube stream key; overrides env var YOUTUBE_STREAM_KEY",
+    )
     args = parser.parse_args()
+
+    stream_key = args.stream_key or os.getenv("YOUTUBE_STREAM_KEY", "")
+    if not stream_key or stream_key == "YOUR_STREAM_KEY":
+        print(
+            "❌ Error: YouTube stream key not found or invalid. Please set YOUTUBE_STREAM_KEY in your environment or config file."
+        )
+        return
+
+    global RTMP_URL
+    RTMP_URL = f"rtmp://a.rtmp.youtube.com/live2/{stream_key}"
+    if not validate_rtmp_url(RTMP_URL):
+        print(f"❌ Invalid RTMP URL: {RTMP_URL}")
+        return
 
     global WIDTH, HEIGHT, FPS
 
