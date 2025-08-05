@@ -1,5 +1,7 @@
 import argparse
 import os
+import platform
+import subprocess
 from datetime import datetime, timezone
 
 from google.auth.transport.requests import Request
@@ -110,6 +112,85 @@ def get_stream_info(service, stream_id: str):
     return ingestion
 
 
+def run_ffmpeg(rtmp_url: str, *, test: bool = False) -> None:
+    """Launch FFmpeg to livestream to the provided RTMP URL.
+
+    If ``test`` is True, only print the command that would be executed.
+    """
+    system = platform.system()
+    if system == "Linux":
+        cmd = [
+            "ffmpeg",
+            "-f",
+            "v4l2",
+            "-i",
+            "/dev/video0",
+            "-f",
+            "alsa",
+            "-i",
+            "hw:1,0",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-b:v",
+            "3000k",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-f",
+            "flv",
+            rtmp_url,
+        ]
+    elif system == "Windows":
+        # Retain Windows-specific command using DirectShow devices.
+        cmd = [
+            "ffmpeg",
+            "-f",
+            "dshow",
+            "-i",
+            "video=Integrated Camera:audio=Microphone (USB)",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-b:v",
+            "3000k",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-f",
+            "flv",
+            rtmp_url,
+        ]
+    else:
+        raise RuntimeError(f"Unsupported platform: {system}")
+
+    print("[FFMPEG COMMAND]", " ".join(cmd))
+    if test:
+        return
+    try:
+        process = subprocess.Popen(cmd, stderr=subprocess.PIPE)
+    except FileNotFoundError:
+        print("❌ ffmpeg not found. Please install FFmpeg.")
+        return
+    try:
+        _, err = process.communicate()
+        if process.returncode != 0:
+            err_text = err.decode("utf-8", errors="ignore") if err else ""
+            if err_text:
+                print(err_text)
+            print(f"ffmpeg exited with code {process.returncode}")
+    except Exception as exc:
+        print(f"FFmpeg execution failed: {exc}")
+        if process.stderr:
+            err_text = process.stderr.read().decode("utf-8", errors="ignore")
+            if err_text:
+                print(err_text)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Create YouTube livestream")
     parser.add_argument("title", help="Broadcast title")
@@ -120,6 +201,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--reset-auth", action="store_true", help="Force OAuth re-authentication"
+    )
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Print the FFmpeg command without executing",
     )
     args = parser.parse_args()
 
@@ -132,8 +218,12 @@ def main() -> None:
         )
         print("Broadcast ID:", broadcast_id)
         print("Stream ID:", stream_id)
-        print("Ingestion address:", ingestion.get("ingestionAddress"))
-        print("Stream key:", ingestion.get("streamName"))
+        address = ingestion.get("ingestionAddress")
+        key = ingestion.get("streamName")
+        print("Ingestion address:", address)
+        print("Stream key:", key)
+        rtmp_url = f"{address}/{key}"
+        run_ffmpeg(rtmp_url, test=args.test)
     except HttpError as err:
         print(f"API error ({err.resp.status}): {err}")
     except Exception as exc:
