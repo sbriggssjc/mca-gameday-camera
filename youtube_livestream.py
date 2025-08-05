@@ -112,21 +112,35 @@ def get_stream_info(service, stream_id: str):
     return ingestion
 
 
-def run_ffmpeg(rtmp_url: str, *, test: bool = False) -> None:
-    """Launch FFmpeg to livestream to the provided RTMP URL.
+def run_ffmpeg(stream_key: str, *, test: bool = False) -> None:
+    """Launch FFmpeg to livestream using the provided ``stream_key``.
 
-    If ``test`` is True, only print the command that would be executed.
+    Parameters
+    ----------
+    stream_key:
+        YouTube stream key that will be inserted into the RTMP URL.
+    test:
+        If True, only print the command that would be executed.
     """
+    rtmp_url = f"rtmp://a.rtmp.youtube.com/live2/{stream_key}"
     system = platform.system()
     if system == "Linux":
         cmd = [
             "ffmpeg",
             "-f",
             "v4l2",
+            "-framerate",
+            "30",
+            "-video_size",
+            "1280x720",
             "-i",
             "/dev/video0",
             "-f",
             "alsa",
+            "-ac",
+            "2",
+            "-ar",
+            "44100",
             "-i",
             "hw:1,0",
             "-c:v",
@@ -139,6 +153,8 @@ def run_ffmpeg(rtmp_url: str, *, test: bool = False) -> None:
             "aac",
             "-b:a",
             "128k",
+            "-af",
+            "volume=3.0",
             "-f",
             "flv",
             rtmp_url,
@@ -191,6 +207,22 @@ def run_ffmpeg(rtmp_url: str, *, test: bool = False) -> None:
                 print(err_text)
 
 
+def test_audio_capture(device: str = "hw:1,0", filename: str = "test.wav", duration: int = 3) -> None:
+    """Record a short clip using ``arecord`` to verify audio input."""
+    try:
+        cmd = ["arecord", "-D", device, "-f", "cd", "-d", str(duration), filename]
+        print("[ARECORD COMMAND]", " ".join(cmd))
+        subprocess.run(cmd, check=True, stderr=subprocess.PIPE)
+        print(f"Audio recorded to {filename}")
+    except FileNotFoundError:
+        print("❌ arecord not found. Please install alsa-utils.")
+    except subprocess.CalledProcessError as exc:
+        err_text = exc.stderr.decode("utf-8", errors="ignore") if exc.stderr else ""
+        if err_text:
+            print(err_text)
+        print("Failed to record audio", exc)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Create YouTube livestream")
     parser.add_argument("title", help="Broadcast title")
@@ -207,7 +239,15 @@ def main() -> None:
         action="store_true",
         help="Print the FFmpeg command without executing",
     )
+    parser.add_argument(
+        "--test-audio",
+        action="store_true",
+        help="Record a short audio clip and exit",
+    )
     args = parser.parse_args()
+    if args.test_audio:
+        test_audio_capture()
+        return
 
     service = authenticate_youtube(reset_auth=args.reset_auth)
 
@@ -219,11 +259,10 @@ def main() -> None:
         print("Broadcast ID:", broadcast_id)
         print("Stream ID:", stream_id)
         address = ingestion.get("ingestionAddress")
-        key = ingestion.get("streamName")
+        stream_key = ingestion.get("streamName")
         print("Ingestion address:", address)
-        print("Stream key:", key)
-        rtmp_url = f"{address}/{key}"
-        run_ffmpeg(rtmp_url, test=args.test)
+        print("Stream key:", stream_key)
+        run_ffmpeg(stream_key, test=args.test)
     except HttpError as err:
         print(f"API error ({err.resp.status}): {err}")
     except Exception as exc:
