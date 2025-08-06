@@ -1,9 +1,11 @@
 import argparse
+import argparse
 import os
 import platform
 import subprocess
 from datetime import datetime, timezone
 from ffmpeg_utils import build_ffmpeg_args
+from config import StreamConfig, load_config
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -113,26 +115,31 @@ def get_stream_info(service, stream_id: str):
     return ingestion
 
 
-def run_ffmpeg(stream_key: str, *, test: bool = False) -> None:
-    """Launch FFmpeg to livestream using the provided ``stream_key``.
+def run_ffmpeg(cfg: StreamConfig, *, test: bool = False) -> None:
+    """Launch FFmpeg using parameters from ``cfg``.
 
     Parameters
     ----------
-    stream_key:
-        YouTube stream key that will be inserted into the RTMP URL.
+    cfg:
+        Streaming configuration containing destination and encoder settings.
     test:
         If True, only print the command that would be executed.
     """
-    rtmp_url = f"rtmp://a.rtmp.youtube.com/live2/{stream_key}"
+    rtmp_url = cfg.stream_key
     system = platform.system()
     if system == "Linux":
         cmd = build_ffmpeg_args(
             video_source="/dev/video0",
-            audio_device="hw:1,0",
+            audio_device=cfg.mic_device,
             output_url=rtmp_url,
-            audio_gain_db=3.0,
-            resolution="1280x720",
-            framerate=30,
+            audio_gain_db=cfg.gain_boost,
+            resolution=cfg.resolution,
+            framerate=cfg.fps,
+            video_codec=cfg.encoder,
+            preset=cfg.preset,
+            bitrate=cfg.bitrate,
+            maxrate=cfg.maxrate,
+            bufsize=cfg.bufsize,
         )
     elif system == "Windows":
         # Retain Windows-specific command using DirectShow devices.
@@ -143,11 +150,11 @@ def run_ffmpeg(stream_key: str, *, test: bool = False) -> None:
             "-i",
             "video=Integrated Camera:audio=Microphone (USB)",
             "-c:v",
-            "libx264",
+            cfg.encoder,
             "-preset",
-            "veryfast",
+            cfg.preset,
             "-b:v",
-            "3000k",
+            cfg.bitrate,
             "-c:a",
             "aac",
             "-b:a",
@@ -219,9 +226,20 @@ def main() -> None:
         action="store_true",
         help="Record a short audio clip and exit",
     )
+    parser.add_argument("--config", default=None, help="Path to config YAML")
+    parser.add_argument("--resolution", default=None, help="Capture resolution WxH")
+    parser.add_argument("--fps", type=int, default=None, help="Capture FPS")
+    parser.add_argument("--mic_device", default=None, help="ALSA mic device")
+    parser.add_argument("--gain_boost", type=float, default=None, help="Audio gain in dB")
+    parser.add_argument("--encoder", default=None, help="Video encoder")
+    parser.add_argument("--preset", default=None, help="Encoder preset")
+    parser.add_argument("--bitrate", default=None, help="Target video bitrate")
+    parser.add_argument("--maxrate", default=None, help="Max video bitrate")
+    parser.add_argument("--bufsize", default=None, help="Encoder buffer size")
     args = parser.parse_args()
+    cfg: StreamConfig = load_config(args.config, args)
     if args.test_audio:
-        test_audio_capture()
+        test_audio_capture(cfg.mic_device)
         return
 
     service = authenticate_youtube(reset_auth=args.reset_auth)
@@ -237,7 +255,10 @@ def main() -> None:
         stream_key = ingestion.get("streamName")
         print("Ingestion address:", address)
         print("Stream key:", stream_key)
-        run_ffmpeg(stream_key, test=args.test)
+        if not (address and stream_key):
+            raise RuntimeError("Missing ingestion address or stream key")
+        cfg.stream_key = f"{address}/{stream_key}"
+        run_ffmpeg(cfg, test=args.test)
     except HttpError as err:
         print(f"API error ({err.resp.status}): {err}")
     except Exception as exc:
