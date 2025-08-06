@@ -12,6 +12,13 @@ def build_ffmpeg_args(
     video_codec: str = "libx264",
     video_is_pipe: bool = False,
     video_format: str = "v4l2",
+    preset: str = "veryfast",
+    bitrate: str = "4500k",
+    maxrate: str = "6000k",
+    bufsize: str = "6000k",
+    gop: int = 60,
+    keyint_min: int = 30,
+    local_record: Optional[str] = None,
     extra_args: Optional[List[str]] = None,
 ) -> List[str]:
     """Return a standardized FFmpeg command.
@@ -86,17 +93,21 @@ def build_ffmpeg_args(
         "-c:v",
         video_codec,
         "-preset",
-        "veryfast",
+        preset,
         "-tune",
         "zerolatency",
         "-pix_fmt",
         "yuv420p",
         "-b:v",
-        "4500k",
+        bitrate,
         "-maxrate",
-        "6000k",
+        maxrate,
         "-bufsize",
-        "6000k",
+        bufsize,
+        "-g",
+        str(gop),
+        "-keyint_min",
+        str(keyint_min),
     ]
 
     if audio_device:
@@ -116,5 +127,9 @@ def build_ffmpeg_args(
     if extra_args:
         cmd += list(extra_args)
 
-    cmd += ["-f", "flv", output_url]
+    if local_record:
+        out_spec = f"[f=flv:onfail=ignore]{output_url}|{local_record}"
+        cmd += ["-f", "tee", out_spec]
+    else:
+        cmd += ["-f", "flv", output_url]
     return cmd
