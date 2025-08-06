@@ -7,3 +7,5 @@ bufsize: "6000k"
 preset: "veryfast"
 mic: "hw:1,0"
 audio_gain: -15.0
+train: false
+label: false
