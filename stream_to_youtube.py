@@ -37,14 +37,53 @@ except Exception:
     pass
 
 
-def find_usb_microphone() -> str:
-    """Return ALSA identifier for a USB/RØDE microphone if present."""
+def find_usb_microphone(default_device: str = "hw:1,0") -> str:
+    """Return ALSA identifier for a USB/RØDE microphone if present.
+
+    Parameters
+    ----------
+    default_device: str
+        Fallback ALSA device string (e.g., "hw:1,0").
+    """
+
     result = subprocess.run(["arecord", "-l"], capture_output=True, text=True)
     matches = re.findall(r"card (\d+): ([^\[]+)\[([^\]]+)\], device (\d+):", result.stdout)
     for card, name, desc, device in matches:
         if "rode" in name.lower() or "usb" in desc.lower():
             return f"hw:{card},{device}"
-    return "default"  # fallback
+    return default_device  # fallback to specific device
+
+
+def check_audio_input(device: str) -> None:
+    """Log a warning if the specified ALSA device produces only silence."""
+
+    try:
+        result = subprocess.run(
+            [
+                "arecord",
+                "-D",
+                device,
+                "-d",
+                "1",
+                "-f",
+                "S16_LE",
+                "-r",
+                "44100",
+                "-c",
+                "2",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if not result.stdout:
+            print(f"⚠️ No audio captured from ALSA device {device}")
+            return
+        audio = np.frombuffer(result.stdout, dtype=np.int16)
+        if np.max(np.abs(audio)) == 0:
+            print(f"⚠️ Silence detected on ALSA device {device}")
+    except Exception as e:
+        print(f"⚠️ Audio check failed for device {device}: {e}")
 
 
 def get_available_video_encoder() -> str:
@@ -341,6 +380,8 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
         video_encoder,
         "-pix_fmt",
         "yuv420p",
+        "-af",
+        "volume=1.0",
     ]
 
     if video_encoder == "libx264":
@@ -490,6 +531,11 @@ def main() -> None:
         type=str,
         help="YouTube stream key",
     )
+    parser.add_argument(
+        "--alsa_device",
+        default="hw:1,0",
+        help="ALSA audio input device (e.g., hw:1,0)",
+    )
     args = parser.parse_args()
 
     stream_key = args.stream_key or os.getenv("YOUTUBE_STREAM_KEY")
@@ -555,8 +601,9 @@ def main() -> None:
     else:
         print(f"✅ Camera FPS locked at {actual_fps:.2f}")
 
-    mic_input = find_usb_microphone()
+    mic_input = find_usb_microphone(args.alsa_device)
     print(f"🎤 Using microphone: {mic_input}")
+    check_audio_input(mic_input)
 
     output_dir = Path("video")
     output_dir.mkdir(parents=True, exist_ok=True)
