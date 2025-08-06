@@ -29,6 +29,7 @@ except Exception:
     psutil = None  # type: ignore
 from datetime import datetime
 from pathlib import Path
+from ffmpeg_utils import build_ffmpeg_args
 
 try:
     from dotenv import load_dotenv
@@ -418,68 +419,28 @@ def launch_ffmpeg(mic_input: str, volume_gain_db: float) -> subprocess.Popen | N
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"ffmpeg_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     log_fp = log_file.open("w", encoding="utf-8", errors="replace")
-    ffmpeg_command = [
-        "ffmpeg",
-        "-f",
-        "rawvideo",
-        "-pix_fmt",
-        "bgr24",
-        "-s",
-        f"{width}x{height}",
-        "-framerate",
-        str(fps),
-        "-i",
-        "-",
-        "-thread_queue_size",
-        "512",
-        "-f",
-        "alsa",
-        "-ac",
-        "1",
-        "-ar",
-        "44100",
-        "-i",
-        mic_input,
-        "-c:v",
-        video_encoder,
-        "-pix_fmt",
-        "yuv420p",
-        "-af",
-        f"volume={volume_gain_db:.2f}dB",
-    ]
 
-    if video_encoder == "libx264":
-        ffmpeg_command += ["-preset", "veryfast", "-tune", "zerolatency"]
-
-    ffmpeg_command += [
-        "-b:v",
-        "4500k",
-        "-maxrate",
-        "6000k",
-        "-bufsize",
-        "6000k",
+    extra = [
         "-g",
         "60",
         "-keyint_min",
         "30",
-        "-r",
-        str(fps),
         "-fflags",
         "nobuffer",
         "-flush_packets",
         "1",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-ar",
-        "44100",
-        "-ac",
-        "1",
-        "-f",
-        "flv",
-        RTMP_URL,
     ]
+    ffmpeg_command = build_ffmpeg_args(
+        video_source="-",
+        audio_device=mic_input,
+        output_url=RTMP_URL,
+        audio_gain_db=volume_gain_db,
+        resolution=f"{width}x{height}",
+        framerate=int(fps),
+        video_codec=video_encoder,
+        video_is_pipe=True,
+        extra_args=extra,
+    )
 
     print("[FFMPEG COMMAND]", " ".join(ffmpeg_command))
     log_fp.write("FFMPEG COMMAND: " + " ".join(ffmpeg_command) + "\n")
