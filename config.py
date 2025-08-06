@@ -17,12 +17,14 @@ class StreamConfig:
     width: int = 1280
     height: int = 720
     fps: int = 30
+    camera: int = 0
     bitrate: str = "4500k"
     maxrate: str = "6000k"
     bufsize: str = "6000k"
     preset: str = "veryfast"
     mic: str = "hw:1,0"
     audio_gain: float = -15.0
+    model: str = "models/play_classifier/latest.pt"
     train: bool = False
     label: bool = False
 
