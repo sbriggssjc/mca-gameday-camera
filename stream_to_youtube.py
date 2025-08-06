@@ -8,6 +8,7 @@ import threading
 from collections import deque
 from urllib.parse import urlparse
 import argparse
+import signal
 
 import roster
 import csv
@@ -47,7 +48,9 @@ def find_usb_microphone(default_device: str = "hw:1,0") -> str:
         Fallback ALSA device string (e.g., "hw:1,0").
     """
 
-    result = subprocess.run(["arecord", "-l"], capture_output=True, text=True)
+    result = subprocess.run(
+        ["arecord", "-l"], capture_output=True, text=True, timeout=5
+    )
     matches = re.findall(r"card (\d+): ([^\[]+)\[([^\]]+)\], device (\d+):", result.stdout)
     for card, name, desc, device in matches:
         if "rode" in name.lower() or "usb" in desc.lower():
@@ -55,8 +58,8 @@ def find_usb_microphone(default_device: str = "hw:1,0") -> str:
     return default_device  # fallback to specific device
 
 
-def check_audio_input(device: str) -> None:
-    """Log a warning if the specified ALSA device produces only silence."""
+def check_audio_input(device: str) -> bool:
+    """Return True if audio device produces a non-silent signal."""
 
     try:
         result = subprocess.run(
@@ -76,18 +79,22 @@ def check_audio_input(device: str) -> None:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=False,
+            timeout=5,
         )
         if result.returncode != 0:
             print(f"⚠️ ALSA device {device} not found")
-            return
+            return False
         if not result.stdout:
             print(f"⚠️ No audio captured from ALSA device {device}")
-            return
+            return False
         audio = np.frombuffer(result.stdout, dtype=np.int16)
         if np.max(np.abs(audio)) == 0:
             print(f"⚠️ Silence detected on ALSA device {device}")
+            return False
+        return True
     except Exception as e:
         print(f"⚠️ Audio check failed for device {device}: {e}")
+        return False
 
 
 def detect_volume_gain(device: str, target_db: float = -15.0) -> float:
@@ -118,7 +125,9 @@ def detect_volume_gain(device: str, target_db: float = -15.0) -> float:
         "-",
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=False, timeout=5
+        )
         match = re.search(r"mean_volume:\s*(-?\d+\.?\d*) dB", result.stderr)
         if match:
             measured_db = float(match.group(1))
@@ -133,6 +142,65 @@ def detect_volume_gain(device: str, target_db: float = -15.0) -> float:
     default_gain = 2.5
     print(f"[AUDIO] Using default gain: {default_gain} dB")
     return default_gain
+
+
+AUDIO_LEVEL_DB = 0.0
+
+
+def monitor_audio_level(device: str, stop_event: threading.Event) -> None:
+    """Continuously sample the audio device and update ``AUDIO_LEVEL_DB``."""
+
+    global AUDIO_LEVEL_DB
+    while not stop_event.is_set():
+        try:
+            result = subprocess.run(
+                [
+                    "arecord",
+                    "-D",
+                    device,
+                    "-d",
+                    "0.25",
+                    "-f",
+                    "S16_LE",
+                    "-r",
+                    "44100",
+                    "-c",
+                    "1",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=2,
+            )
+            if result.stdout:
+                audio = np.frombuffer(result.stdout, dtype=np.int16)
+                rms = np.sqrt(np.mean(audio ** 2))
+                if rms > 0:
+                    AUDIO_LEVEL_DB = 20 * np.log10(rms / 32768)
+        except Exception:
+            AUDIO_LEVEL_DB = -80.0
+        stop_event.wait(0.5)
+
+
+def system_monitor(stop_event: threading.Event) -> None:
+    """Log CPU (and GPU if available) usage periodically."""
+
+    if psutil is None:
+        return
+    while not stop_event.is_set():
+        cpu = psutil.cpu_percent(interval=1)
+        mem = psutil.virtual_memory().percent
+        msg = f"[SYSTEM] CPU: {cpu:.1f}% | MEM: {mem:.1f}%"
+        try:
+            temps = psutil.sensors_temperatures()
+            if temps:
+                gpu_t = temps.get("gpu") or temps.get("GPU")
+                if gpu_t:
+                    msg += f" | GPU Temp: {gpu_t[0].current:.1f}C"
+        except Exception:
+            pass
+        print(msg, flush=True)
+        stop_event.wait(5)
 
 
 def get_available_video_encoder() -> str:
@@ -292,9 +360,12 @@ def draw_label(
 
 
 def overlay_info(
-    frame: "cv2.Mat", frame_count: int, scoreboard: tuple[str, str, str] | None = None
+    frame: "cv2.Mat",
+    frame_count: int,
+    scoreboard: tuple[str, str, str] | None = None,
+    audio_level: float | None = None,
 ) -> None:
-    """Overlay time, LIVE label, frame counter and scoreboard."""
+    """Overlay time, LIVE label, frame counter, scoreboard, and audio meter."""
     time_str = datetime.now().strftime("%H:%M:%S")
     # LIVE label in top-left
     draw_label(frame, "LIVE", (10, 30))
@@ -310,6 +381,10 @@ def overlay_info(
     frame_text = f"Frame: {frame_count}"
     (fw, fh), _ = cv2.getTextSize(frame_text, FONT, FONT_SCALE, THICKNESS)
     draw_label(frame, frame_text, (10, frame.shape[0] - 10))
+    if audio_level is not None:
+        audio_text = f"Audio: {audio_level:.1f} dBFS"
+        (aw, ah), _ = cv2.getTextSize(audio_text, FONT, FONT_SCALE, THICKNESS)
+        draw_label(frame, audio_text, (frame.shape[1] - aw - 10, frame.shape[0] - 10))
 
 
 def preprocess_frame(frame: "cv2.Mat") -> "cv2.Mat":
@@ -394,16 +469,19 @@ def _log_ffmpeg_errors(pipe, log_fp) -> None:
 
 
 
-def launch_ffmpeg(mic_input: str, volume_gain_db: float) -> subprocess.Popen | None:
-    """Start an FFmpeg process configured for 720p/30fps streaming.
-
-    Parameters
-    ----------
-    mic_input: str
-        ALSA device identifier for the microphone.
-    volume_gain_db: float
-        Gain to apply via FFmpeg's volume filter, in dB.
-    """
+def launch_ffmpeg(
+    mic_input: str,
+    volume_gain_db: float,
+    *,
+    record_path: str | None,
+    preset: str,
+    bitrate: str,
+    maxrate: str,
+    bufsize: str,
+    gop: int,
+    keyint_min: int,
+) -> subprocess.Popen | None:
+    """Start an FFmpeg process configured for streaming with tuned settings."""
 
     width, height, fps = WIDTH, HEIGHT, FPS
     try:
@@ -421,10 +499,6 @@ def launch_ffmpeg(mic_input: str, volume_gain_db: float) -> subprocess.Popen | N
     log_fp = log_file.open("w", encoding="utf-8", errors="replace")
 
     extra = [
-        "-g",
-        "60",
-        "-keyint_min",
-        "30",
         "-fflags",
         "nobuffer",
         "-flush_packets",
@@ -439,6 +513,13 @@ def launch_ffmpeg(mic_input: str, volume_gain_db: float) -> subprocess.Popen | N
         framerate=int(fps),
         video_codec=video_encoder,
         video_is_pipe=True,
+        preset=preset,
+        bitrate=bitrate,
+        maxrate=maxrate,
+        bufsize=bufsize,
+        gop=gop,
+        keyint_min=keyint_min,
+        local_record=record_path,
         extra_args=extra,
     )
 
@@ -466,7 +547,17 @@ def launch_ffmpeg(mic_input: str, volume_gain_db: float) -> subprocess.Popen | N
 
 
 def restart_ffmpeg(
-    process: subprocess.Popen | None, mic_input: str, volume_gain_db: float
+    process: subprocess.Popen | None,
+    mic_input: str,
+    volume_gain_db: float,
+    *,
+    record_path: str | None,
+    preset: str,
+    bitrate: str,
+    maxrate: str,
+    bufsize: str,
+    gop: int,
+    keyint_min: int,
 ) -> subprocess.Popen | None:
     """Restart the FFmpeg process if the stream stalls."""
     if process is not None:
@@ -481,7 +572,17 @@ def restart_ffmpeg(
         except Exception:
             pass
 
-    return launch_ffmpeg(mic_input, volume_gain_db)
+    return launch_ffmpeg(
+        mic_input,
+        volume_gain_db,
+        record_path=record_path,
+        preset=preset,
+        bitrate=bitrate,
+        maxrate=maxrate,
+        bufsize=bufsize,
+        gop=gop,
+        keyint_min=keyint_min,
+    )
 
 
 
@@ -573,7 +674,27 @@ def main() -> None:
         default=-15.0,
         help="Target mean audio level in dBFS for auto-gain (default: -15.0)",
     )
+    parser.add_argument("--width", type=int, default=1280, help="Capture width")
+    parser.add_argument("--height", type=int, default=720, help="Capture height")
+    parser.add_argument("--fps", type=int, default=30, help="Capture FPS")
+    parser.add_argument("--bitrate", default="4500k", help="Target video bitrate")
+    parser.add_argument("--maxrate", default="6000k", help="Max video bitrate")
+    parser.add_argument("--bufsize", default="6000k", help="Encoder buffer size")
+    parser.add_argument("--preset", default="veryfast", help="x264 preset")
+    parser.add_argument("--gop", type=int, default=60, help="GOP size")
+    parser.add_argument(
+        "--keyint_min", type=int, default=30, help="Minimum GOP keyframe interval"
+    )
+    parser.add_argument(
+        "--local_record",
+        action="store_true",
+        help="Also record stream to local MP4 using tee",
+    )
+    parser.add_argument(
+        "--audio_meter", action="store_true", help="Overlay live audio levels"
+    )
     args = parser.parse_args()
+    signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
 
     stream_key = args.stream_key or os.getenv("YOUTUBE_STREAM_KEY")
 
@@ -592,20 +713,21 @@ def main() -> None:
     print(f"📡 Streaming to: {mask_stream_url(RTMP_URL)}")
 
     global WIDTH, HEIGHT, FPS
+    WIDTH, HEIGHT, FPS = args.width, args.height, args.fps
 
     cap: cv2.VideoCapture | None = None
 
     print_available_cameras()
 
-    print("🎥 Trying camera index 0 at 1920x1080")
-    cap = initialize_camera(0, 1920, 1080, FPS)
+    print(f"🎥 Trying camera index 0 at {WIDTH}x{HEIGHT}")
+    cap = initialize_camera(0, WIDTH, HEIGHT, FPS)
     if cap is None:
-        print("🎥 Trying camera index 1 at 1280x720")
-        cap = initialize_camera(1, 1280, 720, FPS)
+        print(f"🎥 Trying camera index 1 at {WIDTH}x{HEIGHT}")
+        cap = initialize_camera(1, WIDTH, HEIGHT, FPS)
 
     if cap is None:
         print("🔍 Scanning /dev/video* paths")
-        cap = initialize_camera_path(1280, 720, FPS)
+        cap = initialize_camera_path(WIDTH, HEIGHT, FPS)
 
     if cap is None:
         print("❌ Camera failed to initialize after scanning all paths.")
@@ -625,10 +747,9 @@ def main() -> None:
 
     print("✅ Successfully captured initial frame:", test_frame.shape)
 
-    # Force 720p/30fps output; rotate later if camera delivers portrait frames
+    # Apply requested resolution/FPS; rotate later if camera delivers portrait frames
     if test_frame.shape[0] > test_frame.shape[1]:
         print("🔄 Rotating input frames for landscape orientation")
-    WIDTH, HEIGHT, FPS = 1280, 720, 30
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, FPS)
@@ -640,8 +761,17 @@ def main() -> None:
 
     mic_input = find_usb_microphone(args.alsa_device)
     print(f"🎤 Using microphone: {mic_input}")
-    check_audio_input(mic_input)
+    if not check_audio_input(mic_input):
+        print("⚠️ Falling back to specified ALSA device")
+        mic_input = args.alsa_device
     volume_gain_db = detect_volume_gain(mic_input, args.target_dbfs)
+
+    monitor_stop = threading.Event()
+    threading.Thread(target=system_monitor, args=(monitor_stop,), daemon=True).start()
+    if args.audio_meter:
+        threading.Thread(
+            target=monitor_audio_level, args=(mic_input, monitor_stop), daemon=True
+        ).start()
 
     output_dir = Path("video")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -650,9 +780,21 @@ def main() -> None:
     base_name = args.filename if args.filename else "game"
     record_file = unique_path(output_dir / f"{base_name}_{timestamp}.mp4")
     log_file = unique_path(output_dir / f"{base_name}_{timestamp}_play_log.csv")
+    record_path = str(record_file) if args.local_record else None
 
-    process = launch_ffmpeg(mic_input, volume_gain_db)
+    process = launch_ffmpeg(
+        mic_input,
+        volume_gain_db,
+        record_path=record_path,
+        preset=args.preset,
+        bitrate=args.bitrate,
+        maxrate=args.maxrate,
+        bufsize=args.bufsize,
+        gop=args.gop,
+        keyint_min=args.keyint_min,
+    )
     if process is None:
+        monitor_stop.set()
         return
 
     log_fp = open(log_file, "w", newline="")
@@ -896,7 +1038,12 @@ def main() -> None:
                     )
                     summary_generated = True
 
-            overlay_info(frame, frame_count, scoreboard)
+            overlay_info(
+                frame,
+                frame_count,
+                scoreboard,
+                AUDIO_LEVEL_DB if args.audio_meter else None,
+            )
             cv2.imshow("Stream Preview", frame)
             key = cv2.waitKey(1) & 0xFF
             if key != 255:
@@ -944,7 +1091,11 @@ def main() -> None:
                 elapsed = now - start
                 hours, rem = divmod(int(elapsed), 3600)
                 minutes, seconds = divmod(rem, 60)
-                file_size = record_file.stat().st_size if record_file.exists() else 0
+                file_size = (
+                    record_file.stat().st_size
+                    if record_path and record_file.exists()
+                    else 0
+                )
                 output_kbps = (file_size * 8 / elapsed / 1000) if elapsed > 0 else 0.0
                 encoded_kbps = (bytes_sent * 8 / elapsed / 1000) if elapsed > 0 else 0.0
                 print(
@@ -959,7 +1110,18 @@ def main() -> None:
                     elif now - out_zero_start >= 10:
                         print("[\u26A0\uFE0F ALERT] Restarting FFmpeg due to stalled output")
 
-                        process = restart_ffmpeg(process, mic_input, volume_gain_db)
+                        process = restart_ffmpeg(
+                            process,
+                            mic_input,
+                            volume_gain_db,
+                            record_path=record_path,
+                            preset=args.preset,
+                            bitrate=args.bitrate,
+                            maxrate=args.maxrate,
+                            bufsize=args.bufsize,
+                            gop=args.gop,
+                            keyint_min=args.keyint_min,
+                        )
                         out_zero_start = now
                 else:
                     out_zero_start = None
@@ -996,6 +1158,7 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nKeyboard interrupt received. Stopping stream...")
     finally:
+        monitor_stop.set()
         cap.release()
         if process and process.stdin:
             process.stdin.close()
