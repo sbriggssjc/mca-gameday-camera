@@ -10,6 +10,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 from ffmpeg_utils import build_ffmpeg_args
+from queue import Queue, Full
 
 import argparse
 import cv2
@@ -171,6 +172,21 @@ def main() -> None:
         thread_err = threading.Thread(target=log_ffmpeg_stderr, args=(process.stderr, lf), daemon=True)
         thread_out.start()
         thread_err.start()
+        frame_queue: Queue[bytes] = Queue(maxsize=30)
+
+        def encode_worker():
+            while True:
+                frame_bytes = frame_queue.get()
+                if frame_bytes is None:
+                    break
+                try:
+                    process.stdin.write(frame_bytes)
+                except BrokenPipeError:
+                    print("FFmpeg pipe closed unexpectedly.")
+                    break
+
+        encoder_thread = threading.Thread(target=encode_worker, daemon=True)
+        encoder_thread.start()
         first_frame = True
         try:
             while True:
@@ -192,13 +208,16 @@ def main() -> None:
                 crop = cv2.resize(crop, (out_width, out_height))
                 if crop.shape != (out_height, out_width, 3) or crop.dtype != np.uint8:
                     raise ValueError(f"Crop frame has shape {crop.shape} and dtype {crop.dtype}")
-                print(f"Writing frame of shape {crop.shape} to FFmpeg")
-                process.stdin.write(crop.astype(np.uint8).tobytes())
-        except BrokenPipeError:
-            print("FFmpeg pipe closed unexpectedly.")
+                print(f"Queuing frame of shape {crop.shape} for FFmpeg")
+                try:
+                    frame_queue.put_nowait(crop.astype(np.uint8).tobytes())
+                except Full:
+                    print("[WARNING] Encoding queue full; dropping frame")
         except KeyboardInterrupt:
             pass
         finally:
+            frame_queue.put(None)
+            encoder_thread.join()
             if process.stdin:
                 process.stdin.close()
             ret = process.wait()
