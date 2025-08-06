@@ -155,7 +155,8 @@ def ping_rtmp(url: str, timeout: int = 5) -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return True
-    except OSError:
+    except OSError as e:
+        print(f"[❌ ERROR] TCP connection to {host}:{port} failed: {e}")
         return False
 
 
@@ -631,10 +632,12 @@ def restart_ffmpeg(
         except Exception:
             pass
         try:
-            if process.returncode not in (0, None) and process.stderr:
+            stderr_output = ""
+            if process.stderr:
                 stderr_output = process.stderr.read().decode(errors="replace")
-                if stderr_output:
-                    print(f"[FFMPEG ERROR] {stderr_output}")
+            print(f"[FFMPEG EXIT CODE] {process.returncode}")
+            if stderr_output:
+                print(f"[FFMPEG STDERR] {stderr_output}")
         except Exception:
             pass
 
@@ -918,17 +921,27 @@ def main() -> None:
     frame_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=FPS * 2)
     bytes_sent = 0
     ffmpeg_restart_attempts = 0
+    restart_fail_times: deque[float] = deque()
     encode_stop = threading.Event()
     encode_thread = threading.Thread()
 
     def do_ffmpeg_restart() -> bool:
-        nonlocal process, encode_stop, encode_thread, ffmpeg_restart_attempts
+        nonlocal process, encode_stop, encode_thread, ffmpeg_restart_attempts, restart_fail_times, ffmpeg_error, last_output_time
         encode_stop.set()
         encode_thread.join(timeout=2)
+        delay_sequence = [0, 5, 10, 30]
+        delay = delay_sequence[min(ffmpeg_restart_attempts, len(delay_sequence) - 1)]
+        if delay > 0:
+            time.sleep(delay)
         ffmpeg_restart_attempts += 1
-        if ffmpeg_restart_attempts > 3:
-            print("[🚨 CRITICAL] FFmpeg failed multiple times. Exiting.")
+        restart_fail_times.append(time.time())
+        while restart_fail_times and time.time() - restart_fail_times[0] > 60:
+            restart_fail_times.popleft()
+        if len(restart_fail_times) > 3:
+            print("[🛑 ABORT] Too many failures. Manual intervention required.")
             return False
+        if not ping_rtmp(RTMP_URL):
+            print("[⚠️ ALERT] Unable to reach RTMP server before restart.")
         process = restart_ffmpeg(
             process,
             mic_input,
@@ -944,6 +957,10 @@ def main() -> None:
         )
         if process is None:
             return False
+        ffmpeg_restart_attempts = 0
+        restart_fail_times.clear()
+        ffmpeg_error = False
+        last_output_time = time.time()
         encode_stop = threading.Event()
         encode_thread = threading.Thread(
             target=encoder_worker, args=(process, encode_stop), daemon=True
@@ -959,7 +976,7 @@ def main() -> None:
             except queue.Empty:
                 continue
             if proc is None or proc.poll() is not None:
-                print("[❌ ERROR] FFmpeg process is not running.")
+                print("[❌ ERROR] FFmpeg dead. Halting frame sending.")
                 stop_evt.set()
                 break
             try:
@@ -967,8 +984,8 @@ def main() -> None:
                     data = frm.tobytes()
                     proc.stdin.write(data)
                     bytes_sent += len(data)
-            except Exception:
-                print("[❌ ERROR] Failed to write to FFmpeg stdin.")
+            except Exception as e:
+                print(f"[❌ ERROR] Write to FFmpeg failed: {e}")
                 stop_evt.set()
                 break
 
@@ -1029,7 +1046,7 @@ def main() -> None:
     prev_clock_secs: int | None = None
     game_half = 1
 
-    out_zero_start: float | None = None
+    last_output_time = time.time()
 
     def check_alerts() -> None:
         nonlocal plays_since_check, last_check_time
@@ -1109,6 +1126,12 @@ def main() -> None:
 
     try:
         while True:
+            if process is None or process.poll() is not None:
+                print("[❌ ERROR] FFmpeg dead. Halting frame sending.")
+                if not do_ffmpeg_restart():
+                    stop_event.set()
+                    break
+                continue
             loop_start = time.time()
             ret, frame = cap.read()
             if not ret or frame is None:
@@ -1306,17 +1329,14 @@ def main() -> None:
                 print(
                     f"[STREAM DEBUG] Sent frame {frame_count}, Encoded: {encoded_kbps:.0f} kbps, Output: {output_kbps:.0f} kbps",
                 )
-                if output_kbps <= 0:
-                    if out_zero_start is None:
-                        out_zero_start = now
-                    elif now - out_zero_start >= 10:
-                        print("[⚠️ ALERT] Stream output stalled. Triggering restart.")
-                        if not do_ffmpeg_restart():
-                            stop_event.set()
-                            break
-                        out_zero_start = None
-                else:
-                    out_zero_start = None
+                if output_kbps > 0:
+                    last_output_time = now
+                elif now - last_output_time >= 10:
+                    print("[⚠️ ALERT] Stream output stalled.")
+                    if not do_ffmpeg_restart():
+                        stop_event.set()
+                        break
+                    last_output_time = now
                 avg_fps = frame_count / elapsed if elapsed > 0 else 0.0
                 expected_frames = elapsed * FPS
                 dropped_frames = max(0, expected_frames - frame_count)
@@ -1342,17 +1362,16 @@ def main() -> None:
                 if process is None:
                     print("[❌ ERROR] FFmpeg process is not running.")
                 else:
-                    exit_code = process.poll()
-                    print(f"[\u274C ERROR] FFmpeg process exited unexpectedly with code {exit_code}")
+                    process.wait()
+                    stderr_output = ""
                     if process.stderr:
                         try:
                             stderr_output = process.stderr.read().decode(errors="replace")
-                            if stderr_output:
-                                print(f"[FFMPEG ERROR] {stderr_output}")
                         except Exception:
                             pass
-                    print("\a", end="")
-                    process.wait()
+                    print(f"[FFMPEG EXIT CODE] {process.returncode}")
+                    if stderr_output:
+                        print(f"[FFMPEG STDERR] {stderr_output}")
                     process = None
                 ffmpeg_error = True
             check_alerts()
@@ -1369,10 +1388,12 @@ def main() -> None:
             process.kill()
             process.wait()
             try:
-                if process.returncode not in (0, None) and process.stderr:
+                stderr_output = ""
+                if process.stderr:
                     stderr_output = process.stderr.read().decode(errors="replace")
-                    if stderr_output:
-                        print(f"[FFMPEG ERROR] {stderr_output}")
+                print(f"[FFMPEG EXIT CODE] {process.returncode}")
+                if stderr_output:
+                    print(f"[FFMPEG STDERR] {stderr_output}")
             except Exception:
                 pass
         log_fp.close()
