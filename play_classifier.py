@@ -15,6 +15,7 @@ from typing import List, Tuple
 import numpy as np
 import argparse
 import json
+import shutil
 from pathlib import Path
 
 try:
@@ -239,19 +240,35 @@ def main() -> None:  # pragma: no cover - CLI helper
     parser.add_argument("--folder", required=True, help="folder with video clips")
     parser.add_argument("--output", default="predictions.json", help="output JSON")
     parser.add_argument("--model", default="models/play_classifier/latest.pt")
+    parser.add_argument(
+        "--threshold", type=float, default=0.6, help="Confidence threshold for review"
+    )
+    parser.add_argument(
+        "--review_dir",
+        default="review_low_confidence",
+        help="Directory to dump low-confidence clips",
+    )
     args = parser.parse_args()
 
     folder = Path(args.folder)
     results = []
+    review_dir = Path(args.review_dir)
     for clip in sorted(folder.glob("*.mp4")):
         meta = clip.with_suffix(".json")
         meta_path = str(meta) if meta.exists() else None
         pred = classify_play(str(clip), meta_path, args.model)
+        conf = pred["confidence"]
         results.append({
             "clip": clip.name,
             "play_type": pred["play_type"],
-            "confidence": pred["confidence"],
+            "confidence": conf,
         })
+        if conf < args.threshold:
+            review_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(clip, review_dir / clip.name)
+            if meta_path:
+                shutil.copy2(meta_path, review_dir / meta.name)
+            print(f"[REVIEW] {clip.name} ({conf:.2f})")
 
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
