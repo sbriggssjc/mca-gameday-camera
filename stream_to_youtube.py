@@ -11,6 +11,7 @@ from collections import deque
 from urllib.parse import urlparse
 import argparse
 import signal
+import logging
 
 import roster
 import csv
@@ -202,8 +203,8 @@ def monitor_audio_level(device: str, stop_event: threading.Event) -> None:
             AUDIO_LEVEL_DB = -80.0
         if AUDIO_LEVEL_DB <= -60:
             silent_for += 0.5
-            if silent_for >= 5:
-                print("[⚠️ WARNING] Audio silence detected")
+            if silent_for >= 10:
+                logging.warning("Audio silence detected for 10s")
                 silent_for = 0.0
         else:
             silent_for = 0.0
@@ -563,6 +564,21 @@ def launch_ffmpeg(
             stderr=subprocess.PIPE,
             bufsize=0,
         )
+
+        start = time.time()
+        while time.time() - start < 5:
+            if process.poll() is not None:
+                err = (
+                    process.stderr.read().decode("utf-8", errors="replace")
+                    if process.stderr
+                    else ""
+                )
+                print(f"❌ FFmpeg exited early: {err}")
+                log_fp.write(err + "\n")
+                log_fp.close()
+                return None
+            time.sleep(0.5)
+
         if process.stderr is not None:
             threading.Thread(
                 target=_log_ffmpeg_errors, args=(process.stderr, log_fp), daemon=True
@@ -695,11 +711,13 @@ def main() -> None:
     parser.add_argument("--width", type=int, default=None, help="Capture width")
     parser.add_argument("--height", type=int, default=None, help="Capture height")
     parser.add_argument("--fps", type=int, default=None, help="Capture FPS")
+    parser.add_argument("--camera", type=int, default=None, help="Camera index")
     parser.add_argument("--bitrate", default=None, help="Target video bitrate")
     parser.add_argument("--maxrate", default=None, help="Max video bitrate")
     parser.add_argument("--bufsize", default=None, help="Encoder buffer size")
     parser.add_argument("--preset", default=None, help="Encoder preset")
     parser.add_argument("--config", default=None, help="Path to config YAML")
+    parser.add_argument("--model", default=None, help="Model path for classifiers")
     parser.add_argument("--gop", type=int, default=60, help="GOP size")
     parser.add_argument(
         "--keyint_min", type=int, default=30, help="Minimum GOP keyframe interval"
@@ -711,12 +729,26 @@ def main() -> None:
     parser.add_argument("--label", action="store_true", help="Enable label review mode")
     args = parser.parse_args()
 
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+
     cfg: StreamConfig = load_config(args.config, args)
 
     if cfg.train:
         print("🧠 Self-learning mode enabled")
     if cfg.label:
         print("🔖 Label review mode enabled")
+    if cfg.model:
+        print(f"🪬 Model: {cfg.model}")
+
+    train_dir = Path("training/live")
+    label_dir = Path("training/review")
+    if cfg.train:
+        train_dir.mkdir(parents=True, exist_ok=True)
+    if cfg.label:
+        label_dir.mkdir(parents=True, exist_ok=True)
 
     stop_event = threading.Event()
 
@@ -752,11 +784,14 @@ def main() -> None:
 
     print_available_cameras()
 
-    print(f"🎥 Trying camera index 0 at {WIDTH}x{HEIGHT}")
-    cap = initialize_camera(0, WIDTH, HEIGHT, FPS)
+    start_idx = cfg.camera
+    print(f"🎥 Trying camera index {start_idx} at {WIDTH}x{HEIGHT}")
+    cap = initialize_camera(start_idx, WIDTH, HEIGHT, FPS)
     if cap is None:
-        print(f"🎥 Trying camera index 1 at {WIDTH}x{HEIGHT}")
-        cap = initialize_camera(1, WIDTH, HEIGHT, FPS)
+        alt_idx = 1 - start_idx if start_idx in {0, 1} else 0
+        if alt_idx != start_idx:
+            print(f"🎥 Trying camera index {alt_idx} at {WIDTH}x{HEIGHT}")
+            cap = initialize_camera(alt_idx, WIDTH, HEIGHT, FPS)
 
     if cap is None:
         print("🔍 Scanning /dev/video* paths")
@@ -1005,13 +1040,13 @@ def main() -> None:
                 failed_reads += 1
                 print("\u26a0\ufe0f Invalid frame received", file=sys.stderr)
                 if failed_reads >= 3:
-                    print("[⚠️ WARNING] Reinitializing camera after 3 failures")
+                    logging.warning("Reinitializing camera after 3 failures")
                     cap.release()
                     cap = initialize_camera(0, WIDTH, HEIGHT, FPS)
                     if cap is None:
                         cap = initialize_camera(1, WIDTH, HEIGHT, FPS)
                     if cap is None:
-                        print("❌ Camera reinitialization failed")
+                        logging.error("Camera reinitialization failed")
                         break
                     failed_reads = 0
                     continue
@@ -1122,21 +1157,33 @@ def main() -> None:
             if key != 255:
                 if key in {ord('q'), 27}:
                     break
-                char = chr(key).upper()
-                if ('1' <= char <= '9') or ('A' <= char <= 'Z'):
-                    elapsed = int(time.time() - start)
-                    minutes, seconds = divmod(elapsed, 60)
-                    ts = f"{minutes:02d}:{seconds:02d}"
-                    log_writer.writerow([ts, char])
-                    log_fp.flush()
-                    print(f"[LOG] Player {char} logged at {ts}")
-                    play_counts[char] = play_counts.get(char, 0) + 1
-                    plays_since_check += 1
-                    check_alerts()
+                elif cfg.label and key == ord('0'):
+                    fname = label_dir / f"label_{int(time.time())}.jpg"
+                    cv2.imwrite(str(fname), frame)
+                    print(f"[LABEL] Saved frame for review: {fname}")
+                else:
+                    char = chr(key).upper()
+                    if ('1' <= char <= '9') or ('A' <= char <= 'Z'):
+                        elapsed = int(time.time() - start)
+                        minutes, seconds = divmod(elapsed, 60)
+                        ts = f"{minutes:02d}:{seconds:02d}"
+                        log_writer.writerow([ts, char])
+                        log_fp.flush()
+                        print(f"[LOG] Player {char} logged at {ts}")
+                        play_counts[char] = play_counts.get(char, 0) + 1
+                        plays_since_check += 1
+                        check_alerts()
+                        if cfg.train:
+                            fname = train_dir / f"{char}_{int(time.time())}.jpg"
+                            cv2.imwrite(str(fname), frame)
             try:
                 frame_queue.put(frame, timeout=1)
             except queue.Full:
                 print("⚠️ Frame queue full - dropping frame")
+
+            if cfg.train and frame_count % (FPS * 5) == 0:
+                fname = train_dir / f"auto_{int(time.time())}.jpg"
+                cv2.imwrite(str(fname), frame)
 
             if process.poll() is not None:
                 print("[⚠️ WARNING] FFmpeg exited; attempting restart")
