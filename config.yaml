@@ -1,11 +1,13 @@
 width: 1280
 height: 720
 fps: 30
+camera: 0
 bitrate: "4500k"
 maxrate: "6000k"
 bufsize: "6000k"
 preset: "veryfast"
 mic: "hw:1,0"
 audio_gain: -15.0
+model: "models/play_classifier/latest.pt"
 train: false
 label: false
