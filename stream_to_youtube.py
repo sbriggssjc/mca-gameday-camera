@@ -707,9 +707,16 @@ def main() -> None:
     parser.add_argument("--record", action="store_true", help="Also record locally")
     parser.add_argument("--audio_meter", action="store_true", help="Overlay audio levels")
     parser.add_argument("--dry_run", action="store_true", help="Test devices only")
+    parser.add_argument("--train", action="store_true", help="Enable self-learning mode")
+    parser.add_argument("--label", action="store_true", help="Enable label review mode")
     args = parser.parse_args()
 
     cfg: StreamConfig = load_config(args.config, args)
+
+    if cfg.train:
+        print("🧠 Self-learning mode enabled")
+    if cfg.label:
+        print("🔖 Label review mode enabled")
 
     stop_event = threading.Event()
 
