@@ -10,6 +10,7 @@ import subprocess
 import threading
 from datetime import datetime
 from pathlib import Path
+from ffmpeg_utils import build_ffmpeg_args
 
 import cv2
 import numpy as np
@@ -90,33 +91,16 @@ def load_state_from_json(path: str, fallback: ScoreboardState) -> ScoreboardStat
 def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float) -> list[str]:
     """Return command list for launching ffmpeg."""
     width, height = size
-    return [
-        ensure_ffmpeg(),
-        "-loglevel",
-        "verbose",
-        "-y",
-        "-f",
-        "rawvideo",
-        "-vcodec",
-        "rawvideo",
-        "-pix_fmt",
-        "bgr24",
-        "-s",
-        f"{width}x{height}",
-        "-r",
-        str(int(fps)),
-        "-i",
-        "-",
-        "-c:v",
-        select_codec(),
-        "-preset",
-        "veryfast",
-        "-pix_fmt",
-        "yuv420p",
-        "-f",
-        "flv",
-        url,
-    ]
+    return build_ffmpeg_args(
+        video_source="-",
+        audio_device=None,
+        output_url=url,
+        audio_gain_db=0.0,
+        resolution=f"{width}x{height}",
+        framerate=int(fps),
+        video_codec=select_codec(),
+        video_is_pipe=True,
+    )
 
 
 def stream(device: int, rtmp_url: str, *, json_path: str = "game_state.json", position: str = "left") -> None:

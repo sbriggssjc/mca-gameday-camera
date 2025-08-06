@@ -9,6 +9,7 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
+from ffmpeg_utils import build_ffmpeg_args
 
 import argparse
 import cv2
@@ -76,53 +77,26 @@ def log_ffmpeg_stderr(stderr, log_file=None) -> None:
 
 def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Path) -> list[str]:
     width, height = size
-    return [
-        ensure_ffmpeg(),
-        "-loglevel",
-        "verbose",
-        "-y",
-        "-f",
-        "rawvideo",
-        "-vcodec",
-        "rawvideo",
-        "-pix_fmt",
-        "bgr24",
-        "-s",
-        f"{width}x{height}",
-        "-r",
-        str(fps),
-        "-i",
-        "-",
-        "-f",
-        "lavfi",
-        "-i",
-        "anullsrc=channel_layout=stereo:sample_rate=44100",
-        "-map",
-        "0:v:0",
-        "-map",
-        "1:a:0",
-        "-c:v",
-        select_codec(),
-        "-preset",
-        "veryfast",
-        "-pix_fmt",
-        "yuv420p",
-        "-b:v",
-        "4500k",
-        "-maxrate",
-        "4500k",
-        "-bufsize",
-        "9000k",
-        "-g",
-        "120",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-f",
-        "tee",
-        f"[f=flv]{url}|[f=mp4]{output}",
-    ]
+    return build_ffmpeg_args(
+        video_source="-",
+        audio_device=None,
+        output_url=f"[f=flv]{url}|[f=mp4]{output}",
+        audio_gain_db=0.0,
+        resolution=f"{width}x{height}",
+        framerate=int(fps),
+        video_codec=select_codec(),
+        video_is_pipe=True,
+        extra_args=[
+            "-maxrate",
+            "4500k",
+            "-bufsize",
+            "9000k",
+            "-g",
+            "120",
+            "-f",
+            "tee",
+        ],
+    )
 
 
 def main() -> None:

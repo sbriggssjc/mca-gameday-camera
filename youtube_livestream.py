@@ -3,6 +3,7 @@ import os
 import platform
 import subprocess
 from datetime import datetime, timezone
+from ffmpeg_utils import build_ffmpeg_args
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -125,40 +126,14 @@ def run_ffmpeg(stream_key: str, *, test: bool = False) -> None:
     rtmp_url = f"rtmp://a.rtmp.youtube.com/live2/{stream_key}"
     system = platform.system()
     if system == "Linux":
-        cmd = [
-            "ffmpeg",
-            "-f",
-            "v4l2",
-            "-framerate",
-            "30",
-            "-video_size",
-            "1280x720",
-            "-i",
-            "/dev/video0",
-            "-f",
-            "alsa",
-            "-ac",
-            "2",
-            "-ar",
-            "44100",
-            "-i",
-            "hw:1,0",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-b:v",
-            "3000k",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            "-af",
-            "volume=3.0",
-            "-f",
-            "flv",
-            rtmp_url,
-        ]
+        cmd = build_ffmpeg_args(
+            video_source="/dev/video0",
+            audio_device="hw:1,0",
+            output_url=rtmp_url,
+            audio_gain_db=3.0,
+            resolution="1280x720",
+            framerate=30,
+        )
     elif system == "Windows":
         # Retain Windows-specific command using DirectShow devices.
         cmd = [

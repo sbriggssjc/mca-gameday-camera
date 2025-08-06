@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from ffmpeg_utils import build_ffmpeg_args
 
 
 def load_env(env_path: str = ".env") -> None:
@@ -52,15 +53,16 @@ def test_stream(url: str | None = None, *, duration: int = 5, log_path: str = "t
             raise RuntimeError("Ping to youtube.com failed")
 
         log.write("\nStarting ffmpeg test stream...\n")
-        cmd = [
-            ensure_ffmpeg(),
-            "-re",
-            "-f", "lavfi",
-            "-i", "testsrc=size=1280x720:rate=30",
-            "-t", str(duration),
-            "-f", "flv",
-            url,
-        ]
+        cmd = build_ffmpeg_args(
+            video_source="testsrc=size=1280x720:rate=30",
+            audio_device=None,
+            output_url=url,
+            audio_gain_db=0.0,
+            resolution="1280x720",
+            framerate=30,
+            video_format="lavfi",
+            extra_args=["-t", str(duration)],
+        )
         result = subprocess.run(cmd, capture_output=True)
         stdout = result.stdout.decode("utf-8", errors="ignore")
         stderr = result.stderr.decode("utf-8", errors="ignore")

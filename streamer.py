@@ -5,6 +5,7 @@ import subprocess
 import threading
 from datetime import datetime
 from pathlib import Path
+from ffmpeg_utils import build_ffmpeg_args
 
 
 def ensure_ffmpeg() -> str:
@@ -62,31 +63,20 @@ def livestream(youtube_url: str, device_index: int = 0) -> None:
     print(f"Capture settings: {width}x{height} @ {fps}fps")
     print(f"Output resolution: {out_width}x{out_height}")
 
-    command = [
-        ensure_ffmpeg(),
-        "-loglevel",
-        "verbose",
-        "-y",
-        "-f", "rawvideo",
-        "-vcodec", "rawvideo",
-        "-pix_fmt", "bgr24",
-        "-s", f"{out_width}x{out_height}",
-        "-r", str(fps),
-        "-i", "-",
-        "-f", "lavfi",
-        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-        "-map", "0:v:0",
-        "-map", "1:a:0",
-        "-c:v", select_codec(),
-        "-pix_fmt", "yuv420p",
-        "-preset", "veryfast",
-        "-vf",
-        "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-f", "flv",
-        youtube_url,
-    ]
+    command = build_ffmpeg_args(
+        video_source="-",
+        audio_device=None,
+        output_url=youtube_url,
+        audio_gain_db=0.0,
+        resolution=f"{out_width}x{out_height}",
+        framerate=int(fps),
+        video_codec=select_codec(),
+        video_is_pipe=True,
+        extra_args=[
+            "-vf",
+            "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
+        ],
+    )
 
     log_dir = Path("livestream_logs")
     log_dir.mkdir(exist_ok=True)
