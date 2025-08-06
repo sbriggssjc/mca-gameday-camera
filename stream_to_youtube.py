@@ -89,6 +89,51 @@ def check_audio_input(device: str) -> None:
         print(f"⚠️ Audio check failed for device {device}: {e}")
 
 
+def detect_volume_gain(device: str, target_db: float = -15.0) -> float:
+    """Return gain (in dB) needed to reach target mean volume.
+
+    Runs a short ffmpeg dry-run using the ``volumedetect`` filter to measure
+    the mean volume of the provided ALSA device. If successful, the difference
+    between ``target_db`` and the measured value is returned. On failure, a
+    default gain of ``2.5`` dB is used.
+    """
+
+    cmd = [
+        "ffmpeg",
+        "-f",
+        "alsa",
+        "-ac",
+        "1",
+        "-ar",
+        "44100",
+        "-t",
+        "3",
+        "-i",
+        device,
+        "-af",
+        "volumedetect",
+        "-f",
+        "null",
+        "-",
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        match = re.search(r"mean_volume:\s*(-?\d+\.?\d*) dB", result.stderr)
+        if match:
+            measured_db = float(match.group(1))
+            gain = target_db - measured_db
+            print(
+                f"[AUDIO] mean volume: {measured_db:.1f} dBFS, target: {target_db:.1f} dBFS, applying gain: {gain:.1f} dB"
+            )
+            return gain
+    except Exception as e:
+        print(f"⚠️ Volume detection failed: {e}")
+
+    default_gain = 2.5
+    print(f"[AUDIO] Using default gain: {default_gain} dB")
+    return default_gain
+
+
 def get_available_video_encoder() -> str:
     """Detect and return a supported H.264 encoder."""
 
@@ -346,7 +391,7 @@ def _log_ffmpeg_errors(pipe, log_fp) -> None:
     log_fp.close()
 
 
-def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
+def launch_ffmpeg(mic_input: str, volume_gain_db: float) -> subprocess.Popen | None:
     """Start an FFmpeg process configured for 720p/30fps streaming."""
 
     width, height, fps = WIDTH, HEIGHT, FPS
@@ -390,7 +435,7 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
         "-pix_fmt",
         "yuv420p",
         "-af",
-        "volume=1.0",
+        f"volume={volume_gain_db:.2f}dB",
     ]
 
     if video_encoder == "libx264":
@@ -449,7 +494,9 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
         return None
 
 
-def restart_ffmpeg(process: subprocess.Popen | None, mic_input: str) -> subprocess.Popen | None:
+def restart_ffmpeg(
+    process: subprocess.Popen | None, mic_input: str, volume_gain_db: float
+) -> subprocess.Popen | None:
     """Restart the FFmpeg process if the stream stalls."""
     if process is not None:
         try:
@@ -462,7 +509,7 @@ def restart_ffmpeg(process: subprocess.Popen | None, mic_input: str) -> subproce
             process.wait(timeout=5)
         except Exception:
             pass
-    return launch_ffmpeg(mic_input)
+    return launch_ffmpeg(mic_input, volume_gain_db)
 
 
 def initialize_camera(index: int, width: int, height: int, fps: int) -> cv2.VideoCapture | None:
@@ -547,6 +594,12 @@ def main() -> None:
         default="hw:1,0",
         help="ALSA audio input device (e.g., hw:1,0)",
     )
+    parser.add_argument(
+        "--target_dbfs",
+        type=float,
+        default=-15.0,
+        help="Target mean audio level in dBFS for auto-gain (default: -15.0)",
+    )
     args = parser.parse_args()
 
     stream_key = args.stream_key or os.getenv("YOUTUBE_STREAM_KEY")
@@ -615,6 +668,7 @@ def main() -> None:
     mic_input = find_usb_microphone(args.alsa_device)
     print(f"🎤 Using microphone: {mic_input}")
     check_audio_input(mic_input)
+    volume_gain_db = detect_volume_gain(mic_input, args.target_dbfs)
 
     output_dir = Path("video")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -624,7 +678,7 @@ def main() -> None:
     record_file = unique_path(output_dir / f"{base_name}_{timestamp}.mp4")
     log_file = unique_path(output_dir / f"{base_name}_{timestamp}_play_log.csv")
 
-    process = launch_ffmpeg(mic_input)
+    process = launch_ffmpeg(mic_input, volume_gain_db)
     if process is None:
         return
 
@@ -931,7 +985,7 @@ def main() -> None:
                         out_zero_warned = True
                     elif now - out_zero_start >= 10:
                         print("[\u26A0\uFE0F ALERT] Restarting FFmpeg due to stalled output")
-                        process = restart_ffmpeg(process, mic_input)
+                        process = restart_ffmpeg(process, mic_input, volume_gain_db)
                         out_zero_start = now
                 else:
                     out_zero_start = None
