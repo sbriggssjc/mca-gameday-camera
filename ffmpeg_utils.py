@@ -1,5 +1,54 @@
 import logging
-from typing import List, Optional
+import subprocess
+import threading
+from typing import List, Optional, Tuple
+
+
+def run_ffmpeg_command(cmd: List[str], timeout: int = 15) -> Tuple[int, str, str]:
+    """Run an FFmpeg command with realtime stderr streaming.
+
+    Parameters
+    ----------
+    cmd: List[str]
+        Command and arguments to execute.
+    timeout: int
+        Maximum number of seconds to allow the process to run.
+
+    Returns
+    -------
+    Tuple[int, str, str]
+        A tuple of ``(returncode, stdout, stderr)``.
+        ``stderr`` is fully captured even while being streamed.
+    """
+
+    process = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
+    stderr_lines: List[str] = []
+
+    def _read_stderr() -> None:
+        assert process.stderr is not None
+        for line in process.stderr:
+            stderr_lines.append(line)
+            logging.error("[ffmpeg] %s", line.rstrip())
+
+    thread = threading.Thread(target=_read_stderr, daemon=True)
+    thread.start()
+    try:
+        stdout, _ = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        thread.join()
+        stderr = "".join(stderr_lines)
+        logging.error("FFmpeg command timed out")
+        logging.error(stderr)
+        return -1, "", stderr
+    thread.join()
+    stderr = "".join(stderr_lines)
+    if process.returncode != 0:
+        logging.error("FFmpeg exited with code %s", process.returncode)
+        logging.error(stderr)
+    return process.returncode, stdout, stderr
 
 def build_ffmpeg_args(
     *,
