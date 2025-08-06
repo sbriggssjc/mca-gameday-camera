@@ -5,7 +5,6 @@ from collections import deque
 
 import cv2
 
-from overlay_engine import OverlayEngine
 from scoreboard_reader import ScoreboardReader, ScoreboardState
 
 
@@ -39,7 +38,6 @@ def generate(video_path: str, output_dir: str = "highlights") -> None:
 
     os.makedirs(output_dir, exist_ok=True)
 
-    overlay = OverlayEngine()
     reader = ScoreboardReader()
 
     buffer = deque(maxlen=int(fps * 5))
@@ -54,7 +52,6 @@ def generate(video_path: str, output_dir: str = "highlights") -> None:
             break
         t = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
         state = reader.update(frame)
-        overlay.draw(frame, state)
         buffer.append(frame.copy())
 
         if last_state and (state.home != last_state.home or state.away != last_state.away):
