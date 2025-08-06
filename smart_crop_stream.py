@@ -9,8 +9,9 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
-from ffmpeg_utils import build_ffmpeg_args
+from ffmpeg_utils import build_ffmpeg_args, run_ffmpeg_command
 from queue import Queue, Full
+
 
 import argparse
 import cv2
@@ -59,20 +60,23 @@ def ensure_ffmpeg() -> str:
 
 def select_codec() -> str:
     try:
-        output = subprocess.check_output(["ffmpeg", "-encoders"], text=True)
-        if "h264_nvmpi" in output:
+        rc, stdout, _ = run_ffmpeg_command(["ffmpeg", "-encoders"], timeout=15)
+        if rc == 0 and "h264_nvmpi" in stdout:
             return "h264_nvmpi"
     except Exception:
         pass
     return "libx264"
 
 
-def log_ffmpeg_stderr(stderr, log_file=None) -> None:
+def log_ffmpeg_stderr(stderr, log_file=None, buffer=None) -> None:
     """Continuously read and print FFmpeg stderr."""
     for line in stderr:
         text = line.decode("utf-8", errors="ignore")
+        if buffer is not None:
+            buffer.append(text)
         if log_file is not None:
             log_file.write(text)
+            log_file.flush()
         print("[FFMPEG]", text, end="")
 
 
@@ -158,9 +162,8 @@ def main() -> None:
             text=False,
             bufsize=10**8,
         )
-        if process.poll() is not None:
-            print("FFmpeg failed to launch. Exiting...")
-            return
+
+        stderr_lines: list[str] = []
 
         def _reader(pipe, logf):
             for raw in pipe:
@@ -169,9 +172,22 @@ def main() -> None:
                 logf.write(line)
 
         thread_out = threading.Thread(target=_reader, args=(process.stdout, lf), daemon=True)
-        thread_err = threading.Thread(target=log_ffmpeg_stderr, args=(process.stderr, lf), daemon=True)
+        thread_err = threading.Thread(
+            target=log_ffmpeg_stderr, args=(process.stderr, lf, stderr_lines), daemon=True
+        )
         thread_out.start()
         thread_err.start()
+
+        start = time.time()
+        while time.time() - start < 15:
+            if process.poll() is not None:
+                err = "".join(stderr_lines)
+                print("FFmpeg failed to launch. Exiting...", err)
+                lf.write(err)
+                lf.close()
+                return
+            time.sleep(0.5)
+
         frame_queue: Queue[bytes] = Queue(maxsize=30)
 
         def encode_worker():
@@ -187,6 +203,7 @@ def main() -> None:
 
         encoder_thread = threading.Thread(target=encode_worker, daemon=True)
         encoder_thread.start()
+
         first_frame = True
         try:
             while True:
@@ -223,11 +240,10 @@ def main() -> None:
             ret = process.wait()
             thread_out.join()
             thread_err.join()
-            if process.stderr:
-                err_output = process.stderr.read().decode("utf-8", errors="ignore")
-                if err_output:
-                    print(err_output)
-                    lf.write(err_output)
+            err_output = "".join(stderr_lines)
+            if err_output:
+                print(err_output)
+                lf.write(err_output)
             lf.write(f"\nffmpeg exited with code {ret}\n")
             lf.close()
             if ret != 0:
