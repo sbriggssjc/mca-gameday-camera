@@ -33,7 +33,7 @@ except Exception:
     psutil = None  # type: ignore
 from datetime import datetime
 from pathlib import Path
-from ffmpeg_utils import build_ffmpeg_args
+from ffmpeg_utils import build_ffmpeg_args, run_ffmpeg_command
 from config import StreamConfig, load_config
 
 try:
@@ -129,11 +129,9 @@ def detect_volume_gain(device: str, target_db: float = -15.0) -> float:
         "-",
     ]
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, check=False, timeout=5
-        )
-        match = re.search(r"mean_volume:\s*(-?\d+\.?\d*) dB", result.stderr)
-        if match:
+        rc, _, stderr = run_ffmpeg_command(cmd, timeout=15)
+        match = re.search(r"mean_volume:\s*(-?\d+\.?\d*) dB", stderr)
+        if rc == 0 and match:
             measured_db = float(match.group(1))
             gain = target_db - measured_db
             print(
@@ -195,9 +193,9 @@ def monitor_audio_level(
             "-",
         ]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-            match = re.search(r"mean_volume:\s*(-?\d+\.?\d*) dB", result.stderr)
-            if match:
+            rc, _, stderr = run_ffmpeg_command(cmd, timeout=15)
+            match = re.search(r"mean_volume:\s*(-?\d+\.?\d*) dB", stderr)
+            if rc == 0 and match:
                 AUDIO_LEVEL_DB = float(match.group(1))
             else:
                 AUDIO_LEVEL_DB = -80.0
@@ -242,12 +240,11 @@ def system_monitor(stop_event: threading.Event) -> None:
 def get_available_video_encoder() -> str:
     """Detect and return a supported H.264 encoder."""
 
-    import subprocess
-
     try:
-        encoders = subprocess.check_output(
-            ["ffmpeg", "-encoders"], stderr=subprocess.STDOUT
-        ).decode()
+        rc, stdout, _ = run_ffmpeg_command(["ffmpeg", "-encoders"], timeout=15)
+        if rc != 0:
+            raise RuntimeError("ffmpeg -encoders failed")
+        encoders = stdout
         if "h264_nvmpi" in encoders:
             print("[DEBUG] Using encoder: h264_nvmpi")
             return "h264_nvmpi"
@@ -474,13 +471,14 @@ def parse_clock(clock: str) -> int | None:
     return None
 
 
-def _log_ffmpeg_errors(pipe, log_fp) -> None:
+def _log_ffmpeg_errors(pipe, log_fp, buffer) -> None:
     """Stream FFmpeg stderr output in real time and monitor bitrate."""
     zero_count = 0
     for line in iter(pipe.readline, b""):
         text = line.decode("utf-8", errors="replace").rstrip()
         if not text:
             continue
+        buffer.append(text)
         print(f"[ffmpeg] {text}")
         log_fp.write(text + "\n")
         log_fp.flush()
@@ -575,24 +573,23 @@ def launch_ffmpeg(
             bufsize=0,
         )
 
+        stderr_lines: list[str] = []
+        if process.stderr is not None:
+            threading.Thread(
+                target=_log_ffmpeg_errors,
+                args=(process.stderr, log_fp, stderr_lines),
+                daemon=True,
+            ).start()
+
         start = time.time()
-        while time.time() - start < 5:
+        while time.time() - start < 15:
             if process.poll() is not None:
-                err = (
-                    process.stderr.read().decode("utf-8", errors="replace")
-                    if process.stderr
-                    else ""
-                )
+                err = "\n".join(stderr_lines)
                 print(f"❌ FFmpeg exited early: {err}")
                 log_fp.write(err + "\n")
                 log_fp.close()
                 return None
             time.sleep(0.5)
-
-        if process.stderr is not None:
-            threading.Thread(
-                target=_log_ffmpeg_errors, args=(process.stderr, log_fp), daemon=True
-            ).start()
         return process
     except FileNotFoundError:
         print("❌ ffmpeg not found. Please install FFmpeg.")
