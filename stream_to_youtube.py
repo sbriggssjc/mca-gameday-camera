@@ -5,6 +5,8 @@ import numpy as np
 import os
 import re
 import threading
+import queue
+import socket
 from collections import deque
 from urllib.parse import urlparse
 import argparse
@@ -31,6 +33,7 @@ except Exception:
 from datetime import datetime
 from pathlib import Path
 from ffmpeg_utils import build_ffmpeg_args
+from config import StreamConfig, load_config
 
 try:
     from dotenv import load_dotenv
@@ -144,6 +147,19 @@ def detect_volume_gain(device: str, target_db: float = -15.0) -> float:
     return default_gain
 
 
+def ping_rtmp(url: str, timeout: int = 5) -> bool:
+    """Return True if the RTMP endpoint is reachable."""
+
+    parsed = urlparse(url)
+    host = parsed.hostname
+    port = parsed.port or 1935
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 AUDIO_LEVEL_DB = 0.0
 
 
@@ -151,6 +167,7 @@ def monitor_audio_level(device: str, stop_event: threading.Event) -> None:
     """Continuously sample the audio device and update ``AUDIO_LEVEL_DB``."""
 
     global AUDIO_LEVEL_DB
+    silent_for = 0.0
     while not stop_event.is_set():
         try:
             result = subprocess.run(
@@ -177,8 +194,19 @@ def monitor_audio_level(device: str, stop_event: threading.Event) -> None:
                 rms = np.sqrt(np.mean(audio ** 2))
                 if rms > 0:
                     AUDIO_LEVEL_DB = 20 * np.log10(rms / 32768)
+                else:
+                    AUDIO_LEVEL_DB = -80.0
+            else:
+                AUDIO_LEVEL_DB = -80.0
         except Exception:
             AUDIO_LEVEL_DB = -80.0
+        if AUDIO_LEVEL_DB <= -60:
+            silent_for += 0.5
+            if silent_for >= 5:
+                print("[⚠️ WARNING] Audio silence detected")
+                silent_for = 0.0
+        else:
+            silent_for = 0.0
         stop_event.wait(0.5)
 
 
@@ -656,45 +684,40 @@ def main() -> None:
         "--filename",
         help="Base name for output files; timestamp and .mp4 will be appended",
     )
+    parser.add_argument("--stream_key", type=str, help="YouTube stream key")
+    parser.add_argument("--mic", dest="mic", default="hw:1,0", help="ALSA mic device")
     parser.add_argument(
-        "--stream_key",
-        type=str,
-        help="YouTube stream key",
-    )
-    parser.add_argument(
-        "--mic",
-        "--alsa_device",
-        dest="alsa_device",
-        default="hw:1,0",
-        help="ALSA audio input device (e.g., hw:1,0)",
-    )
-    parser.add_argument(
-        "--target_dbfs",
+        "--audio_gain",
         type=float,
         default=-15.0,
-        help="Target mean audio level in dBFS for auto-gain (default: -15.0)",
+        help="Target mean audio level in dBFS",
     )
-    parser.add_argument("--width", type=int, default=1280, help="Capture width")
-    parser.add_argument("--height", type=int, default=720, help="Capture height")
-    parser.add_argument("--fps", type=int, default=30, help="Capture FPS")
-    parser.add_argument("--bitrate", default="4500k", help="Target video bitrate")
-    parser.add_argument("--maxrate", default="6000k", help="Max video bitrate")
-    parser.add_argument("--bufsize", default="6000k", help="Encoder buffer size")
-    parser.add_argument("--preset", default="veryfast", help="x264 preset")
+    parser.add_argument("--width", type=int, default=None, help="Capture width")
+    parser.add_argument("--height", type=int, default=None, help="Capture height")
+    parser.add_argument("--fps", type=int, default=None, help="Capture FPS")
+    parser.add_argument("--bitrate", default=None, help="Target video bitrate")
+    parser.add_argument("--maxrate", default=None, help="Max video bitrate")
+    parser.add_argument("--bufsize", default=None, help="Encoder buffer size")
+    parser.add_argument("--preset", default=None, help="Encoder preset")
+    parser.add_argument("--config", default=None, help="Path to config YAML")
     parser.add_argument("--gop", type=int, default=60, help="GOP size")
     parser.add_argument(
         "--keyint_min", type=int, default=30, help="Minimum GOP keyframe interval"
     )
-    parser.add_argument(
-        "--local_record",
-        action="store_true",
-        help="Also record stream to local MP4 using tee",
-    )
-    parser.add_argument(
-        "--audio_meter", action="store_true", help="Overlay live audio levels"
-    )
+    parser.add_argument("--record", action="store_true", help="Also record locally")
+    parser.add_argument("--audio_meter", action="store_true", help="Overlay audio levels")
+    parser.add_argument("--dry_run", action="store_true", help="Test devices only")
     args = parser.parse_args()
-    signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
+
+    cfg: StreamConfig = load_config(args.config, args)
+
+    stop_event = threading.Event()
+
+    def _handle_signal(signum, frame):
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, _handle_signal)
+    signal.signal(signal.SIGTERM, _handle_signal)
 
     stream_key = args.stream_key or os.getenv("YOUTUBE_STREAM_KEY")
 
@@ -703,6 +726,9 @@ def main() -> None:
 
     stream_url = f"rtmp://a.rtmp.youtube.com/live2/{stream_key}"
     print(f"[DEBUG] Using stream URL: {stream_url}")
+
+    if not ping_rtmp(stream_url):
+        print("⚠️ RTMP endpoint unreachable; streaming may fail")
 
     global RTMP_URL
     RTMP_URL = stream_url
@@ -713,7 +739,7 @@ def main() -> None:
     print(f"📡 Streaming to: {mask_stream_url(RTMP_URL)}")
 
     global WIDTH, HEIGHT, FPS
-    WIDTH, HEIGHT, FPS = args.width, args.height, args.fps
+    WIDTH, HEIGHT, FPS = cfg.width, cfg.height, cfg.fps
 
     cap: cv2.VideoCapture | None = None
 
@@ -759,14 +785,24 @@ def main() -> None:
     else:
         print(f"✅ Camera FPS locked at {actual_fps:.2f}")
 
-    mic_input = find_usb_microphone(args.alsa_device)
+    mic_candidates = [find_usb_microphone(cfg.mic), cfg.mic, "plughw:1,0", "default"]
+    mic_input = None
+    for dev in mic_candidates:
+        if check_audio_input(dev):
+            mic_input = dev
+            break
+    if mic_input is None:
+        print("⚠️ No working microphone found")
+        mic_input = cfg.mic
     print(f"🎤 Using microphone: {mic_input}")
-    if not check_audio_input(mic_input):
-        print("⚠️ Falling back to specified ALSA device")
-        mic_input = args.alsa_device
-    volume_gain_db = detect_volume_gain(mic_input, args.target_dbfs)
-
+    volume_gain_db = detect_volume_gain(mic_input, cfg.audio_gain)
     monitor_stop = threading.Event()
+    if args.dry_run:
+        print("[DRY RUN] Camera and microphone initialized successfully")
+        cap.release()
+        monitor_stop.set()
+        return
+
     threading.Thread(target=system_monitor, args=(monitor_stop,), daemon=True).start()
     if args.audio_meter:
         threading.Thread(
@@ -780,22 +816,50 @@ def main() -> None:
     base_name = args.filename if args.filename else "game"
     record_file = unique_path(output_dir / f"{base_name}_{timestamp}.mp4")
     log_file = unique_path(output_dir / f"{base_name}_{timestamp}_play_log.csv")
-    record_path = str(record_file) if args.local_record else None
+    record_path = str(record_file) if args.record else None
 
     process = launch_ffmpeg(
         mic_input,
         volume_gain_db,
         record_path=record_path,
-        preset=args.preset,
-        bitrate=args.bitrate,
-        maxrate=args.maxrate,
-        bufsize=args.bufsize,
+        preset=cfg.preset,
+        bitrate=cfg.bitrate,
+        maxrate=cfg.maxrate,
+        bufsize=cfg.bufsize,
         gop=args.gop,
         keyint_min=args.keyint_min,
     )
     if process is None:
         monitor_stop.set()
         return
+
+    frame_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=FPS * 2)
+    bytes_sent = 0
+
+    def encoder_worker(proc: subprocess.Popen, stop_evt: threading.Event) -> None:
+        nonlocal bytes_sent
+        while not stop_evt.is_set():
+            try:
+                frm = frame_queue.get(timeout=1)
+            except queue.Empty:
+                continue
+            if proc.poll() is not None:
+                stop_evt.set()
+                break
+            try:
+                if proc.stdin:
+                    data = frm.tobytes()
+                    proc.stdin.write(data)
+                    bytes_sent += len(data)
+            except Exception:
+                stop_evt.set()
+                break
+
+    encode_stop = threading.Event()
+    encode_thread = threading.Thread(
+        target=encoder_worker, args=(process, encode_stop), daemon=True
+    )
+    encode_thread.start()
 
     log_fp = open(log_file, "w", newline="")
     log_writer = csv.writer(log_fp)
@@ -816,9 +880,7 @@ def main() -> None:
     last_log = start
     fps_start = start
     fps_counter = 0
-    encode_counter = 0
     capture_fps = 0.0
-    encode_fps = 0.0
     no_frame_secs = 0
     ffmpeg_error = False
     last_score_update = 0.0
@@ -936,8 +998,16 @@ def main() -> None:
                 failed_reads += 1
                 print("\u26a0\ufe0f Invalid frame received", file=sys.stderr)
                 if failed_reads >= 3:
-                    print("❌ cap.read() failed 3 times, shutting down.")
-                    break
+                    print("[⚠️ WARNING] Reinitializing camera after 3 failures")
+                    cap.release()
+                    cap = initialize_camera(0, WIDTH, HEIGHT, FPS)
+                    if cap is None:
+                        cap = initialize_camera(1, WIDTH, HEIGHT, FPS)
+                    if cap is None:
+                        print("❌ Camera reinitialization failed")
+                        break
+                    failed_reads = 0
+                    continue
                 time.sleep(1 / FPS)
                 continue
             failed_reads = 0
@@ -945,13 +1015,9 @@ def main() -> None:
             now = time.time()
             if now - fps_start >= 1:
                 capture_fps = fps_counter / (now - fps_start)
-                encode_fps = encode_counter / (now - fps_start)
                 fps_counter = 0
-                encode_counter = 0
                 fps_start = now
-                print(
-                    f"[FPS] Capture: {capture_fps:.2f} | Encode: {encode_fps:.2f}"
-                )
+                print(f"[FPS] Capture: {capture_fps:.2f}")
                 if capture_fps == 0:
                     no_frame_secs += 1
                 else:
@@ -1060,25 +1126,35 @@ def main() -> None:
                     play_counts[char] = play_counts.get(char, 0) + 1
                     plays_since_check += 1
                     check_alerts()
-            if process and process.stdin:
-                frame_bytes = frame.tobytes()
-                try:
-                    process.stdin.write(frame_bytes)
-                    process.stdin.flush()
-                    bytes_sent += len(frame_bytes)
-                    encode_counter += 1
-                    print(
-                        f"[FFMPEG DEBUG] Wrote {len(frame_bytes)} bytes for frame {frame_count}",
-                        flush=True,
-                    )
-                except (BrokenPipeError, IOError) as exc:
-                    print(f"[\u274C ERROR] FFmpeg pipe closed ({exc.__class__.__name__})")
-                    print("\a", end="")
-                    ffmpeg_error = True
-                    if process.poll() is not None:
-                        process.wait()
-                    process = None
+            try:
+                frame_queue.put(frame, timeout=1)
+            except queue.Full:
+                print("⚠️ Frame queue full - dropping frame")
+
+            if process.poll() is not None:
+                print("[⚠️ WARNING] FFmpeg exited; attempting restart")
+                encode_stop.set()
+                encode_thread.join(timeout=2)
+                process = restart_ffmpeg(
+                    process,
+                    mic_input,
+                    volume_gain_db,
+                    record_path=record_path,
+                    preset=cfg.preset,
+                    bitrate=cfg.bitrate,
+                    maxrate=cfg.maxrate,
+                    bufsize=cfg.bufsize,
+                    gop=args.gop,
+                    keyint_min=args.keyint_min,
+                )
+                if process is None:
+                    stop_event.set()
                     break
+                encode_stop = threading.Event()
+                encode_thread = threading.Thread(
+                    target=encoder_worker, args=(process, encode_stop), daemon=True
+                )
+                encode_thread.start()
 
             elapsed_loop = time.time() - loop_start
             time.sleep(max(0, (1 / FPS) - elapsed_loop))
@@ -1104,21 +1180,20 @@ def main() -> None:
                 if output_kbps <= 0:
                     if out_zero_start is None:
                         out_zero_start = now
-                    elif now - out_zero_start >= 5 and not out_zero_warned:
-                        print("[\u26A0\uFE0F ALERT] Out: 0 kbps for over 5 seconds")
+                    elif now - out_zero_start >= 10 and not out_zero_warned:
+                        print("[\u26A0\uFE0F ALERT] Out: 0 kbps for over 10 seconds")
                         out_zero_warned = True
-                    elif now - out_zero_start >= 10:
+                    elif now - out_zero_start >= 20:
                         print("[\u26A0\uFE0F ALERT] Restarting FFmpeg due to stalled output")
-
                         process = restart_ffmpeg(
                             process,
                             mic_input,
                             volume_gain_db,
                             record_path=record_path,
-                            preset=args.preset,
-                            bitrate=args.bitrate,
-                            maxrate=args.maxrate,
-                            bufsize=args.bufsize,
+                            preset=cfg.preset,
+                            bitrate=cfg.bitrate,
+                            maxrate=cfg.maxrate,
+                            bufsize=cfg.bufsize,
                             gop=args.gop,
                             keyint_min=args.keyint_min,
                         )
@@ -1142,7 +1217,7 @@ def main() -> None:
                     except Exception:
                         usage_str = ""
                 print(
-                    f"[STREAM STATUS] \u23F1\ufe0f {hours:02d}:{minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Capture FPS: {capture_fps:.2f} | Encode FPS: {encode_fps:.2f} | Frame Drop: {drop_rate:.2f}%{usage_str}",
+                    f"[STREAM STATUS] \u23F1\ufe0f {hours:02d}:{minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Capture FPS: {capture_fps:.2f} | Frame Drop: {drop_rate:.2f}%{usage_str}",
                     flush=True,
                 )
                 last_log = now
@@ -1159,10 +1234,13 @@ def main() -> None:
         print("\nKeyboard interrupt received. Stopping stream...")
     finally:
         monitor_stop.set()
+        encode_stop.set()
+        encode_thread.join(timeout=2)
         cap.release()
         if process and process.stdin:
             process.stdin.close()
         if process:
+            process.kill()
             process.wait()
         log_fp.close()
         drive_log_fp.close()
