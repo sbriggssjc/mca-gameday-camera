@@ -76,6 +76,9 @@ def check_audio_input(device: str) -> None:
             stderr=subprocess.PIPE,
             check=False,
         )
+        if result.returncode != 0:
+            print(f"⚠️ ALSA device {device} not found")
+            return
         if not result.stdout:
             print(f"⚠️ No audio captured from ALSA device {device}")
             return
