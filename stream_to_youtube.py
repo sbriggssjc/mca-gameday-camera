@@ -638,6 +638,11 @@ def restart_ffmpeg(
             print(f"[FFMPEG EXIT CODE] {process.returncode}")
             if stderr_output:
                 print(f"[FFMPEG STDERR] {stderr_output}")
+                if "input/output error" in stderr_output.lower():
+                    print(
+                        "[🚫 RTMP ERROR] Could not connect to YouTube. Check network or stream key."
+                    )
+                    raise RuntimeError("RTMP failure")
         except Exception:
             pass
 
@@ -920,26 +925,26 @@ def main() -> None:
 
     frame_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=FPS * 2)
     bytes_sent = 0
-    ffmpeg_restart_attempts = 0
-    restart_fail_times: deque[float] = deque()
+    restart_attempts = 0
+    last_restart_time = time.time()
     encode_stop = threading.Event()
     encode_thread = threading.Thread()
 
     def do_ffmpeg_restart() -> bool:
-        nonlocal process, encode_stop, encode_thread, ffmpeg_restart_attempts, restart_fail_times, ffmpeg_error, last_output_time
+        nonlocal process, encode_stop, encode_thread, restart_attempts, last_restart_time, ffmpeg_error, last_output_time
         encode_stop.set()
         encode_thread.join(timeout=2)
-        delay_sequence = [0, 5, 10, 30]
-        delay = delay_sequence[min(ffmpeg_restart_attempts, len(delay_sequence) - 1)]
-        if delay > 0:
-            time.sleep(delay)
-        ffmpeg_restart_attempts += 1
-        restart_fail_times.append(time.time())
-        while restart_fail_times and time.time() - restart_fail_times[0] > 60:
-            restart_fail_times.popleft()
-        if len(restart_fail_times) > 3:
-            print("[🛑 ABORT] Too many failures. Manual intervention required.")
-            return False
+        now = time.time()
+        if now - last_restart_time > 300:
+            restart_attempts = 0
+        if restart_attempts > MAX_RESTARTS:
+            print("[🛑 ABORT] Too many FFmpeg failures. Manual intervention required.")
+            sys.exit(1)
+        backoff = min(30, 2 ** restart_attempts)
+        print(f"[WAIT] Backing off for {backoff} seconds before retry...")
+        time.sleep(backoff)
+        restart_attempts += 1
+        last_restart_time = time.time()
         if not ping_rtmp(RTMP_URL):
             print("[⚠️ ALERT] Unable to reach RTMP server before restart.")
         process = restart_ffmpeg(
@@ -957,8 +962,6 @@ def main() -> None:
         )
         if process is None:
             return False
-        ffmpeg_restart_attempts = 0
-        restart_fail_times.clear()
         ffmpeg_error = False
         last_output_time = time.time()
         encode_stop = threading.Event()
@@ -976,7 +979,7 @@ def main() -> None:
             except queue.Empty:
                 continue
             if proc is None or proc.poll() is not None:
-                print("[❌ ERROR] FFmpeg dead. Halting frame sending.")
+                print("[⛔ HALT] FFmpeg is dead. Pausing frame input.")
                 stop_evt.set()
                 break
             try:
@@ -1012,6 +1015,7 @@ def main() -> None:
     failed_reads = 0
     MAX_FAILED_READS = 10
     MAX_RECONNECT_ATTEMPTS = 5
+    MAX_RESTARTS = 5
     last_log = start
     fps_start = start
     fps_counter = 0
