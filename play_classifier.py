@@ -16,6 +16,7 @@ import numpy as np
 import argparse
 import json
 import shutil
+import csv
 from pathlib import Path
 
 try:
@@ -175,8 +176,32 @@ def classify_play(
     video_clip_path: str,
     metadata_json_path: str | None = None,
     model_path: str = "models/play_classifier/latest.pt",
+    *,
+    threshold: float = 0.6,
+    log_uncertain: bool = False,
+    log_file: str = "low_confidence_log.csv",
+    review_dir: str = "manual_review",
 ) -> dict:
-    """Classify a video clip into a play type using a pretrained model."""
+    """Classify a video clip into a play type using a pretrained model.
+
+    Parameters
+    ----------
+    video_clip_path:
+        Path to the video clip to classify.
+    metadata_json_path:
+        Optional path to accompanying metadata JSON.
+    model_path:
+        Path to the trained model weights.
+    threshold:
+        Confidence threshold below which a prediction will be flagged.
+    log_uncertain:
+        When ``True``, low-confidence predictions are logged and clips are
+        saved for manual review.
+    log_file:
+        CSV file where low-confidence predictions are appended.
+    review_dir:
+        Directory where low-confidence clips are copied.
+    """
 
     if torch is None or cv2 is None:
         raise ImportError("PyTorch and OpenCV are required for classify_play")
@@ -222,7 +247,27 @@ def classify_play(
         conf, pred = probs.max(1)
 
     label = inv_map.get(int(pred.item()), "unknown")
-    result = {"play_type": label, "confidence": float(conf.item())}
+    confidence = float(conf.item())
+    result = {"play_type": label, "confidence": confidence}
+
+    if log_uncertain and confidence < threshold:
+        review_path = Path(review_dir)
+        review_path.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(video_clip_path, review_path / Path(video_clip_path).name)
+
+        log_path = Path(log_file)
+        exists = log_path.exists()
+        with open(log_path, "a", newline="", encoding="utf-8") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=["clip", "play_type", "confidence"])
+            if not exists:
+                writer.writeheader()
+            writer.writerow(
+                {
+                    "clip": Path(video_clip_path).name,
+                    "play_type": label,
+                    "confidence": confidence,
+                }
+            )
 
     if metadata_json_path:
         try:
@@ -244,30 +289,27 @@ def main() -> None:  # pragma: no cover - CLI helper
         "--threshold", type=float, default=0.6, help="Confidence threshold for review"
     )
     parser.add_argument(
-        "--review_dir",
-        default="review_low_confidence",
-        help="Directory to dump low-confidence clips",
+        "--log-uncertain",
+        action="store_true",
+        help="Log and save clips when confidence is below threshold",
     )
     args = parser.parse_args()
 
     folder = Path(args.folder)
     results = []
-    review_dir = Path(args.review_dir)
     for clip in sorted(folder.glob("*.mp4")):
         meta = clip.with_suffix(".json")
         meta_path = str(meta) if meta.exists() else None
-        pred = classify_play(str(clip), meta_path, args.model)
+        pred = classify_play(
+            str(clip),
+            meta_path,
+            args.model,
+            threshold=args.threshold,
+            log_uncertain=args.log_uncertain,
+        )
         conf = pred["confidence"]
-        results.append({
-            "clip": clip.name,
-            "play_type": pred["play_type"],
-            "confidence": conf,
-        })
-        if conf < args.threshold:
-            review_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(clip, review_dir / clip.name)
-            if meta_path:
-                shutil.copy2(meta_path, review_dir / meta.name)
+        results.append({"clip": clip.name, "play_type": pred["play_type"], "confidence": conf})
+        if args.log_uncertain and conf < args.threshold:
             print(f"[REVIEW] {clip.name} ({conf:.2f})")
 
     with open(args.output, "w", encoding="utf-8") as f:
