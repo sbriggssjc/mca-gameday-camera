@@ -261,9 +261,9 @@ def get_available_video_encoder() -> str:
 
 # SETTINGS
 CAMERA_INDEX = 0
-WIDTH = 1280
-HEIGHT = 720
-FPS = 30
+WIDTH = 0
+HEIGHT = 0
+FPS = 0
 
 # RTMP destination will be set after stream key validation in main()
 RTMP_URL = ""
@@ -510,6 +510,7 @@ def launch_ffmpeg(
     mic_input: str,
     volume_gain_db: float,
     *,
+    encoder: str,
     record_path: str | None,
     preset: str,
     bitrate: str,
@@ -521,11 +522,13 @@ def launch_ffmpeg(
     """Start an FFmpeg process configured for streaming with tuned settings."""
 
     width, height, fps = WIDTH, HEIGHT, FPS
-    try:
-        video_encoder = get_available_video_encoder()
-    except RuntimeError as exc:
-        print(f"❌ {exc}")
-        return None
+    video_encoder = encoder
+    if video_encoder == "auto":
+        try:
+            video_encoder = get_available_video_encoder()
+        except RuntimeError as exc:
+            print(f"❌ {exc}")
+            return None
     if video_encoder not in {"h264_nvmpi", "libx264"}:
         print(f"❌ Unsupported encoder: {video_encoder}")
         return None
@@ -602,6 +605,7 @@ def restart_ffmpeg(
     mic_input: str,
     volume_gain_db: float,
     *,
+    encoder: str,
     record_path: str | None,
     preset: str,
     bitrate: str,
@@ -626,6 +630,7 @@ def restart_ffmpeg(
     return launch_ffmpeg(
         mic_input,
         volume_gain_db,
+        encoder=encoder,
         record_path=record_path,
         preset=preset,
         bitrate=bitrate,
@@ -707,21 +712,27 @@ def main() -> None:
         "--filename",
         help="Base name for output files; timestamp and .mp4 will be appended",
     )
-    parser.add_argument("--stream_key", type=str, help="YouTube stream key")
-    parser.add_argument("--mic", dest="mic", default="hw:1,0", help="ALSA mic device")
+    parser.add_argument("--stream_key", default=None, help="RTMP stream URL")
     parser.add_argument(
-        "--audio_gain",
-        type=float,
-        default=-15.0,
-        help="Target mean audio level in dBFS",
+        "--mic_device",
+        dest="mic_device",
+        default=None,
+        help="ALSA mic device",
     )
-    parser.add_argument("--width", type=int, default=None, help="Capture width")
-    parser.add_argument("--height", type=int, default=None, help="Capture height")
+    parser.add_argument(
+        "--gain_boost",
+        dest="gain_boost",
+        type=float,
+        default=None,
+        help="Audio gain in dB",
+    )
+    parser.add_argument("--resolution", default=None, help="Capture resolution WxH")
     parser.add_argument("--fps", type=int, default=None, help="Capture FPS")
     parser.add_argument("--camera", type=int, default=None, help="Camera index")
     parser.add_argument("--bitrate", default=None, help="Target video bitrate")
     parser.add_argument("--maxrate", default=None, help="Max video bitrate")
     parser.add_argument("--bufsize", default=None, help="Encoder buffer size")
+    parser.add_argument("--encoder", default=None, help="Video encoder")
     parser.add_argument("--preset", default=None, help="Encoder preset")
     parser.add_argument("--config", default=None, help="Path to config YAML")
     parser.add_argument("--model", default=None, help="Model path for classifiers")
@@ -765,12 +776,11 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    stream_key = args.stream_key or os.getenv("YOUTUBE_STREAM_KEY")
+    stream_url = args.stream_key or cfg.stream_key or os.getenv("YOUTUBE_STREAM_KEY")
 
-    if not stream_key or "YOUR_STREAM_KEY" in stream_key:
-        raise ValueError("❌ Stream key is missing or invalid. Aborting stream.")
+    if not stream_url:
+        raise ValueError("❌ Stream URL is missing or invalid. Aborting stream.")
 
-    stream_url = f"rtmp://a.rtmp.youtube.com/live2/{stream_key}"
     print(f"[DEBUG] Using stream URL: {stream_url}")
 
     if not ping_rtmp(stream_url):
@@ -785,7 +795,13 @@ def main() -> None:
     print(f"📡 Streaming to: {mask_stream_url(RTMP_URL)}")
 
     global WIDTH, HEIGHT, FPS
-    WIDTH, HEIGHT, FPS = cfg.width, cfg.height, cfg.fps
+    try:
+        width_str, height_str = cfg.resolution.lower().split("x")
+        WIDTH, HEIGHT = int(width_str), int(height_str)
+    except ValueError:
+        print(f"❌ Invalid resolution format: {cfg.resolution}")
+        return
+    FPS = cfg.fps
 
     cap: cv2.VideoCapture | None = None
 
@@ -834,7 +850,12 @@ def main() -> None:
     else:
         print(f"✅ Camera FPS locked at {actual_fps:.2f}")
 
-    mic_candidates = [find_usb_microphone(cfg.mic), cfg.mic, "plughw:1,0", "default"]
+    mic_candidates = [
+        find_usb_microphone(cfg.mic_device),
+        cfg.mic_device,
+        "plughw:1,0",
+        "default",
+    ]
     mic_input = None
     for dev in mic_candidates:
         if check_audio_input(dev):
@@ -842,9 +863,9 @@ def main() -> None:
             break
     if mic_input is None:
         print("⚠️ No working microphone found")
-        mic_input = cfg.mic
+        mic_input = cfg.mic_device
     print(f"🎤 Using microphone: {mic_input}")
-    volume_gain_db = detect_volume_gain(mic_input, cfg.audio_gain)
+    volume_gain_db = cfg.gain_boost
     monitor_stop = threading.Event()
     if args.dry_run:
         print("[DRY RUN] Camera and microphone initialized successfully")
@@ -870,6 +891,7 @@ def main() -> None:
     process = launch_ffmpeg(
         mic_input,
         volume_gain_db,
+        encoder=cfg.encoder,
         record_path=record_path,
         preset=cfg.preset,
         bitrate=cfg.bitrate,
@@ -1221,6 +1243,7 @@ def main() -> None:
                     process,
                     mic_input,
                     volume_gain_db,
+                    encoder=cfg.encoder,
                     record_path=record_path,
                     preset=cfg.preset,
                     bitrate=cfg.bitrate,
@@ -1271,6 +1294,7 @@ def main() -> None:
                             process,
                             mic_input,
                             volume_gain_db,
+                            encoder=cfg.encoder,
                             record_path=record_path,
                             preset=cfg.preset,
                             bitrate=cfg.bitrate,
