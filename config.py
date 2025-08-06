@@ -14,16 +14,19 @@ except Exception:  # pragma: no cover - fallback if YAML not installed
 
 @dataclass
 class StreamConfig:
-    width: int = 1280
-    height: int = 720
+    """Central configuration for streaming parameters."""
+
+    resolution: str = "1280x720"
     fps: int = 30
-    camera: int = 0
-    bitrate: str = "4500k"
-    maxrate: str = "6000k"
-    bufsize: str = "6000k"
+    mic_device: str = "hw:1,0"
+    gain_boost: float = 3.0
+    stream_key: str = "rtmp://a.rtmp.youtube.com/live2/STREAM_KEY"
+    encoder: str = "libx264"
     preset: str = "veryfast"
-    mic: str = "hw:1,0"
-    audio_gain: float = -15.0
+    maxrate: str = "6000k"
+    bitrate: str = "4500k"
+    bufsize: str = "6000k"
+    camera: int = 0
     model: str = "models/play_classifier/latest.pt"
     train: bool = False
     label: bool = False
