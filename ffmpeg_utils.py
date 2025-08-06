@@ -126,6 +126,8 @@ def build_ffmpeg_args(
 
     if audio_device:
         cmd += [
+            "-thread_queue_size",
+            "512",
             "-f",
             "alsa",
             "-ac",
