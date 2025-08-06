@@ -70,7 +70,7 @@ def check_audio_input(device: str) -> None:
                 "-r",
                 "44100",
                 "-c",
-                "2",
+                "1",
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -321,6 +321,12 @@ def _log_ffmpeg_errors(pipe, log_fp) -> None:
         print(f"[ffmpeg] {text}")
         log_fp.write(text + "\n")
         log_fp.flush()
+        lower = text.lower()
+        if "input/output error" in lower or ("alsa" in lower and "error" in lower):
+            warn = f"[FFMPEG WARNING] {text}"
+            print(warn)
+            log_fp.write(warn + "\n")
+            log_fp.flush()
         match = re.search(r"bitrate=\s*(\d+\.?\d*)kbits/s", text)
         if match:
             bitrate = float(match.group(1))
@@ -371,7 +377,7 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
         "-f",
         "alsa",
         "-ac",
-        "2",
+        "1",
         "-ar",
         "44100",
         "-i",
@@ -411,7 +417,7 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
         "-ar",
         "44100",
         "-ac",
-        "2",
+        "1",
         "-f",
         "flv",
         RTMP_URL,
@@ -532,7 +538,9 @@ def main() -> None:
         help="YouTube stream key",
     )
     parser.add_argument(
+        "--mic",
         "--alsa_device",
+        dest="alsa_device",
         default="hw:1,0",
         help="ALSA audio input device (e.g., hw:1,0)",
     )
