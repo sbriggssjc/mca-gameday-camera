@@ -391,8 +391,18 @@ def _log_ffmpeg_errors(pipe, log_fp) -> None:
     log_fp.close()
 
 
-def launch_ffmpeg(mic_input: str, volume_gain_db: float) -> subprocess.Popen | None:
-    """Start an FFmpeg process configured for 720p/30fps streaming."""
+
+
+def launch_ffmpeg(mic_input: str, volume_boost: str = "2.5") -> subprocess.Popen | None:
+    """Start an FFmpeg process configured for 720p/30fps streaming.
+
+    Parameters
+    ----------
+    mic_input: str
+        ALSA device identifier for the microphone.
+    volume_boost: str, default "2.5"
+        Volume multiplier or dB string passed to FFmpeg's volume filter.
+    """
 
     width, height, fps = WIDTH, HEIGHT, FPS
     try:
@@ -436,6 +446,7 @@ def launch_ffmpeg(mic_input: str, volume_gain_db: float) -> subprocess.Popen | N
         "yuv420p",
         "-af",
         f"volume={volume_gain_db:.2f}dB",
+        f"volume={volume_boost}",
     ]
 
     if video_encoder == "libx264":
@@ -509,7 +520,9 @@ def restart_ffmpeg(
             process.wait(timeout=5)
         except Exception:
             pass
-    return launch_ffmpeg(mic_input, volume_gain_db)
+
+    return launch_ffmpeg(mic_input, volume_boost)
+
 
 
 def initialize_camera(index: int, width: int, height: int, fps: int) -> cv2.VideoCapture | None:
@@ -599,6 +612,9 @@ def main() -> None:
         type=float,
         default=-15.0,
         help="Target mean audio level in dBFS for auto-gain (default: -15.0)",
+        "--volume_boost",
+        default="2.5",
+        help="Audio volume multiplier or dB value (e.g., 2.5 or 10dB)",
     )
     args = parser.parse_args()
 
@@ -679,6 +695,7 @@ def main() -> None:
     log_file = unique_path(output_dir / f"{base_name}_{timestamp}_play_log.csv")
 
     process = launch_ffmpeg(mic_input, volume_gain_db)
+    process = launch_ffmpeg(mic_input, args.volume_boost)
     if process is None:
         return
 
@@ -985,7 +1002,9 @@ def main() -> None:
                         out_zero_warned = True
                     elif now - out_zero_start >= 10:
                         print("[\u26A0\uFE0F ALERT] Restarting FFmpeg due to stalled output")
+
                         process = restart_ffmpeg(process, mic_input, volume_gain_db)
+                        process = restart_ffmpeg(process, mic_input, args.volume_boost)
                         out_zero_start = now
                 else:
                     out_zero_start = None
