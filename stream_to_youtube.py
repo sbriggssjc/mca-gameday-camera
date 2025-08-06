@@ -346,8 +346,16 @@ def _log_ffmpeg_errors(pipe, log_fp) -> None:
     log_fp.close()
 
 
-def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
-    """Start an FFmpeg process configured for 720p/30fps streaming."""
+def launch_ffmpeg(mic_input: str, volume_boost: str = "2.5") -> subprocess.Popen | None:
+    """Start an FFmpeg process configured for 720p/30fps streaming.
+
+    Parameters
+    ----------
+    mic_input: str
+        ALSA device identifier for the microphone.
+    volume_boost: str, default "2.5"
+        Volume multiplier or dB string passed to FFmpeg's volume filter.
+    """
 
     width, height, fps = WIDTH, HEIGHT, FPS
     try:
@@ -390,7 +398,7 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
         "-pix_fmt",
         "yuv420p",
         "-af",
-        "volume=1.0",
+        f"volume={volume_boost}",
     ]
 
     if video_encoder == "libx264":
@@ -449,7 +457,9 @@ def launch_ffmpeg(mic_input: str) -> subprocess.Popen | None:
         return None
 
 
-def restart_ffmpeg(process: subprocess.Popen | None, mic_input: str) -> subprocess.Popen | None:
+def restart_ffmpeg(
+    process: subprocess.Popen | None, mic_input: str, volume_boost: str
+) -> subprocess.Popen | None:
     """Restart the FFmpeg process if the stream stalls."""
     if process is not None:
         try:
@@ -462,7 +472,7 @@ def restart_ffmpeg(process: subprocess.Popen | None, mic_input: str) -> subproce
             process.wait(timeout=5)
         except Exception:
             pass
-    return launch_ffmpeg(mic_input)
+    return launch_ffmpeg(mic_input, volume_boost)
 
 
 def initialize_camera(index: int, width: int, height: int, fps: int) -> cv2.VideoCapture | None:
@@ -547,6 +557,11 @@ def main() -> None:
         default="hw:1,0",
         help="ALSA audio input device (e.g., hw:1,0)",
     )
+    parser.add_argument(
+        "--volume_boost",
+        default="2.5",
+        help="Audio volume multiplier or dB value (e.g., 2.5 or 10dB)",
+    )
     args = parser.parse_args()
 
     stream_key = args.stream_key or os.getenv("YOUTUBE_STREAM_KEY")
@@ -624,7 +639,7 @@ def main() -> None:
     record_file = unique_path(output_dir / f"{base_name}_{timestamp}.mp4")
     log_file = unique_path(output_dir / f"{base_name}_{timestamp}_play_log.csv")
 
-    process = launch_ffmpeg(mic_input)
+    process = launch_ffmpeg(mic_input, args.volume_boost)
     if process is None:
         return
 
@@ -931,7 +946,7 @@ def main() -> None:
                         out_zero_warned = True
                     elif now - out_zero_start >= 10:
                         print("[\u26A0\uFE0F ALERT] Restarting FFmpeg due to stalled output")
-                        process = restart_ffmpeg(process, mic_input)
+                        process = restart_ffmpeg(process, mic_input, args.volume_boost)
                         out_zero_start = now
                 else:
                     out_zero_start = None
