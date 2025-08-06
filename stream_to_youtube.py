@@ -926,6 +926,8 @@ def main() -> None:
     frame_count = 0
     bytes_sent = 0
     failed_reads = 0
+    MAX_FAILED_READS = 10
+    MAX_RECONNECT_ATTEMPTS = 5
     last_log = start
     fps_start = start
     fps_counter = 0
@@ -1045,17 +1047,36 @@ def main() -> None:
             ret, frame = cap.read()
             if not ret or frame is None:
                 failed_reads += 1
-                print("\u26a0\ufe0f Invalid frame received", file=sys.stderr)
-                if failed_reads >= 3:
-                    logging.warning("Reinitializing camera after 3 failures")
+                logging.warning(
+                    "Invalid frame received (%d/%d)", failed_reads, MAX_FAILED_READS
+                )
+                if failed_reads >= MAX_FAILED_READS:
+                    logging.warning(
+                        "Too many consecutive read failures. Reinitializing camera."
+                    )
                     cap.release()
-                    cap = initialize_camera(0, WIDTH, HEIGHT, FPS)
-                    if cap is None:
-                        cap = initialize_camera(1, WIDTH, HEIGHT, FPS)
-                    if cap is None:
-                        logging.error("Camera reinitialization failed")
+                    for attempt in range(1, MAX_RECONNECT_ATTEMPTS + 1):
+                        logging.info(
+                            "Attempting to reconnect camera (%d/%d)",
+                            attempt,
+                            MAX_RECONNECT_ATTEMPTS,
+                        )
+                        cap = initialize_camera(0, WIDTH, HEIGHT, FPS)
+                        if cap is None:
+                            cap = initialize_camera(1, WIDTH, HEIGHT, FPS)
+                        if cap is not None:
+                            logging.info("Camera reinitialized successfully")
+                            failed_reads = 0
+                            break
+                        logging.error(
+                            "Camera reinitialization attempt %d failed", attempt
+                        )
+                        time.sleep(1)
+                    else:
+                        logging.critical(
+                            "Max camera reconnect attempts exceeded; shutting down"
+                        )
                         break
-                    failed_reads = 0
                     continue
                 time.sleep(1 / FPS)
                 continue
