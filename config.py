@@ -23,6 +23,8 @@ class StreamConfig:
     preset: str = "veryfast"
     mic: str = "hw:1,0"
     audio_gain: float = -15.0
+    train: bool = False
+    label: bool = False
 
 
 def load_config(path: str | None, args: argparse.Namespace) -> StreamConfig:
