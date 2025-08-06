@@ -164,51 +164,58 @@ def ping_rtmp(url: str, timeout: int = 5) -> bool:
 AUDIO_LEVEL_DB = 0.0
 
 
-def monitor_audio_level(device: str, stop_event: threading.Event) -> None:
-    """Continuously sample the audio device and update ``AUDIO_LEVEL_DB``."""
+def monitor_audio_level(
+    device: str, stop_event: threading.Event, threshold_db: float = -60.0
+) -> None:
+    """Sample the audio device every 10s and update ``AUDIO_LEVEL_DB``.
+
+    A warning is logged and printed if the mean volume over the 10s window is
+    below ``threshold_db``.  Each warning is appended to ``silence_log.txt``.
+    """
 
     global AUDIO_LEVEL_DB
-    silent_for = 0.0
+    log_path = Path("silence_log.txt")
     while not stop_event.is_set():
+        cmd = [
+            "ffmpeg",
+            "-f",
+            "alsa",
+            "-ac",
+            "1",
+            "-ar",
+            "44100",
+            "-i",
+            device,
+            "-t",
+            "10",
+            "-af",
+            "volumedetect",
+            "-f",
+            "null",
+            "-",
+        ]
         try:
-            result = subprocess.run(
-                [
-                    "arecord",
-                    "-D",
-                    device,
-                    "-d",
-                    "0.25",
-                    "-f",
-                    "S16_LE",
-                    "-r",
-                    "44100",
-                    "-c",
-                    "1",
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                check=False,
-                timeout=2,
-            )
-            if result.stdout:
-                audio = np.frombuffer(result.stdout, dtype=np.int16)
-                rms = np.sqrt(np.mean(audio ** 2))
-                if rms > 0:
-                    AUDIO_LEVEL_DB = 20 * np.log10(rms / 32768)
-                else:
-                    AUDIO_LEVEL_DB = -80.0
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            match = re.search(r"mean_volume:\s*(-?\d+\.?\d*) dB", result.stderr)
+            if match:
+                AUDIO_LEVEL_DB = float(match.group(1))
             else:
                 AUDIO_LEVEL_DB = -80.0
-        except Exception:
+
+            if AUDIO_LEVEL_DB <= threshold_db:
+                msg = (
+                    f"⚠️ Microphone silence detected ({AUDIO_LEVEL_DB:.1f} dBFS)"
+                )
+                logging.warning(msg)
+                print(msg, flush=True)
+                with log_path.open("a") as fp:
+                    fp.write(f"{datetime.now().isoformat()} {msg}\n")
+        except Exception as e:
             AUDIO_LEVEL_DB = -80.0
-        if AUDIO_LEVEL_DB <= -60:
-            silent_for += 0.5
-            if silent_for >= 10:
-                logging.warning("Audio silence detected for 10s")
-                silent_for = 0.0
-        else:
-            silent_for = 0.0
-        stop_event.wait(0.5)
+            print(f"⚠️ Audio monitoring failed: {e}")
+
+        # Loop repeats automatically after ffmpeg completes (~10s)
+        stop_event.wait(0.1)
 
 
 def system_monitor(stop_event: threading.Event) -> None:
@@ -414,6 +421,9 @@ def overlay_info(
         audio_text = f"Audio: {audio_level:.1f} dBFS"
         (aw, ah), _ = cv2.getTextSize(audio_text, FONT, FONT_SCALE, THICKNESS)
         draw_label(frame, audio_text, (frame.shape[1] - aw - 10, frame.shape[0] - 10))
+        if audio_level <= -60:
+            warn_text = "NO AUDIO"
+            draw_label(frame, warn_text, (10, 60))
 
 
 def preprocess_frame(frame: "cv2.Mat") -> "cv2.Mat":
