@@ -42,6 +42,50 @@ try:
 except Exception:
     pass
 
+ERROR_KEYWORDS = (
+    "input/output error",
+    "could not connect to youtube",
+    "broken pipe",
+)
+
+
+def _halve_bitrate(value: str) -> str:
+    """Return half of a bitrate string like '4500k'."""
+    try:
+        num = int(re.findall(r"(\d+)", value)[0])
+        return f"{max(num // 2, 1)}k"
+    except Exception:
+        return value
+
+
+def _run_rtmp_test(url: str) -> None:
+    """Run a short FFmpeg dry run to verify RTMP connectivity."""
+    test_cmd = [
+        "ffmpeg",
+        "-loglevel",
+        "error",
+        "-re",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=128x72:rate=10",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=1000",
+        "-t",
+        "2",
+        "-rtmp_flags",
+        "prefer_ipv4",
+        "-f",
+        "flv",
+        url,
+    ]
+    rc, _, stderr = run_ffmpeg_command(test_cmd, timeout=10)
+    if rc != 0:
+        print("[RTMP TEST] Unable to reach RTMP URL:")
+        print(stderr)
+
 
 def find_usb_microphone(default_device: str = "hw:1,0") -> str:
     """Return ALSA identifier for a USB/RØDE microphone if present.
@@ -196,9 +240,10 @@ def handle_ffmpeg_crash(process):
             stderr_output = ""
     if stderr_output:
         print(f"[FFMPEG STDERR] {stderr_output}")
-        if "input/output error" in stderr_output.lower():
+        lower = stderr_output.lower()
+        if any(k in lower for k in ERROR_KEYWORDS):
             print(
-                "[🚫 RTMP ERROR] Could not connect to YouTube. Check stream key or network."
+                "[🚫 RTMP ERROR] Check your stream key, network, or YouTube Live dashboard."
             )
     if restart_attempts > MAX_RESTART_ATTEMPTS:
         print("[🛑 ABORT] Too many FFmpeg failures.")
@@ -570,8 +615,14 @@ def launch_ffmpeg(
     bufsize: str,
     gop: int,
     keyint_min: int,
+    force_ipv4: bool = False,
+    retry: bool = True,
 ) -> subprocess.Popen | None:
-    """Start an FFmpeg process configured for streaming with tuned settings."""
+    """Start an FFmpeg process configured for streaming with tuned settings.
+
+    If ``retry`` is True and startup fails with common RTMP errors, the
+    function retries once with a reduced bitrate and forced IPv4 reconnect.
+    """
 
     width, height, fps = WIDTH, HEIGHT, FPS
     video_encoder = encoder
@@ -590,12 +641,16 @@ def launch_ffmpeg(
     log_file = log_dir / f"ffmpeg_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     log_fp = log_file.open("w", encoding="utf-8", errors="replace")
 
-    extra = [
-        "-fflags",
-        "nobuffer",
-        "-flush_packets",
-        "1",
-    ]
+    extra = ["-fflags", "nobuffer", "-flush_packets", "1"]
+    if not retry:
+        extra += [
+            "-reconnect",
+            "1",
+            "-reconnect_streamed",
+            "1",
+            "-reconnect_delay_max",
+            "2",
+        ]
     ffmpeg_command = build_ffmpeg_args(
         video_source="-",
         audio_device=mic_input,
@@ -612,6 +667,7 @@ def launch_ffmpeg(
         gop=gop,
         keyint_min=keyint_min,
         local_record=record_path,
+        force_ipv4=force_ipv4,
         extra_args=extra,
     )
 
@@ -640,8 +696,33 @@ def launch_ffmpeg(
         while time.time() - start < 15:
             if process is None or process.poll() is not None:
                 err = "\n".join(stderr_lines)
-                print(f"❌ FFmpeg exited early: {err}")
-                log_fp.write(err + "\n")
+                lower_err = err.lower()
+                if any(k in lower_err for k in ERROR_KEYWORDS):
+                    print("[🚫 RTMP ERROR] Check your stream key, network, or YouTube Live dashboard.")
+                    log_fp.write(err + "\n")
+                    log_fp.flush()
+                    if retry:
+                        reduced = _halve_bitrate(bitrate)
+                        reduced_max = _halve_bitrate(maxrate)
+                        reduced_buf = _halve_bitrate(bufsize)
+                        return launch_ffmpeg(
+                            mic_input,
+                            volume_gain_db,
+                            encoder=encoder,
+                            record_path=record_path,
+                            preset=preset,
+                            bitrate=reduced,
+                            maxrate=reduced_max,
+                            bufsize=reduced_buf,
+                            gop=gop,
+                            keyint_min=keyint_min,
+                            force_ipv4=True,
+                            retry=False,
+                        )
+                    _run_rtmp_test(RTMP_URL)
+                else:
+                    print(f"❌ FFmpeg exited early: {err}")
+                    log_fp.write(err + "\n")
                 log_fp.close()
                 return None
             time.sleep(0.5)
@@ -669,6 +750,7 @@ def restart_ffmpeg(
     bufsize: str,
     gop: int,
     keyint_min: int,
+    force_ipv4: bool = False,
 ) -> subprocess.Popen | None:
     """Restart the FFmpeg process if the stream stalls."""
     if process is not None:
@@ -708,6 +790,7 @@ def restart_ffmpeg(
         bufsize=bufsize,
         gop=gop,
         keyint_min=keyint_min,
+        force_ipv4=force_ipv4,
     )
 
 
@@ -815,6 +898,12 @@ def main() -> None:
     parser.add_argument("--dry_run", action="store_true", help="Test devices only")
     parser.add_argument("--train", action="store_true", help="Enable self-learning mode")
     parser.add_argument("--label", action="store_true", help="Enable label review mode")
+    parser.add_argument(
+        "--force-ipv4",
+        dest="force_ipv4",
+        action="store_true",
+        help="Always append -rtmp_flags prefer_ipv4",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -969,6 +1058,7 @@ def main() -> None:
         bufsize=cfg.bufsize,
         gop=args.gop,
         keyint_min=args.keyint_min,
+        force_ipv4=cfg.force_ipv4,
     )
     if ffmpeg_process is None:
         monitor_stop.set()
