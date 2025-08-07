@@ -204,11 +204,105 @@ def ping_rtmp(url: str, timeout: int = 5) -> bool:
         return False
 
 
+def diagnose_rtmp_connection(host: str = "a.rtmp.youtube.com", port: int = 1935) -> None:
+    """Diagnose DNS and TCP connectivity to the RTMP host."""
+
+    try:
+        ip = socket.gethostbyname(host)
+        print(f"[DIAG] DNS resolved {host} -> {ip}")
+        dns_ok = True
+    except socket.gaierror as e:
+        print(f"[DIAG] DNS resolution failed for {host}: {e}")
+        dns_ok = False
+
+    if dns_ok:
+        try:
+            with socket.create_connection((host, port), timeout=5):
+                print(f"[DIAG] TCP connection to {host}:{port} succeeded")
+        except OSError as e:
+            print(f"[DIAG] TCP connection to {host}:{port} failed: {e}")
+    else:
+        print("[DIAG] Skipping TCP check due to DNS failure")
+
+
 AUDIO_LEVEL_DB = 0.0
+LAST_BITRATE = 0.0
+LAST_FRAME_TIME = 0.0
+AUDIO_OK = False
+VIDEO_OK = False
+IO_ERROR_COUNT = 0
+RTMP_REACHABLE = False
 
-
-MAX_RESTART_ATTEMPTS = 5
+MAX_RESTART_ATTEMPTS = 3
 restart_attempts = 0
+
+
+def abort_stream() -> None:
+    """Print a summary report and exit."""
+
+    summary = [
+        f"Retries: {restart_attempts}",
+        f"RTMP reachable: {RTMP_REACHABLE}",
+        f"Last bitrate: {LAST_BITRATE} kbps",
+        f"Audio OK: {AUDIO_OK} (level {AUDIO_LEVEL_DB:.1f} dBFS)",
+        f"Video OK: {VIDEO_OK}",
+    ]
+    print("[🛑 HALT] FFmpeg aborted. Summary:")
+    for line in summary:
+        print(" - " + line)
+    sys.exit(1)
+
+
+def handle_ffmpeg_crash(process):
+    """Log crash details, back off, and track restart attempts."""
+
+    global restart_attempts, IO_ERROR_COUNT, RTMP_REACHABLE
+    restart_attempts += 1
+    stderr_output = ""
+    exit_code = process.returncode if process else None
+    if process and process.stderr:
+        try:
+            stderr_output = process.stderr.read().decode(errors="replace")
+        except Exception:
+            stderr_output = ""
+    if exit_code is not None:
+        print(f"[FFMPEG EXIT CODE] {exit_code}")
+    if stderr_output:
+        print(f"[FFMPEG STDERR] {stderr_output}")
+        Path("logs").mkdir(exist_ok=True)
+        with Path("logs/ffmpeg_last_error.txt").open("w", encoding="utf-8") as fp:
+            fp.write(stderr_output)
+        RTMP_REACHABLE = ping_rtmp("rtmp://a.rtmp.youtube.com/live2")
+        lower = stderr_output.lower()
+        if "input/output error" in lower:
+            IO_ERROR_COUNT += 1
+            if IO_ERROR_COUNT == 2:
+                diagnose_rtmp_connection()
+                if sys.stdin.isatty():
+                    ans = input(
+                        "Have you confirmed the stream key is valid and YouTube Live is enabled? (y/N): "
+                    )
+                    if ans.strip().lower() != "y":
+                        abort_stream()
+        if any(k in lower for k in ERROR_KEYWORDS):
+            print(
+                "[🚫 RTMP ERROR] Check your stream key, network, or YouTube Live dashboard.",
+            )
+    if restart_attempts > MAX_RESTART_ATTEMPTS:
+        abort_stream()
+    base_delay = 5
+    if stderr_output:
+        lower = stderr_output.lower()
+        if any(p in lower for p in [
+            "connection refused",
+            "no route to host",
+            "name or service not known",
+            "temporary failure in name resolution",
+        ]):
+            base_delay = 15
+    backoff = min(60, base_delay * (2 ** (restart_attempts - 1)))
+    print(f"[WAIT] Backing off for {backoff} seconds before retry...")
+    time.sleep(backoff)
 
 
 def start_ffmpeg_process(ffmpeg_command):
@@ -227,7 +321,7 @@ def start_ffmpeg_process(ffmpeg_command):
         return None
 
 
-def handle_ffmpeg_crash(process):
+def handle_ffmpeg_crash_old(process):
     """Log crash details, back off, and track restart attempts."""
 
     global restart_attempts
@@ -570,33 +664,49 @@ def parse_clock(clock: str) -> int | None:
 
 def _log_ffmpeg_errors(pipe, log_fp, buffer) -> None:
     """Stream FFmpeg stderr output in real time and monitor bitrate."""
-    zero_count = 0
-    for line in iter(pipe.readline, b""):
-        text = line.decode("utf-8", errors="replace").rstrip()
-        if not text:
-            continue
-        buffer.append(text)
-        print(f"[ffmpeg] {text}")
-        log_fp.write(text + "\n")
-        log_fp.flush()
-        lower = text.lower()
-        if "input/output error" in lower or ("alsa" in lower and "error" in lower):
-            warn = f"[FFMPEG WARNING] {text}"
-            print(warn)
-            log_fp.write(warn + "\n")
+
+    global LAST_BITRATE, IO_ERROR_COUNT
+    zero_start: float | None = None
+    status_path = Path("logs/stream_status.log")
+    status_path.parent.mkdir(exist_ok=True)
+    with status_path.open("a", encoding="utf-8") as status_fp:
+        for line in iter(pipe.readline, b""):
+            text = line.decode("utf-8", errors="replace").rstrip()
+            if not text:
+                continue
+            buffer.append(text)
+            print(f"[ffmpeg] {text}")
+            log_fp.write(text + "\n")
             log_fp.flush()
-        match = re.search(r"bitrate=\s*(\d+\.?\d*)kbits/s", text)
-        if match:
-            bitrate = float(match.group(1))
-            if bitrate == 0:
-                zero_count += 1
-                if zero_count >= 3:
-                    warn = "[FFMPEG WARNING] Output bitrate 0 kbps - stream might have stalled"
-                    print(warn)
-                    log_fp.write(warn + "\n")
-                    log_fp.flush()
-            else:
-                zero_count = 0
+            lower = text.lower()
+            if "input/output error" in lower or ("alsa" in lower and "error" in lower):
+                warn = f"[FFMPEG WARNING] {text}"
+                print(warn)
+                log_fp.write(warn + "\n")
+                log_fp.flush()
+                IO_ERROR_COUNT += 1
+                if IO_ERROR_COUNT == 2:
+                    diagnose_rtmp_connection()
+            match = re.search(r"bitrate=\s*(\d+\.?\d*)kbits/s", text)
+            if match:
+                bitrate = float(match.group(1))
+                LAST_BITRATE = bitrate
+                status_fp.write(
+                    f"{datetime.now().isoformat()} bitrate={bitrate} audio={AUDIO_LEVEL_DB:.1f}dB\n"
+                )
+                status_fp.flush()
+                if bitrate == 0:
+                    if zero_start is None:
+                        zero_start = time.time()
+                    elif time.time() - zero_start >= 10:
+                        msg = "\033[5;31m[ALERT] Output bitrate 0 kbps!\033[0m"
+                        if time.time() - LAST_FRAME_TIME < 5:
+                            msg += " Frames captured but not sent."
+                        print(msg)
+                        status_fp.write(f"{datetime.now().isoformat()} {msg}\n")
+                        status_fp.flush()
+                else:
+                    zero_start = None
     pipe.close()
     log_fp.close()
 
@@ -617,6 +727,7 @@ def launch_ffmpeg(
     keyint_min: int,
     force_ipv4: bool = False,
     retry: bool = True,
+    diagnose_only: bool = False,
 ) -> subprocess.Popen | None:
     """Start an FFmpeg process configured for streaming with tuned settings.
 
@@ -669,6 +780,7 @@ def launch_ffmpeg(
         local_record=record_path,
         force_ipv4=force_ipv4,
         extra_args=extra,
+        diagnose_only=diagnose_only,
     )
 
     print("[FFMPEG COMMAND]", " ".join(ffmpeg_command))
@@ -718,6 +830,7 @@ def launch_ffmpeg(
                             keyint_min=keyint_min,
                             force_ipv4=True,
                             retry=False,
+                            diagnose_only=diagnose_only,
                         )
                     _run_rtmp_test(RTMP_URL)
                 else:
@@ -751,6 +864,7 @@ def restart_ffmpeg(
     gop: int,
     keyint_min: int,
     force_ipv4: bool = False,
+    diagnose_only: bool = False,
 ) -> subprocess.Popen | None:
     """Restart the FFmpeg process if the stream stalls."""
     if process is not None:
@@ -791,6 +905,7 @@ def restart_ffmpeg(
         gop=gop,
         keyint_min=keyint_min,
         force_ipv4=force_ipv4,
+        diagnose_only=diagnose_only,
     )
 
 
@@ -860,6 +975,7 @@ def print_available_cameras() -> None:
 
 
 def main() -> None:
+    global AUDIO_OK, VIDEO_OK, LAST_FRAME_TIME, RTMP_REACHABLE
     parser = argparse.ArgumentParser(description="Stream and record game footage")
     parser.add_argument(
         "--filename",
@@ -896,6 +1012,11 @@ def main() -> None:
     parser.add_argument("--record", action="store_true", help="Also record locally")
     parser.add_argument("--audio_meter", action="store_true", help="Overlay audio levels")
     parser.add_argument("--dry_run", action="store_true", help="Test devices only")
+    parser.add_argument(
+        "--diagnose-only",
+        action="store_true",
+        help="Run FFmpeg without publishing to RTMP",
+    )
     parser.add_argument("--train", action="store_true", help="Enable self-learning mode")
     parser.add_argument("--label", action="store_true", help="Enable label review mode")
     parser.add_argument(
@@ -920,6 +1041,9 @@ def main() -> None:
     if cfg.model:
         print(f"🪬 Model: {cfg.model}")
 
+    if args.diagnose_only:
+        print("[DIAG] FFmpeg will run without streaming to RTMP")
+
     train_dir = Path("training/live")
     label_dir = Path("training/review")
     if cfg.train:
@@ -942,10 +1066,14 @@ def main() -> None:
 
     print(f"[DEBUG] Using stream URL: {stream_url}")
 
+    global RTMP_URL, RTMP_REACHABLE
+    RTMP_REACHABLE = ping_rtmp("rtmp://a.rtmp.youtube.com/live2")
+    if not RTMP_REACHABLE and not args.diagnose_only:
+        print("❌ Preflight check failed: cannot reach YouTube RTMP server")
+        return
     if not ping_rtmp(stream_url):
         print("⚠️ RTMP endpoint unreachable; streaming may fail")
 
-    global RTMP_URL
     RTMP_URL = stream_url
     if not validate_rtmp_url(RTMP_URL):
         print(f"❌ Invalid RTMP URL: {RTMP_URL}")
@@ -995,6 +1123,9 @@ def main() -> None:
         cap.release()
         return
 
+    global VIDEO_OK, LAST_FRAME_TIME
+    VIDEO_OK = True
+    LAST_FRAME_TIME = time.time()
     print("✅ Successfully captured initial frame:", test_frame.shape)
 
     # Apply requested resolution/FPS; rotate later if camera delivers portrait frames
@@ -1016,9 +1147,12 @@ def main() -> None:
         "default",
     ]
     mic_input = None
+    global AUDIO_OK
+    AUDIO_OK = False
     for dev in mic_candidates:
         if check_audio_input(dev):
             mic_input = dev
+            AUDIO_OK = True
             break
     if mic_input is None:
         print("⚠️ No working microphone found")
@@ -1059,6 +1193,7 @@ def main() -> None:
         gop=args.gop,
         keyint_min=args.keyint_min,
         force_ipv4=cfg.force_ipv4,
+        diagnose_only=args.diagnose_only,
     )
     if ffmpeg_process is None:
         monitor_stop.set()
@@ -1259,7 +1394,11 @@ def main() -> None:
                 continue
             loop_start = time.time()
             ret, frame = cap.read()
-            if not ret or frame is None:
+            if ret and frame is not None:
+                LAST_FRAME_TIME = time.time()
+                VIDEO_OK = True
+            else:
+                VIDEO_OK = False
                 consecutive_capture_failures += 1
                 logging.warning(
                     "Invalid frame received (%d/%d)",
