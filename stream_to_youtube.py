@@ -1044,8 +1044,8 @@ def main() -> None:
     summary_generated = False
     cv2.namedWindow("Stream Preview", cv2.WINDOW_NORMAL)
     frame_count = 0
-    failed_reads = 0
-    MAX_FAILED_READS = 10
+    consecutive_capture_failures = 0
+    MAX_CAPTURE_FAILURES = 10
     MAX_RECONNECT_ATTEMPTS = 5
     last_log = start
     fps_start = start
@@ -1170,13 +1170,15 @@ def main() -> None:
             loop_start = time.time()
             ret, frame = cap.read()
             if not ret or frame is None:
-                failed_reads += 1
+                consecutive_capture_failures += 1
                 logging.warning(
-                    "Invalid frame received (%d/%d)", failed_reads, MAX_FAILED_READS
+                    "Invalid frame received (%d/%d)",
+                    consecutive_capture_failures,
+                    MAX_CAPTURE_FAILURES,
                 )
-                if failed_reads >= MAX_FAILED_READS:
-                    logging.warning(
-                        "Too many consecutive read failures. Reinitializing camera."
+                if consecutive_capture_failures > MAX_CAPTURE_FAILURES:
+                    print(
+                        "[🛑 Camera Error] Too many consecutive frame read failures. Restarting camera and FFmpeg."
                     )
                     cap.release()
                     for attempt in range(1, MAX_RECONNECT_ATTEMPTS + 1):
@@ -1190,7 +1192,6 @@ def main() -> None:
                             cap = initialize_camera(1, WIDTH, HEIGHT, FPS)
                         if cap is not None:
                             logging.info("Camera reinitialized successfully")
-                            failed_reads = 0
                             break
                         logging.error(
                             "Camera reinitialization attempt %d failed", attempt
@@ -1201,10 +1202,14 @@ def main() -> None:
                             "Max camera reconnect attempts exceeded; shutting down"
                         )
                         break
+                    if not do_ffmpeg_restart():
+                        stop_event.set()
+                        break
+                    consecutive_capture_failures = 0
                     continue
                 time.sleep(1 / FPS)
                 continue
-            failed_reads = 0
+            consecutive_capture_failures = 0
             fps_counter += 1
             now = time.time()
             if now - fps_start >= 1:
@@ -1347,6 +1352,10 @@ def main() -> None:
             time.sleep(max(0, (1 / FPS) - elapsed_loop))
 
             frame_count += 1
+            if frame_count % (5 * FPS) == 0:
+                print(
+                    f"[CAPTURE DEBUG] {datetime.now().strftime('%H:%M:%S')} - Frame {frame_count}"
+                )
             if frame_count % (2 * FPS) == 0:
                 print(f"Streaming frame #{frame_count}")
             now = time.time()
