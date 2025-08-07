@@ -70,6 +70,7 @@ def build_ffmpeg_args(
     local_record: Optional[str] = None,
     force_ipv4: bool = False,
     extra_args: Optional[List[str]] = None,
+    diagnose_only: bool = False,
 ) -> List[str]:
     """Return a standardized FFmpeg command.
 
@@ -98,6 +99,8 @@ def build_ffmpeg_args(
         Additional FFmpeg arguments to append before the output target.
     force_ipv4:
         If True, append ``-rtmp_flags prefer_ipv4`` to prefer IPv4 RTMP.
+    diagnose_only:
+        When True, direct output to ``null`` for a non-networked dry run.
     """
 
     cmd: List[str] = ["ffmpeg", "-loglevel", "verbose", "-y"]
@@ -184,7 +187,9 @@ def build_ffmpeg_args(
     if force_ipv4:
         cmd += ["-rtmp_flags", "prefer_ipv4"]
 
-    if local_record:
+    if diagnose_only:
+        cmd += ["-f", "null", "-"]
+    elif local_record:
         out_spec = f"[f=flv:onfail=ignore]{output_url}|{local_record}"
         cmd += ["-f", "tee", out_spec]
     else:
