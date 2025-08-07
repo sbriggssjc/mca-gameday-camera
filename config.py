@@ -30,6 +30,7 @@ class StreamConfig:
     model: str = "models/play_classifier/latest.pt"
     train: bool = False
     label: bool = False
+    force_ipv4: bool = False
 
 
 def load_config(path: str | None, args: argparse.Namespace) -> StreamConfig:
