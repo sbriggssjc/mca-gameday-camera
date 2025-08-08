@@ -146,13 +146,12 @@ def build_ffmpeg_args(
     else:
         logging.info("Audio capture intentionally skipped")
 
-    cmd += [
-        "-c:v",
-        video_codec,
-        "-preset",
-        preset,
-        "-tune",
-        "zerolatency",
+    if video_codec == "libx264":
+        encoder_flags = ["-c:v", video_codec, "-preset", preset, "-tune", "zerolatency"]
+    else:
+        encoder_flags = ["-c:v", video_codec]
+
+    cmd += encoder_flags + [
         "-pix_fmt",
         "yuv420p",
         "-b:v",
