@@ -4,7 +4,7 @@ import threading
 from typing import List, Optional, Tuple
 
 
-def detect_encoder() -> str:
+def detect_encoder(input_type: str | None = None) -> str:
     """Detect and return a usable H.264 encoder.
 
     Preference order:
@@ -14,6 +14,10 @@ def detect_encoder() -> str:
 
     ``h264_omx`` is intentionally skipped due to reliability issues. A
     ``RuntimeError`` is raised if no suitable encoder is found.
+
+    When ``input_type`` is ``"image2pipe"`` (MJPEG frames piped via stdin),
+    Jetson hardware encoders output an empty stream. In this case ``libx264`` is
+    forced if available.
     """
 
     try:
@@ -24,12 +28,17 @@ def detect_encoder() -> str:
             text=True,
         )
         encoders = result.stdout
-        if "h264_v4l2m2m" in encoders:
-            return "h264_v4l2m2m"
-        if "h264_nvmpi" in encoders:
-            return "h264_nvmpi"
-        if "libx264" in encoders:
-            return "libx264"
+        if input_type == "image2pipe":
+            print("⚠️ Forcing encoder to libx264 due to piped MJPEG input (image2pipe)")
+            if "libx264" in encoders:
+                return "libx264"
+        else:
+            if "h264_v4l2m2m" in encoders:
+                return "h264_v4l2m2m"
+            if "h264_nvmpi" in encoders:
+                return "h264_nvmpi"
+            if "libx264" in encoders:
+                return "libx264"
     except Exception:
         pass
     raise RuntimeError(
