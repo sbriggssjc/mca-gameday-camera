@@ -141,7 +141,7 @@ def run_ffmpeg(cfg: StreamConfig, *, test: bool = False) -> None:
             maxrate=cfg.maxrate,
             bufsize=cfg.bufsize,
             force_ipv4=cfg.force_ipv4,
-            extra_args=["-input_format", "yuyv422"],
+            extra_args=["-input_format", "mjpeg"],
         )
     elif system == "Windows":
         # Retain Windows-specific command using DirectShow devices.

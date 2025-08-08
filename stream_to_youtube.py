@@ -371,7 +371,7 @@ def run_ffmpeg_direct(stream_url: str, audio_device: str = "hw:1,0") -> int:
         "-f",
         "v4l2",
         "-input_format",
-        "yuyv422",
+        "mjpeg",
         "-video_size",
         "640x480",
         "-framerate",
@@ -387,7 +387,7 @@ def run_ffmpeg_direct(stream_url: str, audio_device: str = "hw:1,0") -> int:
         "-i",
         audio_device,
         "-vf",
-        "format=yuv420p",  # Convert raw YUYV422 input for encoder compatibility
+        "format=yuv420p",  # Ensure encoder-compatible format
         "-c:v",
         "h264_v4l2m2m",
         "-preset",

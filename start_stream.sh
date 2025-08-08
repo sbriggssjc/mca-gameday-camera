@@ -53,7 +53,7 @@ mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/start_stream_$(date +%Y%m%d_%H%M%S).log"
 
 cmd=(ffmpeg -loglevel verbose \
-    -f v4l2 -input_format yuyv422 -framerate 30 -video_size 640x480 -i /dev/video0 \
+    -f v4l2 -input_format mjpeg -framerate 30 -video_size 640x480 -i /dev/video0 \
     -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 \
     -vf format=yuv420p \
     -c:v h264_v4l2m2m -preset ultrafast \
