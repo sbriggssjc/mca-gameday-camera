@@ -33,7 +33,7 @@ except Exception:
     psutil = None  # type: ignore
 from datetime import datetime
 from pathlib import Path
-from ffmpeg_utils import build_ffmpeg_args, run_ffmpeg_command
+from ffmpeg_utils import build_ffmpeg_args, run_ffmpeg_command, detect_encoder
 from config import StreamConfig, load_config
 
 try:
@@ -188,28 +188,6 @@ def detect_volume_gain(device: str, target_db: float = -15.0) -> float:
     default_gain = 2.5
     print(f"[AUDIO] Using default gain: {default_gain} dB")
     return default_gain
-
-
-def detect_encoder() -> str:
-    """Detect the preferred H.264 encoder.
-
-    ``h264_omx`` is intentionally skipped because it often produces 0kbps output
-    and FFmpeg broken pipe errors on Jetson devices. ``h264_nvmpi`` is used when
-    available, otherwise we fall back to the software ``libx264`` encoder.
-    """
-
-    try:
-        result = subprocess.run(
-            ["ffmpeg", "-encoders"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        if "h264_nvmpi" in result.stdout:
-            return "h264_nvmpi"
-        return "libx264"  # Do not use h264_omx
-    except Exception:
-        return "libx264"
 
 
 def ping_rtmp(url: str, timeout: int = 5) -> bool:
@@ -454,38 +432,6 @@ def system_monitor(stop_event: threading.Event) -> None:
             pass
         print(msg, flush=True)
         stop_event.wait(5)
-
-
-_ENCODER_CACHE: str | None = None
-
-
-def ffmpeg_encoder_available(name: str) -> bool:
-    """Check if a given encoder is listed by ffmpeg."""
-
-    global _ENCODER_CACHE
-    if _ENCODER_CACHE is None:
-        rc, stdout, _ = run_ffmpeg_command(["ffmpeg", "-encoders"], timeout=15)
-        if rc != 0:
-            return False
-        _ENCODER_CACHE = stdout
-    return name in _ENCODER_CACHE
-
-
-def get_available_video_encoder() -> str:
-    """Detect and return a supported H.264 encoder.
-
-    Only ``h264_nvmpi`` or ``libx264`` are considered. ``h264_omx`` is excluded
-    because it has proven unreliable, often yielding 0kbps output and broken
-    pipes.
-    """
-
-    for enc in ["h264_nvmpi", "libx264"]:
-        if ffmpeg_encoder_available(enc):
-            print(f"[DEBUG] Using encoder: {enc}")
-            return enc
-    raise RuntimeError(
-        "❌ No compatible H.264 encoder found (tried h264_nvmpi and libx264)."
-    )
 
 
 
