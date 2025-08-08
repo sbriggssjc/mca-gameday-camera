@@ -1213,7 +1213,11 @@ def main() -> None:
 
     def encoder_worker(stop_evt: threading.Event) -> None:
         nonlocal bytes_sent, ffmpeg_process, ffmpeg_command
+        target_fps = FPS or 30
+        frame_interval = 1.0 / target_fps
+        frame_count_local = 0
         while not stop_evt.is_set():
+            start_time = time.time()
             try:
                 frm = frame_queue.get(timeout=1)
             except queue.Empty:
@@ -1230,11 +1234,23 @@ def main() -> None:
                     frame_yuv = cv2.cvtColor(frm, cv2.COLOR_BGR2YUV_I420)
                     data = frame_yuv.tobytes()
                     ffmpeg_process.stdin.write(data)
+                    ffmpeg_process.stdin.flush()
                     bytes_sent += len(data)
+                    frame_count_local += 1
+                    if frame_count_local % 100 == 0:
+                        print(f"🟢 {frame_count_local} frames sent to FFmpeg")
+            except BrokenPipeError:
+                print("❌ FFmpeg pipe broken — exiting stream loop")
+                stop_evt.set()
+                break
             except Exception as e:
                 print(f"[❌ ERROR] Write to FFmpeg failed: {e}")
                 stop_evt.set()
                 break
+            elapsed = time.time() - start_time
+            delay = frame_interval - elapsed
+            if delay > 0:
+                time.sleep(delay)
 
     encode_stop = threading.Event()
     encode_thread = threading.Thread(
