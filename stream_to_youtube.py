@@ -729,7 +729,7 @@ def launch_ffmpeg(
 
     width, height, fps = WIDTH, HEIGHT, FPS
     video_encoder = detect_encoder()
-    print(f"[SELECTED ENCODER] {video_encoder}")
+    print("[INFO] Streaming via JPEG → FFmpeg image2pipe → RTMP using", video_encoder)
     log_dir = Path("livestream_logs")
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"ffmpeg_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -1225,9 +1225,13 @@ def main() -> None:
                 continue
             try:
                 if ffmpeg_process.stdin:
-                    data = frm.tobytes()
-                    ffmpeg_process.stdin.write(data)
-                    bytes_sent += len(data)
+                    is_success, jpeg_frame = cv2.imencode(
+                        ".jpg", frm, [cv2.IMWRITE_JPEG_QUALITY, 85]
+                    )
+                    if is_success:
+                        data = jpeg_frame.tobytes()
+                        ffmpeg_process.stdin.write(data)
+                        bytes_sent += len(data)
             except Exception as e:
                 print(f"[❌ ERROR] Write to FFmpeg failed: {e}")
                 stop_evt.set()
