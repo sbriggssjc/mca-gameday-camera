@@ -189,16 +189,27 @@ def main() -> None:
 
         frame_queue: Queue[bytes] = Queue(maxsize=30)
 
-        def encode_worker():
+        def encode_worker() -> None:
+            frame_interval = 1.0 / fps
+            frame_count = 0
             while True:
+                start_time = time.time()
                 frame_bytes = frame_queue.get()
                 if frame_bytes is None:
                     break
                 try:
                     process.stdin.write(frame_bytes)
+                    process.stdin.flush()
+                    frame_count += 1
+                    if frame_count % 100 == 0:
+                        print(f"🟢 {frame_count} frames sent to FFmpeg")
                 except BrokenPipeError:
-                    print("FFmpeg pipe closed unexpectedly.")
+                    print("❌ FFmpeg pipe broken — exiting stream loop")
                     break
+                elapsed = time.time() - start_time
+                delay = frame_interval - elapsed
+                if delay > 0:
+                    time.sleep(delay)
 
         encoder_thread = threading.Thread(target=encode_worker, daemon=True)
         encoder_thread.start()
