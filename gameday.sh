@@ -33,8 +33,8 @@ STREAM_PID=$!
 log "Starting full game recording..."
 FULLGAME_FILE="$FULL_DIR/fullgame_${TIMESTAMP}.mp4"
 LOG_FILE="$FULL_DIR/fullgame_ffmpeg.log"
-cmd=(ffmpeg -loglevel verbose -f v4l2 -framerate 30 -video_size 640x360 -i /dev/video0 \
-    -c:v libx264 -b:v 13500k -maxrate 13500k -bufsize 27000k -t 03:00:00 -pix_fmt yuv420p \
+cmd=(ffmpeg -loglevel verbose -f v4l2 -framerate 30 -video_size 426x240 -i /dev/video0 \
+    -c:v libx264 -b:v 2000k -maxrate 3000k -bufsize 4000k -t 03:00:00 -pix_fmt yuv420p \
     -c:a aac -b:a 128k "$FULLGAME_FILE")
 echo "Running FFmpeg command: ${cmd[*]}" | tee "$LOG_FILE"
 "${cmd[@]}" >>"$LOG_FILE" 2>&1 &
