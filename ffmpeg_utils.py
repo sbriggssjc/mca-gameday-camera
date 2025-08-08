@@ -150,9 +150,11 @@ def build_ffmpeg_args(
     if video_is_pipe:
         cmd += [
             "-f",
-            "image2pipe",
-            "-vcodec",
-            "mjpeg",
+            "rawvideo",
+            "-pix_fmt",
+            "yuv420p",
+            "-s",
+            resolution,
             "-r",
             str(framerate),
             "-i",

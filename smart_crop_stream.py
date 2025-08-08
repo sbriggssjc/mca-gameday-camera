@@ -9,7 +9,7 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
-from ffmpeg_utils import build_ffmpeg_args, detect_encoder
+from ffmpeg_utils import build_ffmpeg_args
 from queue import Queue, Full
 
 
@@ -134,8 +134,8 @@ def main() -> None:
 
     tracker = SmartAutoTracker()
 
-    video_encoder = detect_encoder("image2pipe")
-    print("[INFO] Streaming via JPEG → FFmpeg image2pipe → RTMP using", video_encoder)
+    video_encoder = "libx264"
+    print("[INFO] Streaming raw BGR → FFmpeg rawvideo → RTMP using", video_encoder)
 
     retries = 0
     max_retries = 1
@@ -226,13 +226,8 @@ def main() -> None:
                     raise ValueError(f"Crop frame has shape {crop.shape} and dtype {crop.dtype}")
                 print(f"Queuing frame of shape {crop.shape} for FFmpeg")
                 try:
-                    is_success, jpeg_frame = cv2.imencode(
-                        ".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 85]
-                    )
-                    if is_success:
-                        frame_queue.put_nowait(jpeg_frame.tobytes())
-                    else:
-                        print("[WARNING] JPEG encoding failed; dropping frame")
+                    frame_yuv = cv2.cvtColor(crop, cv2.COLOR_BGR2YUV_I420)
+                    frame_queue.put_nowait(frame_yuv.tobytes())
                 except Full:
                     print("[WARNING] Encoding queue full; dropping frame")
         except KeyboardInterrupt:
