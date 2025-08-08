@@ -56,7 +56,7 @@ def build_ffmpeg_args(
     output_url: str,
     audio_device: Optional[str],
     audio_gain_db: float = 0.0,
-    resolution: str = "1280x720",
+    resolution: str = "640x360",
     framerate: int = 30,
     video_codec: str = "libx264",
     video_is_pipe: bool = False,
@@ -86,7 +86,7 @@ def build_ffmpeg_args(
     audio_gain_db:
         Gain to apply via the ``volume`` filter in decibels.
     resolution:
-        Target resolution (e.g. ``"1280x720"``).
+        Target resolution (e.g. ``"640x360"``).
     framerate:
         Target frames per second.
     video_codec:

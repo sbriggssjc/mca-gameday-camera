@@ -285,9 +285,12 @@ def handle_ffmpeg_crash(process):
                     if ans.strip().lower() != "y":
                         abort_stream()
         if any(k in lower for k in ERROR_KEYWORDS):
-            print(
-                "[🚫 RTMP ERROR] Check your stream key, network, or YouTube Live dashboard.",
-            )
+            print("[🚨 STREAM FAILURE] FFmpeg died due to RTMP error. This is likely:")
+            print("  - YouTube Live not actively listening for stream")
+            print("  - Network blockage or dropped connection")
+            print("  - Too low FPS or broken pipe (check resolution + CPU)")
+            print("  - Stream key issue (though unlikely if previously working)")
+            print(f"  RTMP URL: {mask_stream_url(RTMP_URL)}")
     if restart_attempts > MAX_RESTART_ATTEMPTS:
         abort_stream()
     base_delay = 5
@@ -336,9 +339,12 @@ def handle_ffmpeg_crash_old(process):
         print(f"[FFMPEG STDERR] {stderr_output}")
         lower = stderr_output.lower()
         if any(k in lower for k in ERROR_KEYWORDS):
-            print(
-                "[🚫 RTMP ERROR] Check your stream key, network, or YouTube Live dashboard."
-            )
+            print("[🚨 STREAM FAILURE] FFmpeg died due to RTMP error. This is likely:")
+            print("  - YouTube Live not actively listening for stream")
+            print("  - Network blockage or dropped connection")
+            print("  - Too low FPS or broken pipe (check resolution + CPU)")
+            print("  - Stream key issue (though unlikely if previously working)")
+            print(f"  RTMP URL: {mask_stream_url(RTMP_URL)}")
     if restart_attempts > MAX_RESTART_ATTEMPTS:
         print("[🛑 ABORT] Too many FFmpeg failures.")
         sys.exit(1)
@@ -428,26 +434,32 @@ def system_monitor(stop_event: threading.Event) -> None:
         stop_event.wait(5)
 
 
+_ENCODER_CACHE: str | None = None
+
+
+def ffmpeg_encoder_available(name: str) -> bool:
+    """Check if a given encoder is listed by ffmpeg."""
+
+    global _ENCODER_CACHE
+    if _ENCODER_CACHE is None:
+        rc, stdout, _ = run_ffmpeg_command(["ffmpeg", "-encoders"], timeout=15)
+        if rc != 0:
+            return False
+        _ENCODER_CACHE = stdout
+    return name in _ENCODER_CACHE
+
+
 def get_available_video_encoder() -> str:
     """Detect and return a supported H.264 encoder."""
 
-    try:
-        rc, stdout, _ = run_ffmpeg_command(["ffmpeg", "-encoders"], timeout=15)
-        if rc != 0:
-            raise RuntimeError("ffmpeg -encoders failed")
-        encoders = stdout
-        if "h264_nvmpi" in encoders:
-            print("[DEBUG] Using encoder: h264_nvmpi")
-            return "h264_nvmpi"
-        elif "libx264" in encoders:
-            print("[DEBUG] Using encoder: libx264")
-            return "libx264"
-        else:
-            raise RuntimeError(
-                "❌ No compatible H.264 encoder found (tried h264_nvmpi and libx264)."
-            )
-    except Exception as e:  # pragma: no cover - defensive
-        raise RuntimeError(f"❌ Failed to detect available encoder: {e}")
+    for enc in ["h264_nvmpi", "libx264"]:
+        if ffmpeg_encoder_available(enc):
+            print(f"[DEBUG] Using encoder: {enc}")
+            return enc
+    raise RuntimeError(
+        "❌ No compatible H.264 encoder found (tried h264_nvmpi and libx264)."
+    )
+
 
 
 # SETTINGS
@@ -508,11 +520,19 @@ def generate_compliance_report(
 
     summary: list[dict[str, str | int]] = []
     for pid in sorted(play_counts.keys()):
+        if not str(pid).isdigit():
+            continue
         count = play_counts[pid]
         status_str = "Met" if count >= FINAL_MIN_PLAYS else "Below"
+        try:
+            player_id = int(pid)
+            player_name = roster.get_player_name(player_id)
+        except (ValueError, TypeError):
+            player_name = "UNKNOWN"
+        report_entry = f"#{pid} {player_name}"
         summary.append(
             {
-                "player": f"#{pid} {roster.get_player_name(int(pid))}",
+                "player": report_entry,
                 "plays": count,
                 "status": f"{'✅' if status_str == 'Met' else '❌'} {status_str}",
             }
@@ -736,14 +756,17 @@ def launch_ffmpeg(
     """
 
     width, height, fps = WIDTH, HEIGHT, FPS
+    available_encoders = ["h264_nvmpi", "libx264"]
     video_encoder = encoder
     if video_encoder == "auto":
-        try:
-            video_encoder = get_available_video_encoder()
-        except RuntimeError as exc:
-            print(f"❌ {exc}")
+        for enc in available_encoders:
+            if ffmpeg_encoder_available(enc):
+                video_encoder = enc
+                break
+        else:
+            print("❌ No compatible H.264 encoder found (tried h264_nvmpi and libx264).")
             return None
-    if video_encoder not in {"h264_nvmpi", "libx264"}:
+    elif video_encoder not in available_encoders:
         print(f"❌ Unsupported encoder: {video_encoder}")
         return None
     print("[SELECTED ENCODER]", video_encoder)
@@ -810,7 +833,12 @@ def launch_ffmpeg(
                 err = "\n".join(stderr_lines)
                 lower_err = err.lower()
                 if any(k in lower_err for k in ERROR_KEYWORDS):
-                    print("[🚫 RTMP ERROR] Check your stream key, network, or YouTube Live dashboard.")
+                    print("[🚨 STREAM FAILURE] FFmpeg died due to RTMP error. This is likely:")
+                    print("  - YouTube Live not actively listening for stream")
+                    print("  - Network blockage or dropped connection")
+                    print("  - Too low FPS or broken pipe (check resolution + CPU)")
+                    print("  - Stream key issue (though unlikely if previously working)")
+                    print(f"  RTMP URL: {mask_stream_url(RTMP_URL)}")
                     log_fp.write(err + "\n")
                     log_fp.flush()
                     if retry:
@@ -1316,6 +1344,8 @@ def main() -> None:
         elapsed_secs = int(now_check - start)
         if elapsed_secs >= HALFTIME_SECS:
             for pid, cnt in play_counts.items():
+                if not str(pid).isdigit():
+                    continue
                 if cnt < HALFTIME_MIN_PLAYS and pid not in halftime_alerted:
                     msg = (
                         f"[\u26A0\uFE0F ALERT] #{pid} {roster.get_player_name(int(pid))} "
@@ -1328,6 +1358,8 @@ def main() -> None:
             remaining = max(HALFTIME_SECS * 2 - elapsed_secs, 0)
             mins, secs = divmod(remaining, 60)
             for pid, cnt in play_counts.items():
+                if not str(pid).isdigit():
+                    continue
                 if cnt < FINAL_MIN_PLAYS and pid not in final_alerted:
                     msg = (
                         f"[\U0001F6A8 FINAL WARNING] #{pid} {roster.get_player_name(int(pid))} "
@@ -1353,6 +1385,8 @@ def main() -> None:
         prev_clock_secs = clock_secs
         remaining_secs = clock_secs + (HALFTIME_SECS if game_half == 1 else 0)
         for pid, cnt in play_counts.items():
+            if not str(pid).isdigit():
+                continue
             if cnt >= 7:
                 if pid in sub_state:
                     sub_state.pop(pid)
