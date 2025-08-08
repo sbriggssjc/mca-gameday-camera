@@ -65,7 +65,7 @@ dedicated subfolder named after the game timestamp.
 Additional options:
 
 ```bash
-python stream_to_youtube.py --output-size 640x360 --debug
+python stream_to_youtube.py --output-size 426x240 --debug
 ```
 
 ## Requirements
@@ -93,7 +93,7 @@ This repository contains simple utilities for analyzing football plays.
   and a `classify_play` function to label short clips using a pretrained video model.
   Run `python play_classifier.py --folder clips/ --output predictions.json` to classify
   a directory of clips.
-- `record_video.py` – records 640x360 video from /dev/video0 to output.mp4
+- `record_video.py` – records 426x240 video from /dev/video0 to output.mp4
 - `highlight_recorder.py` – automatically captures 10-second clips when motion is detected
 - `play_recognizer.py` – identifies plays based on formations in `mca_playbook.json` and writes results to `play_log.json`.
 - `practice_trainer.py` – analyzes labeled practice clips and stores motion
