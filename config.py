@@ -16,7 +16,7 @@ except Exception:  # pragma: no cover - fallback if YAML not installed
 class StreamConfig:
     """Central configuration for streaming parameters."""
 
-    resolution: str = "426x240"
+    resolution: str = "640x480"
     fps: int = 30
     mic_device: str = "hw:1,0"
     gain_boost: float = 3.0
@@ -24,7 +24,7 @@ class StreamConfig:
     encoder: str = "auto"
     preset: str = "veryfast"
     maxrate: str = "3000k"
-    bitrate: str = "2000k"
+    bitrate: str = "2500k"
     bufsize: str = "4000k"
     camera: int = 0
     model: str = "models/play_classifier/latest.pt"
