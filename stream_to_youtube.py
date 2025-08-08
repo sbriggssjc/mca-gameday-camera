@@ -728,7 +728,7 @@ def launch_ffmpeg(
     """
 
     width, height, fps = WIDTH, HEIGHT, FPS
-    video_encoder = detect_encoder()
+    video_encoder = detect_encoder("image2pipe")
     print("[INFO] Streaming via JPEG → FFmpeg image2pipe → RTMP using", video_encoder)
     log_dir = Path("livestream_logs")
     log_dir.mkdir(exist_ok=True)
