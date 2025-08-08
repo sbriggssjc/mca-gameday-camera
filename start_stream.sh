@@ -53,10 +53,10 @@ mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/start_stream_$(date +%Y%m%d_%H%M%S).log"
 
 cmd=(ffmpeg -loglevel verbose \
-    -f v4l2 -framerate 30 -video_size 640x360 -i /dev/video0 \
+    -f v4l2 -framerate 30 -video_size 426x240 -i /dev/video0 \
     -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 \
     -c:v libx264 -preset veryfast -pix_fmt yuv420p \
-    -b:v 13500k -maxrate 13500k -bufsize 27000k -g 60 \
+    -b:v 2000k -maxrate 3000k -bufsize 4000k -g 60 \
     -c:a aac -b:a 128k \
     -f flv "$YOUTUBE_URL")
 
