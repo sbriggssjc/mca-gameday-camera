@@ -191,7 +191,13 @@ def detect_volume_gain(device: str, target_db: float = -15.0) -> float:
 
 
 def detect_encoder() -> str:
-    """Detect and return the best available H.264 encoder."""
+    """Detect the preferred H.264 encoder.
+
+    ``h264_omx`` is intentionally skipped because it often produces 0kbps output
+    and FFmpeg broken pipe errors on Jetson devices. ``h264_nvmpi`` is used when
+    available, otherwise we fall back to the software ``libx264`` encoder.
+    """
+
     try:
         result = subprocess.run(
             ["ffmpeg", "-encoders"],
@@ -201,10 +207,7 @@ def detect_encoder() -> str:
         )
         if "h264_nvmpi" in result.stdout:
             return "h264_nvmpi"
-        elif "h264_omx" in result.stdout:
-            return "h264_omx"
-        else:
-            return "libx264"
+        return "libx264"  # Do not use h264_omx
     except Exception:
         return "libx264"
 
@@ -469,7 +472,12 @@ def ffmpeg_encoder_available(name: str) -> bool:
 
 
 def get_available_video_encoder() -> str:
-    """Detect and return a supported H.264 encoder."""
+    """Detect and return a supported H.264 encoder.
+
+    Only ``h264_nvmpi`` or ``libx264`` are considered. ``h264_omx`` is excluded
+    because it has proven unreliable, often yielding 0kbps output and broken
+    pipes.
+    """
 
     for enc in ["h264_nvmpi", "libx264"]:
         if ffmpeg_encoder_available(enc):
