@@ -9,7 +9,7 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
-from ffmpeg_utils import build_ffmpeg_args
+from ffmpeg_utils import build_ffmpeg_args, detect_encoder
 from queue import Queue, Full
 
 
@@ -134,7 +134,11 @@ def main() -> None:
 
     tracker = SmartAutoTracker()
 
-    video_encoder = "libx264"
+    try:
+        video_encoder = detect_encoder()
+    except RuntimeError as exc:
+        print(exc)
+        return
     print("[INFO] Streaming raw BGR → FFmpeg rawvideo → RTMP using", video_encoder)
 
     retries = 0
