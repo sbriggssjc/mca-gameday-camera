@@ -70,7 +70,13 @@ def log_ffmpeg_stderr(stderr, log_file=None, buffer=None) -> None:
         print("[FFMPEG]", text, end="")
 
 
-def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Path) -> list[str]:
+def build_ffmpeg_command(
+    url: str,
+    size: tuple[int, int],
+    fps: float,
+    output: Path,
+    video_encoder: str,
+) -> list[str]:
     width, height = size
     return build_ffmpeg_args(
         video_source="-",
@@ -79,7 +85,7 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Pa
         audio_gain_db=0.0,
         resolution=f"{width}x{height}",
         framerate=int(fps),
-        video_codec=detect_encoder(),
+        video_codec=video_encoder,
         video_is_pipe=True,
         extra_args=[
             "-maxrate",
@@ -128,6 +134,9 @@ def main() -> None:
 
     tracker = SmartAutoTracker()
 
+    video_encoder = detect_encoder()
+    print("[INFO] Streaming via JPEG → FFmpeg image2pipe → RTMP using", video_encoder)
+
     retries = 0
     max_retries = 1
     while True:
@@ -135,7 +144,7 @@ def main() -> None:
         output_dir = Path("video")
         output_dir.mkdir(exist_ok=True)
         record_file = output_dir / f"game_{timestamp}.mp4"
-        cmd = build_ffmpeg_command(url, (out_width, out_height), fps, record_file)
+        cmd = build_ffmpeg_command(url, (out_width, out_height), fps, record_file, video_encoder)
         log_dir = Path("livestream_logs")
         log_dir.mkdir(exist_ok=True)
         log_file = log_dir / f"smart_crop_{timestamp}.log"
@@ -217,7 +226,13 @@ def main() -> None:
                     raise ValueError(f"Crop frame has shape {crop.shape} and dtype {crop.dtype}")
                 print(f"Queuing frame of shape {crop.shape} for FFmpeg")
                 try:
-                    frame_queue.put_nowait(crop.astype(np.uint8).tobytes())
+                    is_success, jpeg_frame = cv2.imencode(
+                        ".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 85]
+                    )
+                    if is_success:
+                        frame_queue.put_nowait(jpeg_frame.tobytes())
+                    else:
+                        print("[WARNING] JPEG encoding failed; dropping frame")
                 except Full:
                     print("[WARNING] Encoding queue full; dropping frame")
         except KeyboardInterrupt:
