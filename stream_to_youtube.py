@@ -359,6 +359,73 @@ def is_ffmpeg_alive(process) -> bool:
     return process is not None and process.poll() is None
 
 
+def run_ffmpeg_direct(stream_url: str, audio_device: str = "hw:1,0") -> int:
+    """Stream directly from V4L2 and ALSA to RTMP using Jetson hardware encoder.
+
+    This bypasses OpenCV frame capture and pipes the raw camera feed directly
+    to FFmpeg so that the Jetson's ``h264_v4l2m2m`` encoder can operate at full
+    speed.
+    """
+    ffmpeg_command = [
+        "ffmpeg",
+        "-f",
+        "v4l2",
+        "-input_format",
+        "yuv420p",
+        "-video_size",
+        "426x240",
+        "-framerate",
+        "30",
+        "-i",
+        "/dev/video0",
+        "-f",
+        "alsa",
+        "-ac",
+        "1",
+        "-ar",
+        "44100",
+        "-i",
+        audio_device,
+        "-c:v",
+        "h264_v4l2m2m",
+        "-preset",
+        "ultrafast",
+        "-b:v",
+        "2000k",
+        "-bufsize",
+        "4000k",
+        "-maxrate",
+        "3000k",
+        "-g",
+        "60",
+        "-keyint_min",
+        "30",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-ar",
+        "44100",
+        "-ac",
+        "1",
+        "-af",
+        "volume=3.0dB",
+        "-f",
+        "flv",
+        stream_url,
+    ]
+    process = subprocess.Popen(
+        ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
+    assert process.stdout is not None
+    try:
+        for line in process.stdout:
+            print(line, end="")
+    except KeyboardInterrupt:
+        process.terminate()
+    return process.wait()
+
+
 def monitor_audio_level(
     device: str, stop_event: threading.Event, threshold_db: float = -60.0
 ) -> None:
@@ -1069,6 +1136,12 @@ def main() -> None:
         return
 
     print(f"📡 Streaming to: {mask_stream_url(RTMP_URL)}")
+
+    # Stream directly with FFmpeg using the Jetson hardware encoder. This
+    # bypasses the prior OpenCV capture loop and avoids Python-based frame
+    # piping that caused low FPS on the device.
+    run_ffmpeg_direct(RTMP_URL, args.mic_device or "hw:1,0")
+    return
 
     global WIDTH, HEIGHT, FPS
     try:
