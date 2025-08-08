@@ -190,17 +190,17 @@ def build_ffmpeg_args(
 
     if video_codec == "libx264":
         encoder_flags = [
+            "-vf",
+            "format=yuv420p",
             "-c:v",
             video_codec,
             "-preset",
             preset,
             "-tune",
             "zerolatency",
-            "-pix_fmt",
-            "yuv420p",
         ]
     else:
-        encoder_flags = ["-c:v", video_codec, "-pix_fmt", "yuv420p"]
+        encoder_flags = ["-vf", "format=yuv420p", "-c:v", video_codec]
 
     cmd += encoder_flags + [
         "-b:v",

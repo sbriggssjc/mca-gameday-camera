@@ -386,10 +386,10 @@ def run_ffmpeg_direct(stream_url: str, audio_device: str = "hw:1,0") -> int:
         "44100",
         "-i",
         audio_device,
+        "-vf",
+        "format=yuv420p",  # Convert raw YUYV422 input for encoder compatibility
         "-c:v",
         "h264_v4l2m2m",
-        "-pix_fmt",
-        "yuv420p",
         "-preset",
         "ultrafast",
         "-b:v",

@@ -34,7 +34,8 @@ log "Starting full game recording..."
 FULLGAME_FILE="$FULL_DIR/fullgame_${TIMESTAMP}.mp4"
 LOG_FILE="$FULL_DIR/fullgame_ffmpeg.log"
 cmd=(ffmpeg -loglevel verbose -f v4l2 -input_format yuyv422 -framerate 30 -video_size 640x480 -i /dev/video0 \
-    -c:v h264_v4l2m2m -pix_fmt yuv420p -b:v 2500k -maxrate 3000k -bufsize 4000k -t 03:00:00 \
+    -vf format=yuv420p \
+    -c:v h264_v4l2m2m -preset ultrafast -b:v 2500k -maxrate 3000k -bufsize 4000k -t 03:00:00 \
     -c:a aac -b:a 128k "$FULLGAME_FILE")
 echo "Running FFmpeg command: ${cmd[*]}" | tee "$LOG_FILE"
 "${cmd[@]}" >>"$LOG_FILE" 2>&1 &
