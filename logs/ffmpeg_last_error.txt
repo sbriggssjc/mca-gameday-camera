@@ -14,9 +14,9 @@ Input #0, rawvideo, from 'pipe:':
   Stream #0:0: Video: rawvideo, 1 reference frame (BGR[24] / 0x18524742), bgr24, 640x360, 165888 kb/s, 30 tbr, 30 tbn, 30 tbc
 Guessed Channel Layout for Input Stream #1.0 : mono
 Input #1, alsa, from 'hw:1,0':
-  Duration: N/A, start: 1754660071.329167, bitrate: 768 kb/s
+  Duration: N/A, start: 1754662892.398629, bitrate: 768 kb/s
   Stream #1:0: Audio: pcm_s16le, 48000 Hz, mono, s16, 768 kb/s
-[tcp @ 0xaaab11bd69c0] Starting connection attempt to 2607:f8b0:4002:c2c::86 port 1935
-[tcp @ 0xaaab11bd69c0] Successfully connected to 2607:f8b0:4002:c2c::86 port 1935
+[tcp @ 0xaaaaf596f9c0] Starting connection attempt to 2607:f8b0:4002:c2c::86 port 1935
+[tcp @ 0xaaaaf596f9c0] Successfully connected to 2607:f8b0:4002:c2c::86 port 1935
 rtmp://a.rtmp.youtube.com/live2/STREAM_KEY: Input/output error
-[AVIOContext @ 0xaaab11bcc260] Statistics: 719872 bytes read, 0 seeks
+[AVIOContext @ 0xaaaaf5965260] Statistics: 719872 bytes read, 0 seeks
