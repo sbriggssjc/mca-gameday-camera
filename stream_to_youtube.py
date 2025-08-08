@@ -33,7 +33,7 @@ except Exception:
     psutil = None  # type: ignore
 from datetime import datetime
 from pathlib import Path
-from ffmpeg_utils import build_ffmpeg_args, run_ffmpeg_command
+from ffmpeg_utils import build_ffmpeg_args, run_ffmpeg_command, detect_encoder
 from config import StreamConfig, load_config
 
 try:
@@ -728,7 +728,11 @@ def launch_ffmpeg(
     """
 
     width, height, fps = WIDTH, HEIGHT, FPS
-    video_encoder = "libx264"
+    try:
+        video_encoder = detect_encoder()
+    except RuntimeError as e:
+        print(e)
+        return None
     print("[INFO] Streaming raw BGR → FFmpeg rawvideo → RTMP using", video_encoder)
     log_dir = Path("livestream_logs")
     log_dir.mkdir(exist_ok=True)
