@@ -100,7 +100,7 @@ def build_ffmpeg_args(
     audio_gain_db: float = 0.0,
     resolution: str = "426x240",
     framerate: int = 30,
-    video_codec: str = "libx264",
+    video_codec: str = "h264_v4l2m2m",
     video_is_pipe: bool = False,
     video_format: str = "v4l2",
     preset: str = "veryfast",
@@ -132,7 +132,7 @@ def build_ffmpeg_args(
     framerate:
         Target frames per second.
     video_codec:
-        Video encoder to use (defaults to ``libx264``).
+        Video encoder to use (defaults to ``h264_v4l2m2m``).
     video_is_pipe:
         If True, treat ``video_source`` as raw frames on stdin.
     video_format:
