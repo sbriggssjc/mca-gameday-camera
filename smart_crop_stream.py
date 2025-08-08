@@ -59,6 +59,13 @@ def ensure_ffmpeg() -> str:
 
 
 def select_codec() -> str:
+    """Return the preferred H.264 encoder.
+
+    ``h264_omx`` is deliberately ignored because it frequently causes broken
+    pipes and 0kbps output. We use ``h264_nvmpi`` when available, otherwise fall
+    back to ``libx264``.
+    """
+
     try:
         rc, stdout, _ = run_ffmpeg_command(["ffmpeg", "-encoders"], timeout=15)
         if rc == 0 and "h264_nvmpi" in stdout:
