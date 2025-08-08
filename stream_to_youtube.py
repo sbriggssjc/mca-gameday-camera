@@ -33,7 +33,7 @@ except Exception:
     psutil = None  # type: ignore
 from datetime import datetime
 from pathlib import Path
-from ffmpeg_utils import build_ffmpeg_args, run_ffmpeg_command, detect_encoder
+from ffmpeg_utils import build_ffmpeg_args, run_ffmpeg_command
 from config import StreamConfig, load_config
 
 try:
@@ -728,8 +728,8 @@ def launch_ffmpeg(
     """
 
     width, height, fps = WIDTH, HEIGHT, FPS
-    video_encoder = detect_encoder("image2pipe")
-    print("[INFO] Streaming via JPEG → FFmpeg image2pipe → RTMP using", video_encoder)
+    video_encoder = "libx264"
+    print("[INFO] Streaming raw BGR → FFmpeg rawvideo → RTMP using", video_encoder)
     log_dir = Path("livestream_logs")
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"ffmpeg_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -1225,13 +1225,12 @@ def main() -> None:
                 continue
             try:
                 if ffmpeg_process.stdin:
-                    is_success, jpeg_frame = cv2.imencode(
-                        ".jpg", frm, [cv2.IMWRITE_JPEG_QUALITY, 85]
-                    )
-                    if is_success:
-                        data = jpeg_frame.tobytes()
-                        ffmpeg_process.stdin.write(data)
-                        bytes_sent += len(data)
+                    if frm.shape[:2] != (HEIGHT, WIDTH):
+                        frm = cv2.resize(frm, (WIDTH, HEIGHT))
+                    frame_yuv = cv2.cvtColor(frm, cv2.COLOR_BGR2YUV_I420)
+                    data = frame_yuv.tobytes()
+                    ffmpeg_process.stdin.write(data)
+                    bytes_sent += len(data)
             except Exception as e:
                 print(f"[❌ ERROR] Write to FFmpeg failed: {e}")
                 stop_evt.set()
