@@ -1,8 +1,8 @@
-resolution: 1280x720
+resolution: 640x360
 fps: 30
 mic_device: hw:1,0
 gain_boost: 3.0
 stream_key: rtmp://a.rtmp.youtube.com/live2/STREAM_KEY
-encoder: libx264
+encoder: auto
 preset: veryfast
 maxrate: 6000k
