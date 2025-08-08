@@ -9,7 +9,7 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
-from ffmpeg_utils import build_ffmpeg_args, run_ffmpeg_command
+from ffmpeg_utils import build_ffmpeg_args, detect_encoder
 from queue import Queue, Full
 
 
@@ -58,23 +58,6 @@ def ensure_ffmpeg() -> str:
     return path
 
 
-def select_codec() -> str:
-    """Return the preferred H.264 encoder.
-
-    ``h264_omx`` is deliberately ignored because it frequently causes broken
-    pipes and 0kbps output. We use ``h264_nvmpi`` when available, otherwise fall
-    back to ``libx264``.
-    """
-
-    try:
-        rc, stdout, _ = run_ffmpeg_command(["ffmpeg", "-encoders"], timeout=15)
-        if rc == 0 and "h264_nvmpi" in stdout:
-            return "h264_nvmpi"
-    except Exception:
-        pass
-    return "libx264"
-
-
 def log_ffmpeg_stderr(stderr, log_file=None, buffer=None) -> None:
     """Continuously read and print FFmpeg stderr."""
     for line in stderr:
@@ -96,7 +79,7 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Pa
         audio_gain_db=0.0,
         resolution=f"{width}x{height}",
         framerate=int(fps),
-        video_codec=select_codec(),
+        video_codec=detect_encoder(),
         video_is_pipe=True,
         extra_args=[
             "-maxrate",
