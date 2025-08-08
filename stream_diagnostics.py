@@ -54,11 +54,11 @@ def test_stream(url: str | None = None, *, duration: int = 5, log_path: str = "t
 
         log.write("\nStarting ffmpeg test stream...\n")
         cmd = build_ffmpeg_args(
-            video_source="testsrc=size=1280x720:rate=30",
+            video_source="testsrc=size=640x360:rate=30",
             audio_device=None,
             output_url=url,
             audio_gain_db=0.0,
-            resolution="1280x720",
+            resolution="640x360",
             framerate=30,
             video_format="lavfi",
             extra_args=["-t", str(duration)],
