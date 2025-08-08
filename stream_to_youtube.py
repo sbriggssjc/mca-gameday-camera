@@ -190,6 +190,25 @@ def detect_volume_gain(device: str, target_db: float = -15.0) -> float:
     return default_gain
 
 
+def detect_encoder() -> str:
+    """Detect and return the best available H.264 encoder."""
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-encoders"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if "h264_nvmpi" in result.stdout:
+            return "h264_nvmpi"
+        elif "h264_omx" in result.stdout:
+            return "h264_omx"
+        else:
+            return "libx264"
+    except Exception:
+        return "libx264"
+
+
 def ping_rtmp(url: str, timeout: int = 5) -> bool:
     """Return True if the RTMP endpoint is reachable."""
 
@@ -737,7 +756,6 @@ def launch_ffmpeg(
     mic_input: str,
     volume_gain_db: float,
     *,
-    encoder: str,
     record_path: str | None,
     preset: str,
     bitrate: str,
@@ -756,20 +774,8 @@ def launch_ffmpeg(
     """
 
     width, height, fps = WIDTH, HEIGHT, FPS
-    available_encoders = ["h264_nvmpi", "libx264"]
-    video_encoder = encoder
-    if video_encoder == "auto":
-        for enc in available_encoders:
-            if ffmpeg_encoder_available(enc):
-                video_encoder = enc
-                break
-        else:
-            print("❌ No compatible H.264 encoder found (tried h264_nvmpi and libx264).")
-            return None
-    elif video_encoder not in available_encoders:
-        print(f"❌ Unsupported encoder: {video_encoder}")
-        return None
-    print("[SELECTED ENCODER]", video_encoder)
+    video_encoder = detect_encoder()
+    print(f"[SELECTED ENCODER] {video_encoder}")
     log_dir = Path("livestream_logs")
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"ffmpeg_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -848,7 +854,6 @@ def launch_ffmpeg(
                         return launch_ffmpeg(
                             mic_input,
                             volume_gain_db,
-                            encoder=encoder,
                             record_path=record_path,
                             preset=preset,
                             bitrate=reduced,
@@ -883,7 +888,6 @@ def restart_ffmpeg(
     mic_input: str,
     volume_gain_db: float,
     *,
-    encoder: str,
     record_path: str | None,
     preset: str,
     bitrate: str,
@@ -924,7 +928,6 @@ def restart_ffmpeg(
     return launch_ffmpeg(
         mic_input,
         volume_gain_db,
-        encoder=encoder,
         record_path=record_path,
         preset=preset,
         bitrate=bitrate,
@@ -1212,7 +1215,6 @@ def main() -> None:
     ffmpeg_process = launch_ffmpeg(
         mic_input,
         volume_gain_db,
-        encoder=cfg.encoder,
         record_path=record_path,
         preset=cfg.preset,
         bitrate=cfg.bitrate,
