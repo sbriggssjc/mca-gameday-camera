@@ -10,13 +10,13 @@ ffmpeg version 4.4.2-1ubuntu0.1 Copyright (c) 2000-2021 the FFmpeg developers
   libswresample   3.  9.100 /  3.  9.100
   libpostproc    55.  9.100 / 55.  9.100
 Input #0, rawvideo, from 'pipe:':
-  Duration: N/A, start: 0.000000, bitrate: 165888 kb/s
-  Stream #0:0: Video: rawvideo, 1 reference frame (BGR[24] / 0x18524742), bgr24, 640x360, 165888 kb/s, 30 tbr, 30 tbn, 30 tbc
+  Duration: N/A, start: 0.000000, bitrate: 82944 kb/s
+  Stream #0:0: Video: rawvideo, 1 reference frame (I420 / 0x30323449), yuv420p, 640x360, 82944 kb/s, 30 tbr, 30 tbn, 30 tbc
 Guessed Channel Layout for Input Stream #1.0 : mono
 Input #1, alsa, from 'hw:1,0':
-  Duration: N/A, start: 1754662892.398629, bitrate: 768 kb/s
+  Duration: N/A, start: 1754679800.099814, bitrate: 768 kb/s
   Stream #1:0: Audio: pcm_s16le, 48000 Hz, mono, s16, 768 kb/s
-[tcp @ 0xaaaaf596f9c0] Starting connection attempt to 2607:f8b0:4002:c2c::86 port 1935
-[tcp @ 0xaaaaf596f9c0] Successfully connected to 2607:f8b0:4002:c2c::86 port 1935
+[tcp @ 0xaaab09986a80] Starting connection attempt to 2607:f8b0:4002:c03::86 port 1935
+[tcp @ 0xaaab09986a80] Successfully connected to 2607:f8b0:4002:c03::86 port 1935
 rtmp://a.rtmp.youtube.com/live2/STREAM_KEY: Input/output error
-[AVIOContext @ 0xaaaaf5965260] Statistics: 719872 bytes read, 0 seeks
+[AVIOContext @ 0xaaab0997c2a0] Statistics: 392192 bytes read, 0 seeks
