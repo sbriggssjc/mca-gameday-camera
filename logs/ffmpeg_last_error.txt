@@ -16,7 +16,7 @@ Guessed Channel Layout for Input Stream #1.0 : mono
 Input #1, alsa, from 'hw:1,0':
   Duration: N/A, start: 1754681365.109665, bitrate: 768 kb/s
   Stream #1:0: Audio: pcm_s16le, 48000 Hz, mono, s16, 768 kb/s
-[tcp @ 0xaaaafb3bba80] Starting connection attempt to 2607:f8b0:4002:c09::86 port 1935
-[tcp @ 0xaaaafb3bba80] Successfully connected to 2607:f8b0:4002:c09::86 port 1935
-rtmp://a.rtmp.youtube.com/live2/STREAM_KEY: Input/output error
+[tcp @ 0xaaaafb3bba80] Starting connection attempt to 2607:f8b0:4002:c09::86 port 443
+[tcp @ 0xaaaafb3bba80] Successfully connected to 2607:f8b0:4002:c09::86 port 443
+rtmps://a.rtmps.youtube.com/live2/xcuz-3x1d-9y7v-ghec-2xmh: Input/output error
 [AVIOContext @ 0xaaaafb3b12a0] Statistics: 196128 bytes read, 0 seeks

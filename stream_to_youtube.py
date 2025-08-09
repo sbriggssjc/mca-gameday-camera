@@ -59,7 +59,7 @@ def _halve_bitrate(value: str) -> str:
 
 
 def _run_rtmp_test(url: str) -> None:
-    """Run a short FFmpeg dry run to verify RTMP connectivity."""
+    """Run a short FFmpeg dry run to verify RTMP(S) connectivity."""
     test_cmd = [
         "ffmpeg",
         "-loglevel",
@@ -83,7 +83,7 @@ def _run_rtmp_test(url: str) -> None:
     ]
     rc, _, stderr = run_ffmpeg_command(test_cmd, timeout=10)
     if rc != 0:
-        print("[RTMP TEST] Unable to reach RTMP URL:")
+        print("[RTMP TEST] Unable to reach RTMP(S) URL:")
         print(stderr)
 
 
@@ -191,11 +191,11 @@ def detect_volume_gain(device: str, target_db: float = -15.0) -> float:
 
 
 def ping_rtmp(url: str, timeout: int = 5) -> bool:
-    """Return True if the RTMP endpoint is reachable."""
+    """Return True if the RTMP(S) endpoint is reachable."""
 
     parsed = urlparse(url)
     host = parsed.hostname
-    port = parsed.port or 1935
+    port = parsed.port or (443 if parsed.scheme == "rtmps" else 1935)
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return True
@@ -204,8 +204,8 @@ def ping_rtmp(url: str, timeout: int = 5) -> bool:
         return False
 
 
-def diagnose_rtmp_connection(host: str = "a.rtmp.youtube.com", port: int = 1935) -> None:
-    """Diagnose DNS and TCP connectivity to the RTMP host."""
+def diagnose_rtmp_connection(host: str = "a.rtmps.youtube.com", port: int = 443) -> None:
+    """Diagnose DNS and TCP connectivity to the RTMP(S) host."""
 
     try:
         ip = socket.gethostbyname(host)
@@ -272,7 +272,7 @@ def handle_ffmpeg_crash(process):
         Path("logs").mkdir(exist_ok=True)
         with Path("logs/ffmpeg_last_error.txt").open("w", encoding="utf-8") as fp:
             fp.write(stderr_output)
-        RTMP_REACHABLE = ping_rtmp("rtmp://a.rtmp.youtube.com/live2")
+        RTMP_REACHABLE = ping_rtmp("rtmps://a.rtmps.youtube.com/live2")
         lower = stderr_output.lower()
         if "input/output error" in lower:
             IO_ERROR_COUNT += 1
@@ -360,7 +360,7 @@ def is_ffmpeg_alive(process) -> bool:
 
 
 def run_ffmpeg_direct(stream_url: str, audio_device: str = "hw:1,0") -> int:
-    """Stream directly from V4L2 and ALSA to RTMP using Jetson hardware encoder.
+    """Stream directly from V4L2 and ALSA to RTMP(S) using Jetson hardware encoder.
 
     This bypasses OpenCV frame capture and pipes the raw camera feed directly
     to FFmpeg so that the Jetson's ``h264_v4l2m2m`` encoder can operate at full
@@ -541,7 +541,7 @@ FINAL_MIN_PLAYS = 7
 
 
 def validate_rtmp_url(url: str) -> bool:
-    """Basic validation for RTMP URLs."""
+    """Basic validation for RTMP(S) URLs."""
     parsed = urlparse(url)
     return parsed.scheme in {"rtmp", "rtmps"} and bool(parsed.netloc) and bool(parsed.path)
 
@@ -1039,7 +1039,7 @@ def main() -> None:
         "--filename",
         help="Base name for output files; timestamp and .mp4 will be appended",
     )
-    parser.add_argument("--stream_key", default=None, help="RTMP stream URL")
+    parser.add_argument("--stream_key", default=None, help="RTMP(S) stream URL")
     parser.add_argument(
         "--mic_device",
         dest="mic_device",
@@ -1125,7 +1125,7 @@ def main() -> None:
     print(f"[DEBUG] Using stream URL: {stream_url}")
 
     global RTMP_URL, RTMP_REACHABLE
-    RTMP_REACHABLE = ping_rtmp("rtmp://a.rtmp.youtube.com/live2")
+    RTMP_REACHABLE = ping_rtmp("rtmps://a.rtmps.youtube.com/live2")
     if not RTMP_REACHABLE and not args.diagnose_only:
         print("❌ Preflight check failed: cannot reach YouTube RTMP server")
         return
