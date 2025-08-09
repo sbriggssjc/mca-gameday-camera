@@ -12,7 +12,7 @@ Gameday Readiness Audit
 Run:  python -m tools.audit_gameday --repo-root .
 """
 
-import os, re, sys, json, ast, subprocess, shlex, textwrap
+import os, re, sys, json, ast, subprocess, shlex, textwrap, shutil
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 
@@ -99,8 +99,10 @@ def ast_audit(py_path: Path) -> Dict[str, Any]:
                 mod = getattr(node, "module", None)
                 names = [n.name for n in node.names]
                 result["imports"].append({"module": mod, "names": names})
-            except Exception:
-                pass
+            except Exception as e:
+                result["issues"].append(
+                    f"Unhandled exception: {e.__class__.__name__}: {e}"
+                )
 
     # Functions / Classes
     def has_logging_calls(body) -> bool:
@@ -164,27 +166,40 @@ def stream_runtime_checks() -> Dict[str, Any]:
         checks["env"][var] = os.environ.get(var, "")
 
     # FFmpeg presence and version
-    rc, out = sh(["ffmpeg", "-version"])
-    checks["ffmpeg"]["present"] = (rc == 0)
-    checks["ffmpeg"]["version"] = out.splitlines()[0] if out else "unknown"
+    if shutil.which("ffmpeg"):
+        rc, out = sh(["ffmpeg", "-version"])
+        checks["ffmpeg"]["present"] = (rc == 0)
+        checks["ffmpeg"]["version"] = out.splitlines()[0] if out else "unknown"
 
-    # Encoders
-    rc, enc = sh(["ffmpeg", "-hide_banner", "-encoders"])
-    checks["encoders"]["available"] = enc.strip() if rc == 0 else f"error rc={rc}"
-    for cand in ["h264_v4l2m2m", "h264_nvmpi", "h264_omx", "libx264", "aac"]:
-        checks["encoders"][cand] = (cand in enc) if rc == 0 else False
+        # Encoders
+        rc, enc = sh(["ffmpeg", "-hide_banner", "-encoders"])
+        checks["encoders"]["available"] = enc.strip() if rc == 0 else f"error rc={rc}"
+        for cand in ["h264_v4l2m2m", "h264_nvmpi", "h264_omx", "libx264", "aac"]:
+            checks["encoders"][cand] = (cand in enc) if rc == 0 else False
+    else:
+        checks["ffmpeg"]["present"] = False
+        checks["ffmpeg"]["version"] = "ffmpeg not found"
+        checks["encoders"]["available"] = "ffmpeg not found"
+        for cand in ["h264_v4l2m2m", "h264_nvmpi", "h264_omx", "libx264", "aac"]:
+            checks["encoders"][cand] = False
 
     # V4L2 devices
     rc, ls = sh(["bash","-lc","ls /dev/video* 2>/dev/null || true"])
     checks["devices"]["video"] = ls.strip().split() if ls else []
     # Quick formats probe for /dev/video0 if present
     if checks["devices"]["video"]:
-        rc, fmt = sh(["bash","-lc","v4l2-ctl --list-formats-ext 2>/dev/null || true"])
-        checks["v4l2"]["formats"] = fmt.strip().splitlines()[:200]
+        if shutil.which("v4l2-ctl"):
+            rc, fmt = sh(["bash","-lc","v4l2-ctl --list-formats-ext 2>/dev/null || true"])
+            checks["v4l2"]["formats"] = fmt.strip().splitlines()[:200]
+        else:
+            checks["v4l2"]["formats"] = ["v4l2-ctl not found"]
 
     # ALSA devices
-    rc, arec = sh(["arecord","-l"])
-    checks["alsa"]["cards"] = arec.strip().splitlines()[:200]
+    if shutil.which("arecord"):
+        rc, arec = sh(["arecord","-l"])
+        checks["alsa"]["cards"] = arec.strip().splitlines()[:200] if arec else []
+    else:
+        checks["alsa"]["cards"] = ["arecord not found"]
 
     return checks
 
