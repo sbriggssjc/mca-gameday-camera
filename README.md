@@ -68,6 +68,23 @@ Additional options:
 python stream_to_youtube.py --output-size 640x480 --debug
 ```
 
+### Audio tuning
+
+The mic input can be adjusted on the fly via environment variables. Defaults
+favor sideline speech but can be tweaked for different environments:
+
+```bash
+# Stronger leveling for a noisy crowd
+export AUDIO_MODE=crowd
+export AUDIO_GAIN_DB=10
+
+# Cut more wind/rumble
+export AUDIO_HIGHPASS=150
+
+# If things sound over-compressed
+export AUDIO_GAIN_DB=6  # or set AUDIO_MODE=off
+```
+
 ## Requirements
 
 - Python 3
