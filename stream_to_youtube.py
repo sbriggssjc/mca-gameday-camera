@@ -13,6 +13,7 @@ import argparse
 import signal
 import logging
 import shlex
+from env_loader import load_env, require
 
 import roster
 import csv
@@ -37,13 +38,10 @@ from pathlib import Path
 from ffmpeg_utils import build_ffmpeg_args, run_ffmpeg_command, detect_encoder
 from config import StreamConfig, load_config
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except Exception:
-    pass
+load_env()
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-YOUTUBE_URL = os.environ.get("YT_RTMP_URL", "<PUT_YOUR_RTMPS_URL_HERE>")
+YOUTUBE_URL = os.environ.get("YT_RTMP_URL") or require("YT_RTMP_URL")
 
 
 def ffmpeg_has_encoder(name: str) -> bool:
@@ -243,10 +241,10 @@ def run_with_retries(
             input_format=cfg["input_format"],
             use_wallclock_ts=cfg["use_ts"],
         )
-        print(
+        logging.info(
             f"[DEBUG] Attempt {i}/{len(attempts)} using encoder={cfg['encoder']} format={cfg['input_format']} wallclock_ts={cfg['use_ts']}"
         )
-        print("FFmpeg command:", " ".join(shlex.quote(c) for c in cmd))
+        logging.info("FFmpeg command:", " ".join(shlex.quote(c) for c in cmd))
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -270,14 +268,13 @@ def run_with_retries(
             rc = proc.wait()
 
         if rc == 0 and not (saw_v4l2_corrupt or saw_pts_drop):
-            print("[INFO] Stream ended cleanly.")
+            logging.info("[INFO] Stream ended cleanly.")
             return rc
         else:
-            print(
+            logging.info(
                 f"[WARN] Stream ended rc={rc}, v4l2_corrupt={saw_v4l2_corrupt}, pts_drop={saw_pts_drop}. Retrying…"
             )
-
-    print("[ERROR] All attempts failed.")
+    logging.info("[ERROR] All attempts failed.")
     return 1
 
 ERROR_KEYWORDS = (
@@ -321,10 +318,8 @@ def _run_rtmp_test(url: str) -> None:
     ]
     rc, _, stderr = run_ffmpeg_command(test_cmd, timeout=10)
     if rc != 0:
-        print("[RTMP TEST] Unable to reach RTMP(S) URL:")
-        print(stderr)
-
-
+        logging.info("[RTMP TEST] Unable to reach RTMP(S) URL:")
+        logging.info(stderr)
 def find_usb_microphone(default_device: str = "hw:1,0") -> str:
     """Return ALSA identifier for a USB/RØDE microphone if present.
 
@@ -368,18 +363,18 @@ def check_audio_input(device: str) -> bool:
             timeout=5,
         )
         if result.returncode != 0:
-            print(f"⚠️ ALSA device {device} not found")
+            logging.info(f"⚠️ ALSA device {device} not found")
             return False
         if not result.stdout:
-            print(f"⚠️ No audio captured from ALSA device {device}")
+            logging.info(f"⚠️ No audio captured from ALSA device {device}")
             return False
         audio = np.frombuffer(result.stdout, dtype=np.int16)
         if np.max(np.abs(audio)) == 0:
-            print(f"⚠️ Silence detected on ALSA device {device}")
+            logging.info(f"⚠️ Silence detected on ALSA device {device}")
             return False
         return True
     except Exception as e:
-        print(f"⚠️ Audio check failed for device {device}: {e}")
+        logging.info(f"⚠️ Audio check failed for device {device}: {e}")
         return False
 
 
@@ -416,15 +411,14 @@ def detect_volume_gain(device: str, target_db: float = -15.0) -> float:
         if rc == 0 and match:
             measured_db = float(match.group(1))
             gain = target_db - measured_db
-            print(
+            logging.info(
                 f"[AUDIO] mean volume: {measured_db:.1f} dBFS, target: {target_db:.1f} dBFS, applying gain: {gain:.1f} dB"
             )
             return gain
     except Exception as e:
-        print(f"⚠️ Volume detection failed: {e}")
-
+        logging.info(f"⚠️ Volume detection failed: {e}")
     default_gain = 2.5
-    print(f"[AUDIO] Using default gain: {default_gain} dB")
+    logging.info(f"[AUDIO] Using default gain: {default_gain} dB")
     return default_gain
 
 
@@ -438,7 +432,7 @@ def ping_rtmp(url: str, timeout: int = 5) -> bool:
         with socket.create_connection((host, port), timeout=timeout):
             return True
     except OSError as e:
-        print(f"[❌ ERROR] TCP connection to {host}:{port} failed: {e}")
+        logging.info(f"[❌ ERROR] TCP connection to {host}:{port} failed: {e}")
         return False
 
 
@@ -447,22 +441,20 @@ def diagnose_rtmp_connection(host: str = "a.rtmps.youtube.com", port: int = 443)
 
     try:
         ip = socket.gethostbyname(host)
-        print(f"[DIAG] DNS resolved {host} -> {ip}")
+        logging.info(f"[DIAG] DNS resolved {host} -> {ip}")
         dns_ok = True
     except socket.gaierror as e:
-        print(f"[DIAG] DNS resolution failed for {host}: {e}")
+        logging.info(f"[DIAG] DNS resolution failed for {host}: {e}")
         dns_ok = False
 
     if dns_ok:
         try:
             with socket.create_connection((host, port), timeout=5):
-                print(f"[DIAG] TCP connection to {host}:{port} succeeded")
+                logging.info(f"[DIAG] TCP connection to {host}:{port} succeeded")
         except OSError as e:
-            print(f"[DIAG] TCP connection to {host}:{port} failed: {e}")
+            logging.info(f"[DIAG] TCP connection to {host}:{port} failed: {e}")
     else:
-        print("[DIAG] Skipping TCP check due to DNS failure")
-
-
+        logging.info("[DIAG] Skipping TCP check due to DNS failure")
 AUDIO_LEVEL_DB = 0.0
 LAST_BITRATE = 0.0
 LAST_FRAME_TIME = 0.0
@@ -485,9 +477,9 @@ def abort_stream() -> None:
         f"Audio OK: {AUDIO_OK} (level {AUDIO_LEVEL_DB:.1f} dBFS)",
         f"Video OK: {VIDEO_OK}",
     ]
-    print("[🛑 HALT] FFmpeg aborted. Summary:")
+    logging.info("[🛑 HALT] FFmpeg aborted. Summary:")
     for line in summary:
-        print(" - " + line)
+        logging.info(" - " + line)
     sys.exit(1)
 
 
@@ -504,9 +496,9 @@ def handle_ffmpeg_crash(process):
         except Exception:
             stderr_output = ""
     if exit_code is not None:
-        print(f"[FFMPEG EXIT CODE] {exit_code}")
+        logging.info(f"[FFMPEG EXIT CODE] {exit_code}")
     if stderr_output:
-        print(f"[FFMPEG STDERR] {stderr_output}")
+        logging.info(f"[FFMPEG STDERR] {stderr_output}")
         Path("logs").mkdir(exist_ok=True)
         with Path("logs/ffmpeg_last_error.txt").open("w", encoding="utf-8") as fp:
             fp.write(stderr_output)
@@ -523,12 +515,12 @@ def handle_ffmpeg_crash(process):
                     if ans.strip().lower() != "y":
                         abort_stream()
         if any(k in lower for k in ERROR_KEYWORDS):
-            print("[🚨 STREAM FAILURE] FFmpeg died due to RTMP error. This is likely:")
-            print("  - YouTube Live not actively listening for stream")
-            print("  - Network blockage or dropped connection")
-            print("  - Too low FPS or broken pipe (check resolution + CPU)")
-            print("  - Stream key issue (though unlikely if previously working)")
-            print(f"  RTMP URL: {mask_stream_url(RTMP_URL)}")
+            logging.info("[🚨 STREAM FAILURE] FFmpeg died due to RTMP error. This is likely:")
+            logging.info("  - YouTube Live not actively listening for stream")
+            logging.info("  - Network blockage or dropped connection")
+            logging.info("  - Too low FPS or broken pipe (check resolution + CPU)")
+            logging.info("  - Stream key issue (though unlikely if previously working)")
+            logging.info(f"  RTMP URL: {mask_stream_url(RTMP_URL)}")
     if restart_attempts > MAX_RESTART_ATTEMPTS:
         abort_stream()
     base_delay = 5
@@ -542,7 +534,7 @@ def handle_ffmpeg_crash(process):
         ]):
             base_delay = 15
     backoff = min(60, base_delay * (2 ** (restart_attempts - 1)))
-    print(f"[WAIT] Backing off for {backoff} seconds before retry...")
+    logging.info(f"[WAIT] Backing off for {backoff} seconds before retry...")
     time.sleep(backoff)
 
 
@@ -558,7 +550,7 @@ def start_ffmpeg_process(ffmpeg_command):
             bufsize=0,
         )
     except Exception as e:  # pragma: no cover - defensive
-        print(f"[❌ ERROR] Failed to start FFmpeg: {e}")
+        logging.info(f"[❌ ERROR] Failed to start FFmpeg: {e}")
         return None
 
 
@@ -574,20 +566,20 @@ def handle_ffmpeg_crash_old(process):
         except Exception:
             stderr_output = ""
     if stderr_output:
-        print(f"[FFMPEG STDERR] {stderr_output}")
+        logging.info(f"[FFMPEG STDERR] {stderr_output}")
         lower = stderr_output.lower()
         if any(k in lower for k in ERROR_KEYWORDS):
-            print("[🚨 STREAM FAILURE] FFmpeg died due to RTMP error. This is likely:")
-            print("  - YouTube Live not actively listening for stream")
-            print("  - Network blockage or dropped connection")
-            print("  - Too low FPS or broken pipe (check resolution + CPU)")
-            print("  - Stream key issue (though unlikely if previously working)")
-            print(f"  RTMP URL: {mask_stream_url(RTMP_URL)}")
+            logging.info("[🚨 STREAM FAILURE] FFmpeg died due to RTMP error. This is likely:")
+            logging.info("  - YouTube Live not actively listening for stream")
+            logging.info("  - Network blockage or dropped connection")
+            logging.info("  - Too low FPS or broken pipe (check resolution + CPU)")
+            logging.info("  - Stream key issue (though unlikely if previously working)")
+            logging.info(f"  RTMP URL: {mask_stream_url(RTMP_URL)}")
     if restart_attempts > MAX_RESTART_ATTEMPTS:
-        print("[🛑 ABORT] Too many FFmpeg failures.")
+        logging.info("[🛑 ABORT] Too many FFmpeg failures.")
         sys.exit(1)
     backoff = min(30, 2 ** restart_attempts)
-    print(f"[WAIT] Backing off for {backoff} seconds before retry...")
+    logging.info(f"[WAIT] Backing off for {backoff} seconds before retry...")
     time.sleep(backoff)
 
 
@@ -640,13 +632,12 @@ def monitor_audio_level(
                     f"⚠️ Microphone silence detected ({AUDIO_LEVEL_DB:.1f} dBFS)"
                 )
                 logging.warning(msg)
-                print(msg, flush=True)
+                logging.info(msg, flush=True)
                 with log_path.open("a") as fp:
                     fp.write(f"{datetime.now().isoformat()} {msg}\n")
         except Exception as e:
             AUDIO_LEVEL_DB = -80.0
-            print(f"⚠️ Audio monitoring failed: {e}")
-
+            logging.info(f"⚠️ Audio monitoring failed: {e}")
         # Loop repeats automatically after ffmpeg completes (~10s)
         stop_event.wait(0.1)
 
@@ -668,7 +659,7 @@ def system_monitor(stop_event: threading.Event) -> None:
                     msg += f" | GPU Temp: {gpu_t[0].current:.1f}C"
         except Exception:
             pass
-        print(msg, flush=True)
+        logging.info(msg, flush=True)
         stop_event.wait(5)
 
 
@@ -777,11 +768,9 @@ def generate_compliance_report(
             y -= 20
         c.save()
 
-    print("\nCompliance Summary:")
+    logging.info("\nCompliance Summary:")
     for row in summary:
-        print(f"{row['player']} - {row['plays']} plays - {row['status']}")
-
-
+        logging.info(f"{row['player']} - {row['plays']} plays - {row['status']}")
 def open_writer(path: Path, fps: float, size: tuple[int, int]) -> cv2.VideoWriter:
     """Open an MP4 writer, falling back to MJPG if needed."""
     fourcc = cv2.VideoWriter_fourcc(*"avc1")
@@ -906,13 +895,13 @@ def _log_ffmpeg_errors(pipe, log_fp, buffer) -> None:
             if not text:
                 continue
             buffer.append(text)
-            print(f"[ffmpeg] {text}")
+            logging.info(f"[ffmpeg] {text}")
             log_fp.write(text + "\n")
             log_fp.flush()
             lower = text.lower()
             if "input/output error" in lower or ("alsa" in lower and "error" in lower):
                 warn = f"[FFMPEG WARNING] {text}"
-                print(warn)
+                logging.info(warn)
                 log_fp.write(warn + "\n")
                 log_fp.flush()
                 IO_ERROR_COUNT += 1
@@ -933,7 +922,7 @@ def _log_ffmpeg_errors(pipe, log_fp, buffer) -> None:
                         msg = "\033[5;31m[ALERT] Output bitrate 0 kbps!\033[0m"
                         if time.time() - LAST_FRAME_TIME < 5:
                             msg += " Frames captured but not sent."
-                        print(msg)
+                        logging.info(msg)
                         status_fp.write(f"{datetime.now().isoformat()} {msg}\n")
                         status_fp.flush()
                 else:
@@ -969,9 +958,9 @@ def launch_ffmpeg(
     try:
         video_encoder = detect_encoder()
     except RuntimeError as e:
-        print(e)
+        logging.info(e)
         return None
-    print("[INFO] Streaming raw BGR → FFmpeg rawvideo → RTMP using", video_encoder)
+    logging.info("[INFO] Streaming raw BGR → FFmpeg rawvideo → RTMP using", video_encoder)
     log_dir = Path("livestream_logs")
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"ffmpeg_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -1008,7 +997,7 @@ def launch_ffmpeg(
         diagnose_only=diagnose_only,
     )
 
-    print("[FFMPEG COMMAND]", " ".join(ffmpeg_command))
+    logging.info("[FFMPEG COMMAND]", " ".join(ffmpeg_command))
     log_fp.write("FFMPEG COMMAND: " + " ".join(ffmpeg_command) + "\n")
     log_fp.flush()
 
@@ -1035,12 +1024,12 @@ def launch_ffmpeg(
                 err = "\n".join(stderr_lines)
                 lower_err = err.lower()
                 if any(k in lower_err for k in ERROR_KEYWORDS):
-                    print("[🚨 STREAM FAILURE] FFmpeg died due to RTMP error. This is likely:")
-                    print("  - YouTube Live not actively listening for stream")
-                    print("  - Network blockage or dropped connection")
-                    print("  - Too low FPS or broken pipe (check resolution + CPU)")
-                    print("  - Stream key issue (though unlikely if previously working)")
-                    print(f"  RTMP URL: {mask_stream_url(RTMP_URL)}")
+                    logging.info("[🚨 STREAM FAILURE] FFmpeg died due to RTMP error. This is likely:")
+                    logging.info("  - YouTube Live not actively listening for stream")
+                    logging.info("  - Network blockage or dropped connection")
+                    logging.info("  - Too low FPS or broken pipe (check resolution + CPU)")
+                    logging.info("  - Stream key issue (though unlikely if previously working)")
+                    logging.info(f"  RTMP URL: {mask_stream_url(RTMP_URL)}")
                     log_fp.write(err + "\n")
                     log_fp.flush()
                     if retry:
@@ -1063,18 +1052,18 @@ def launch_ffmpeg(
                         )
                     _run_rtmp_test(RTMP_URL)
                 else:
-                    print(f"❌ FFmpeg exited early: {err}")
+                    logging.info(f"❌ FFmpeg exited early: {err}")
                     log_fp.write(err + "\n")
                 log_fp.close()
                 return None
             time.sleep(0.5)
         return process
     except FileNotFoundError:
-        print("❌ ffmpeg not found. Please install FFmpeg.")
+        logging.info("❌ ffmpeg not found. Please install FFmpeg.")
         log_fp.close()
         return None
     except Exception as e:
-        print(f"[❌ ERROR] Failed to launch FFmpeg: {e}")
+        logging.info(f"[❌ ERROR] Failed to launch FFmpeg: {e}")
         log_fp.close()
         return None
 
@@ -1110,11 +1099,11 @@ def restart_ffmpeg(
             stderr_output = ""
             if process.stderr:
                 stderr_output = process.stderr.read().decode(errors="replace")
-            print(f"[FFMPEG EXIT CODE] {process.returncode}")
+            logging.info(f"[FFMPEG EXIT CODE] {process.returncode}")
             if stderr_output:
-                print(f"[FFMPEG STDERR] {stderr_output}")
+                logging.info(f"[FFMPEG STDERR] {stderr_output}")
                 if "input/output error" in stderr_output.lower():
-                    print(
+                    logging.info(
                         "[🚫 RTMP ERROR] Could not connect to YouTube. Check network or stream key."
                     )
                     raise RuntimeError("RTMP failure")
@@ -1166,7 +1155,7 @@ def initialize_camera_path(width: int, height: int, fps: int) -> cv2.VideoCaptur
         device_path = Path(f"/dev/video{idx}")
         if not device_path.exists():
             continue
-        print(f"🎥 Trying device path {device_path}")
+        logging.info(f"🎥 Trying device path {device_path}")
         cap = cv2.VideoCapture(str(device_path), cv2.CAP_V4L2)
         if not cap.isOpened():
             continue
@@ -1188,19 +1177,16 @@ def print_available_cameras() -> None:
             ["v4l2-ctl", "--list-devices"], capture_output=True, text=True, check=True
         )
         if result.stdout.strip():
-            print("📷 Available cameras:\n" + result.stdout)
+            logging.info("📷 Available cameras:\n" + result.stdout)
             return
     except Exception:
         pass
 
     devices = sorted(str(p) for p in Path("/dev").glob("video*"))
     if devices:
-        print("📷 Available /dev/video* devices: " + ", ".join(devices))
+        logging.info("📷 Available /dev/video* devices: " + ", ".join(devices))
     else:
-        print("❌ No /dev/video* devices found.")
-
-
-
+        logging.info("❌ No /dev/video* devices found.")
 def main() -> None:
     global AUDIO_OK, VIDEO_OK, LAST_FRAME_TIME, RTMP_REACHABLE
     parser = argparse.ArgumentParser(description="Stream and record game footage")
@@ -1254,23 +1240,16 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-    )
-
     cfg: StreamConfig = load_config(args.config, args)
 
     if cfg.train:
-        print("🧠 Self-learning mode enabled")
+        logging.info("🧠 Self-learning mode enabled")
     if cfg.label:
-        print("🔖 Label review mode enabled")
+        logging.info("🔖 Label review mode enabled")
     if cfg.model:
-        print(f"🪬 Model: {cfg.model}")
-
+        logging.info(f"🪬 Model: {cfg.model}")
     if args.diagnose_only:
-        print("[DIAG] FFmpeg will run without streaming to RTMP")
-
+        logging.info("[DIAG] FFmpeg will run without streaming to RTMP")
     train_dir = Path("training/live")
     label_dir = Path("training/review")
     if cfg.train:
@@ -1291,23 +1270,20 @@ def main() -> None:
     if not stream_url:
         raise ValueError("❌ Stream URL is missing or invalid. Aborting stream.")
 
-    print(f"[DEBUG] Using stream URL: {stream_url}")
-
+    logging.info(f"[DEBUG] Using stream URL: {stream_url}")
     global RTMP_URL, RTMP_REACHABLE
     RTMP_REACHABLE = ping_rtmp("rtmps://a.rtmps.youtube.com/live2")
     if not RTMP_REACHABLE and not args.diagnose_only:
-        print("❌ Preflight check failed: cannot reach YouTube RTMP server")
+        logging.info("❌ Preflight check failed: cannot reach YouTube RTMP server")
         return
     if not ping_rtmp(stream_url):
-        print("⚠️ RTMP endpoint unreachable; streaming may fail")
-
+        logging.info("⚠️ RTMP endpoint unreachable; streaming may fail")
     RTMP_URL = stream_url
     if not validate_rtmp_url(RTMP_URL):
-        print(f"❌ Invalid RTMP URL: {RTMP_URL}")
+        logging.info(f"❌ Invalid RTMP URL: {RTMP_URL}")
         return
 
-    print(f"📡 Streaming to: {mask_stream_url(RTMP_URL)}")
-
+    logging.info(f"📡 Streaming to: {mask_stream_url(RTMP_URL)}")
     # Stream directly with FFmpeg using the Jetson hardware encoder. This
     # bypasses the prior OpenCV capture loop and avoids Python-based frame
     # piping that caused low FPS on the device.
@@ -1319,7 +1295,7 @@ def main() -> None:
         width_str, height_str = cfg.resolution.lower().split("x")
         WIDTH, HEIGHT = int(width_str), int(height_str)
     except ValueError:
-        print(f"❌ Invalid resolution format: {cfg.resolution}")
+        logging.info(f"❌ Invalid resolution format: {cfg.resolution}")
         return
     FPS = cfg.fps
 
@@ -1328,51 +1304,48 @@ def main() -> None:
     print_available_cameras()
 
     start_idx = cfg.camera
-    print(f"🎥 Trying camera index {start_idx} at {WIDTH}x{HEIGHT}")
+    logging.info(f"🎥 Trying camera index {start_idx} at {WIDTH}x{HEIGHT}")
     cap = initialize_camera(start_idx, WIDTH, HEIGHT, FPS)
     if cap is None:
         alt_idx = 1 - start_idx if start_idx in {0, 1} else 0
         if alt_idx != start_idx:
-            print(f"🎥 Trying camera index {alt_idx} at {WIDTH}x{HEIGHT}")
+            logging.info(f"🎥 Trying camera index {alt_idx} at {WIDTH}x{HEIGHT}")
             cap = initialize_camera(alt_idx, WIDTH, HEIGHT, FPS)
 
     if cap is None:
-        print("🔍 Scanning /dev/video* paths")
+        logging.info("🔍 Scanning /dev/video* paths")
         cap = initialize_camera_path(WIDTH, HEIGHT, FPS)
 
     if cap is None:
-        print("❌ Camera failed to initialize after scanning all paths.")
+        logging.info("❌ Camera failed to initialize after scanning all paths.")
         print_available_cameras()
         return
 
     cap.set(cv2.CAP_PROP_FPS, FPS)
     cam_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     cam_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    print(f"✅ Camera resolution: {cam_width}x{cam_height}")
-
+    logging.info(f"✅ Camera resolution: {cam_width}x{cam_height}")
     ret, test_frame = cap.read()
     if not ret or test_frame is None:
-        print("❌ Failed to read initial frame from camera.")
+        logging.info("❌ Failed to read initial frame from camera.")
         cap.release()
         return
 
     global VIDEO_OK, LAST_FRAME_TIME
     VIDEO_OK = True
     LAST_FRAME_TIME = time.time()
-    print("✅ Successfully captured initial frame:", test_frame.shape)
-
+    logging.info("✅ Successfully captured initial frame:", test_frame.shape)
     # Apply requested resolution/FPS; rotate later if camera delivers portrait frames
     if test_frame.shape[0] > test_frame.shape[1]:
-        print("🔄 Rotating input frames for landscape orientation")
+        logging.info("🔄 Rotating input frames for landscape orientation")
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, FPS)
     actual_fps = cap.get(cv2.CAP_PROP_FPS)
     if abs(actual_fps - FPS) > 0.1:
-        print(f"⚠️ Camera FPS not locked at {FPS}, actual: {actual_fps:.2f}")
+        logging.info(f"⚠️ Camera FPS not locked at {FPS}, actual: {actual_fps:.2f}")
     else:
-        print(f"✅ Camera FPS locked at {actual_fps:.2f}")
-
+        logging.info(f"✅ Camera FPS locked at {actual_fps:.2f}")
     mic_candidates = [
         find_usb_microphone(cfg.mic_device),
         cfg.mic_device,
@@ -1388,13 +1361,13 @@ def main() -> None:
             AUDIO_OK = True
             break
     if mic_input is None:
-        print("⚠️ No working microphone found")
+        logging.info("⚠️ No working microphone found")
         mic_input = cfg.mic_device
-    print(f"🎤 Using microphone: {mic_input}")
+    logging.info(f"🎤 Using microphone: {mic_input}")
     volume_gain_db = cfg.gain_boost
     monitor_stop = threading.Event()
     if args.dry_run:
-        print("[DRY RUN] Camera and microphone initialized successfully")
+        logging.info("[DRY RUN] Camera and microphone initialized successfully")
         cap.release()
         monitor_stop.set()
         return
@@ -1471,7 +1444,7 @@ def main() -> None:
             except queue.Empty:
                 continue
             if not is_ffmpeg_alive(ffmpeg_process):
-                print("[⛔ HALT] FFmpeg is not running. Skipping frame send.")
+                logging.info("[⛔ HALT] FFmpeg is not running. Skipping frame send.")
                 handle_ffmpeg_crash(ffmpeg_process)
                 ffmpeg_process = start_ffmpeg_process(ffmpeg_command)
                 continue
@@ -1486,13 +1459,13 @@ def main() -> None:
                     bytes_sent += len(data)
                     frame_count_local += 1
                     if frame_count_local % 100 == 0:
-                        print(f"🟢 {frame_count_local} frames sent to FFmpeg")
+                        logging.info(f"🟢 {frame_count_local} frames sent to FFmpeg")
             except BrokenPipeError:
-                print("❌ FFmpeg pipe broken — exiting stream loop")
+                logging.info("❌ FFmpeg pipe broken — exiting stream loop")
                 stop_evt.set()
                 break
             except Exception as e:
-                print(f"[❌ ERROR] Write to FFmpeg failed: {e}")
+                logging.info(f"[❌ ERROR] Write to FFmpeg failed: {e}")
                 stop_evt.set()
                 break
             elapsed = time.time() - start_time
@@ -1574,7 +1547,7 @@ def main() -> None:
                         f"[\u26A0\uFE0F ALERT] #{pid} {roster.get_player_name(int(pid))} "
                         f"has only {cnt} plays at halftime"
                     )
-                    print(msg)
+                    logging.info(msg)
                     alert_fp.write(msg + "\n")
                     halftime_alerted.add(pid)
         if elapsed_secs >= FINAL_WARNING_SECS:
@@ -1588,7 +1561,7 @@ def main() -> None:
                         f"[\U0001F6A8 FINAL WARNING] #{pid} {roster.get_player_name(int(pid))} "
                         f"has only {cnt} plays \u2014 {mins}:{secs:02d} remaining"
                     )
-                    print(msg)
+                    logging.info(msg)
                     alert_fp.write(msg + "\n")
                     final_alerted.add(pid)
         plays_since_check = 0
@@ -1631,7 +1604,7 @@ def main() -> None:
                     f"needs {need} more plays \u2014 recommend subbing now"
                 )
             if new_state and sub_state.get(pid) != new_state:
-                print(msg)
+                logging.info(msg)
                 ts = datetime.now().strftime("%H:%M:%S")
                 sub_log_writer.writerow([ts, new_state, pid, msg])
                 sub_log_fp.flush()
@@ -1644,7 +1617,7 @@ def main() -> None:
     try:
         while True:
             if ffmpeg_process is None or ffmpeg_process.poll() is not None:
-                print("[❌ ERROR] FFmpeg dead. Halting frame sending.")
+                logging.info("[❌ ERROR] FFmpeg dead. Halting frame sending.")
                 if not do_ffmpeg_restart():
                     stop_event.set()
                     break
@@ -1663,7 +1636,7 @@ def main() -> None:
                     MAX_CAPTURE_FAILURES,
                 )
                 if consecutive_capture_failures > MAX_CAPTURE_FAILURES:
-                    print(
+                    logging.info(
                         "[🛑 Camera Error] Too many consecutive frame read failures. Restarting camera and FFmpeg."
                     )
                     cap.release()
@@ -1702,18 +1675,18 @@ def main() -> None:
                 capture_fps = fps_counter / (now - fps_start)
                 fps_counter = 0
                 fps_start = now
-                print(f"[FPS] Capture: {capture_fps:.2f}")
+                logging.info(f"[FPS] Capture: {capture_fps:.2f}")
                 if capture_fps == 0:
                     no_frame_secs += 1
                 else:
                     no_frame_secs = 0
                 if no_frame_secs >= 5:
-                    print("[\u26A0\uFE0F ALERT] No frames received for 5 seconds. Stream may have stalled.")
-                    print("\a", end="")
+                    logging.info("[\u26A0\uFE0F ALERT] No frames received for 5 seconds. Stream may have stalled.")
+                    logging.info("\a", end="")
                     no_frame_secs = 5
             if frame.shape[0] > frame.shape[1] or frame.shape[:2] != (HEIGHT, WIDTH):
                 if frame.shape[:2] != (HEIGHT, WIDTH) and not warned_shape:
-                    print(
+                    logging.info(
                         f"\u26a0\ufe0f Unexpected frame shape: {frame.shape} — resizing to ({WIDTH}, {HEIGHT})"
                     )
                     warned_shape = True
@@ -1770,10 +1743,10 @@ def main() -> None:
                         ]
                     )
                     drive_log_fp.flush()
-                    print(
+                    logging.info(
                         f"Drive {drive_start_clock}-{clock} {prev_home}-{prev_away} -> {home_val}-{away_val} ({duration}s)"
                     )
-                    print(f"Saved highlight clip: {clip_path}")
+                    logging.info(f"Saved highlight clip: {clip_path}")
                     highlight_files.append(clip_path)
                     drive_start_clock = clock
                     drive_start_time = time.time()
@@ -1803,7 +1776,7 @@ def main() -> None:
                 elif cfg.label and key == ord('0'):
                     fname = label_dir / f"label_{int(time.time())}.jpg"
                     cv2.imwrite(str(fname), frame)
-                    print(f"[LABEL] Saved frame for review: {fname}")
+                    logging.info(f"[LABEL] Saved frame for review: {fname}")
                 else:
                     char = chr(key).upper()
                     if ('1' <= char <= '9') or ('A' <= char <= 'Z'):
@@ -1812,7 +1785,7 @@ def main() -> None:
                         ts = f"{minutes:02d}:{seconds:02d}"
                         log_writer.writerow([ts, char])
                         log_fp.flush()
-                        print(f"[LOG] Player {char} logged at {ts}")
+                        logging.info(f"[LOG] Player {char} logged at {ts}")
                         play_counts[char] = play_counts.get(char, 0) + 1
                         plays_since_check += 1
                         check_alerts()
@@ -1822,14 +1795,13 @@ def main() -> None:
             try:
                 frame_queue.put(frame, timeout=1)
             except queue.Full:
-                print("⚠️ Frame queue full - dropping frame")
-
+                logging.info("⚠️ Frame queue full - dropping frame")
             if cfg.train and frame_count % (FPS * 5) == 0:
                 fname = train_dir / f"auto_{int(time.time())}.jpg"
                 cv2.imwrite(str(fname), frame)
 
             if ffmpeg_process is None or ffmpeg_process.poll() is not None:
-                print("[❌ ERROR] FFmpeg process is not running.")
+                logging.info("[❌ ERROR] FFmpeg process is not running.")
                 if not do_ffmpeg_restart():
                     stop_event.set()
                     break
@@ -1839,11 +1811,11 @@ def main() -> None:
 
             frame_count += 1
             if frame_count % (5 * FPS) == 0:
-                print(
+                logging.info(
                     f"[CAPTURE DEBUG] {datetime.now().strftime('%H:%M:%S')} - Frame {frame_count}"
                 )
             if frame_count % (2 * FPS) == 0:
-                print(f"Streaming frame #{frame_count}")
+                logging.info(f"Streaming frame #{frame_count}")
             now = time.time()
             if now - last_log >= 5:
                 elapsed = now - start
@@ -1856,13 +1828,13 @@ def main() -> None:
                 )
                 output_kbps = (file_size * 8 / elapsed / 1000) if elapsed > 0 else 0.0
                 encoded_kbps = (bytes_sent * 8 / elapsed / 1000) if elapsed > 0 else 0.0
-                print(
+                logging.info(
                     f"[STREAM DEBUG] Sent frame {frame_count}, Encoded: {encoded_kbps:.0f} kbps, Output: {output_kbps:.0f} kbps",
                 )
                 if output_kbps > 0:
                     last_output_time = now
                 elif now - last_output_time >= 10:
-                    print("[⚠️ ALERT] Stream output stalled.")
+                    logging.info("[⚠️ ALERT] Stream output stalled.")
                     if not do_ffmpeg_restart():
                         stop_event.set()
                         break
@@ -1882,7 +1854,7 @@ def main() -> None:
                         usage_str = f" | CPU: {cpu_pct:.1f}% | Mem: {mem_mb:.1f} MB"
                     except Exception:
                         usage_str = ""
-                print(
+                logging.info(
                     f"[STREAM STATUS] \u23F1\ufe0f {hours:02d}:{minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Capture FPS: {capture_fps:.2f} | Frame Drop: {drop_rate:.2f}%{usage_str}",
                     flush=True,
                 )
@@ -1890,7 +1862,7 @@ def main() -> None:
 
             if (ffmpeg_process is None or ffmpeg_process.poll() is not None) and not ffmpeg_error:
                 if ffmpeg_process is None:
-                    print("[❌ ERROR] FFmpeg process is not running.")
+                    logging.info("[❌ ERROR] FFmpeg process is not running.")
                 else:
                     ffmpeg_process.wait()
                     stderr_output = ""
@@ -1899,14 +1871,14 @@ def main() -> None:
                             stderr_output = ffmpeg_process.stderr.read().decode(errors="replace")
                         except Exception:
                             pass
-                    print(f"[FFMPEG EXIT CODE] {ffmpeg_process.returncode}")
+                    logging.info(f"[FFMPEG EXIT CODE] {ffmpeg_process.returncode}")
                     if stderr_output:
-                        print(f"[FFMPEG STDERR] {stderr_output}")
+                        logging.info(f"[FFMPEG STDERR] {stderr_output}")
                     ffmpeg_process = None
                 ffmpeg_error = True
             check_alerts()
     except KeyboardInterrupt:
-        print("\nKeyboard interrupt received. Stopping stream...")
+        logging.info("\nKeyboard interrupt received. Stopping stream...")
     finally:
         monitor_stop.set()
         encode_stop.set()
@@ -1921,9 +1893,9 @@ def main() -> None:
                 stderr_output = ""
                 if ffmpeg_process.stderr:
                     stderr_output = ffmpeg_process.stderr.read().decode(errors="replace")
-                print(f"[FFMPEG EXIT CODE] {ffmpeg_process.returncode}")
+                logging.info(f"[FFMPEG EXIT CODE] {ffmpeg_process.returncode}")
                 if stderr_output:
-                    print(f"[FFMPEG STDERR] {stderr_output}")
+                    logging.info(f"[FFMPEG STDERR] {stderr_output}")
             except Exception:
                 pass
         log_fp.close()
@@ -1968,10 +1940,9 @@ def main() -> None:
                 folder_link = (
                     f"https://drive.google.com/drive/folders/{folder_file['id']}"
                 )
-                print(
+                logging.info(
                     f"Created folder {base_name}_{timestamp} -> {folder_link}"
                 )
-
             # upload video
             gfile = drive.CreateFile(
                 {"title": record_file.name, "parents": [{"id": game_folder_id}]}
@@ -1979,8 +1950,7 @@ def main() -> None:
             gfile.SetContentFile(str(record_file))
             gfile.Upload()
             view_url = f"https://drive.google.com/file/d/{gfile['id']}/view"
-            print(f"Uploaded {record_file.name} -> {view_url}")
-
+            logging.info(f"Uploaded {record_file.name} -> {view_url}")
             # upload play log
             log_drive = drive.CreateFile(
                 {
@@ -1994,8 +1964,7 @@ def main() -> None:
             log_view_url = (
                 f"https://drive.google.com/file/d/{log_drive['id']}/view"
             )
-            print(f"Uploaded {log_file.name} -> {log_view_url}")
-
+            logging.info(f"Uploaded {log_file.name} -> {log_view_url}")
             drive_summary_drive = drive.CreateFile(
                 {
                     "title": drive_log_path.name,
@@ -2008,8 +1977,7 @@ def main() -> None:
             drive_summary_url = (
                 f"https://drive.google.com/file/d/{drive_summary_drive['id']}/view"
             )
-            print(f"Uploaded {drive_log_path.name} -> {drive_summary_url}")
-
+            logging.info(f"Uploaded {drive_log_path.name} -> {drive_summary_url}")
             for clip_path in highlight_files:
                 clip_drive = drive.CreateFile(
                     {"title": clip_path.name, "parents": [{"id": game_folder_id}]}
@@ -2017,8 +1985,7 @@ def main() -> None:
                 clip_drive.SetContentFile(str(clip_path))
                 clip_drive.Upload()
                 clip_url = f"https://drive.google.com/file/d/{clip_drive['id']}/view"
-                print(f"Uploaded {clip_path.name} -> {clip_url}")
-
+                logging.info(f"Uploaded {clip_path.name} -> {clip_url}")
             compliance_csv = Path("video") / "reports" / "compliance_report.csv"
             if compliance_csv.exists():
                 compl_drive = drive.CreateFile(
@@ -2033,8 +2000,7 @@ def main() -> None:
                 compl_url = (
                     f"https://drive.google.com/file/d/{compl_drive['id']}/view"
                 )
-                print(f"Uploaded {compliance_csv.name} -> {compl_url}")
-
+                logging.info(f"Uploaded {compliance_csv.name} -> {compl_url}")
             pdf_file = Path("video") / "reports" / f"compliance_{timestamp[:8]}.pdf"
             if pdf_file.exists():
                 pdf_drive = drive.CreateFile(
@@ -2043,11 +2009,9 @@ def main() -> None:
                 pdf_drive.SetContentFile(str(pdf_file))
                 pdf_drive.Upload()
                 pdf_url = f"https://drive.google.com/file/d/{pdf_drive['id']}/view"
-                print(f"Uploaded {pdf_file.name} -> {pdf_url}")
+                logging.info(f"Uploaded {pdf_file.name} -> {pdf_url}")
         except Exception as exc:  # pragma: no cover - network/auth
-            print(f"Google Drive upload failed: {exc}")
-
-
+            logging.info(f"Google Drive upload failed: {exc}")
 if __name__ == "__main__":
     main()
 
