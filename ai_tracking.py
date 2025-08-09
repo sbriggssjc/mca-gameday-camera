@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
 import json
 from pathlib import Path
 from typing import List, Dict
@@ -118,8 +121,6 @@ def analyze_video(video_path: str) -> None:
     writer.release()
     with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
-    print(f"Annotated video saved to {OUTPUT_VIDEO}")
-    print(f"Metadata saved to {OUTPUT_JSON}")
-
-
+    logging.info(f"Annotated video saved to {OUTPUT_VIDEO}")
+    logging.info(f"Metadata saved to {OUTPUT_JSON}")
 __all__ = ["analyze_video"]

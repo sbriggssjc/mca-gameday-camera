@@ -9,6 +9,9 @@ indicator to help operators quickly confirm the rig is ready for streaming.
 
 from __future__ import annotations
 
+import logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
 import glob
 import os
 import re
@@ -135,9 +138,7 @@ def stream_key_present() -> Tuple[bool, str]:
 def print_result(name: str, result: Tuple[bool, str]) -> None:
     ok, info = result
     status = PASS if ok else FAIL
-    print(f"{name}: {status} {info}")
-
-
+    logging.info(f"{name}: {status} {info}")
 def main() -> None:  # pragma: no cover - CLI helper
     print_result("Camera /dev/video0", check_camera())
     print_result("Microphone hw:1,0", check_microphone())

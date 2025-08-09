@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
 import argparse
 import json
 from pathlib import Path
@@ -49,8 +52,6 @@ def main() -> None:
             })
         with open(output_dir / "predictions.json", "w", encoding="utf-8") as f:
             json.dump(preds, f, indent=2)
-        print(f"\u2705 Saved predictions to {output_dir / 'predictions.json'}")
-
-
+        logging.info(f"\u2705 Saved predictions to {output_dir / 'predictions.json'}")
 if __name__ == "__main__":
     main()
