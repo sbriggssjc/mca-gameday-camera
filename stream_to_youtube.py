@@ -72,6 +72,47 @@ def pick_h264_encoder():
     return "libx264"
 
 
+def build_audio_filter():
+    """
+    Returns a low-latency audio filter chain:
+      - volume: primary gain boost (in dB, default +8 dB)
+      - highpass: remove rumble/wind (default 120 Hz)
+      - acompressor: tame peaks (3:1 ratio, low threshold)
+      - alimiter: hard ceiling to prevent clipping (-1.0 dBTP)
+      - dynaudnorm (optional): gentle auto-normalization for speech/crowd
+
+    Tunable via env vars:
+      AUDIO_GAIN_DB   -> default 8    (use 6–12 for field mics)
+      AUDIO_HIGHPASS  -> default 120  (Hz)
+      AUDIO_MODE      -> "speech" | "crowd" | "off"
+                         "speech": adds light dynaudnorm
+                         "crowd":  stronger dynaudnorm
+                         "off":    no dynaudnorm (lowest latency)
+    """
+    gain_db = float(os.environ.get("AUDIO_GAIN_DB", "8"))
+    highpass_hz = int(os.environ.get("AUDIO_HIGHPASS", "120"))
+    mode = os.environ.get("AUDIO_MODE", "speech").strip().lower()
+
+    # Core filters: gain -> highpass -> compressor -> limiter
+    chain = [
+        f"volume={gain_db}dB",
+        f"highpass=f={highpass_hz}",
+        # attack/release in ms, threshold in dBFS, ratio, knee
+        "acompressor=threshold=-24dB:ratio=3:attack=5:release=100:makeup=0:knee=2",
+        "alimiter=limit=-1.0dB:level=disabled"
+    ]
+
+    # Optional adaptive normalizer (single pass, live-safe)
+    if mode == "speech":
+        # Mild
+        chain.append("dynaudnorm=f=250:g=5:n=1:p=0.9")
+    elif mode == "crowd":
+        # Stronger leveling for noisy environments
+        chain.append("dynaudnorm=f=200:g=7:n=1:p=0.8")
+
+    return ",".join(chain)
+
+
 def build_ffmpeg_cmd(
     encoder: str,
     rtmp_url: str,
@@ -81,7 +122,7 @@ def build_ffmpeg_cmd(
     height=720,
     fps=30,
     video_bitrate="5000k",
-    audio_bitrate="128k",
+    audio_bitrate="160k",
 ):
     # Input legs with large thread queues to avoid blocking
     video_in = [
@@ -148,21 +189,23 @@ def build_ffmpeg_cmd(
             "4.1",
         ]
 
-    a_opts = ["-c:a", "aac", "-b:a", audio_bitrate, "-ar", "48000"]
+    # NEW: audio filter chain + bump bitrate
+    a_filter = build_audio_filter()
+    # Optional: duplicate mono to stereo
+    # a_filter = a_filter + ",aformat=channel_layouts=stereo,pan=stereo|c0=c0|c1=c0"
+    a_opts = [
+        "-af", a_filter,
+        "-c:a", "aac",
+        "-b:a", audio_bitrate,
+        "-ar", "48000",
+    ]
 
     common = [
-        "-vsync",
-        "1",
-        "-fflags",
-        "+genpts",
-        "-flush_packets",
-        "1",
-        "-color_range",
-        "tv",
-        "-movflags",
-        "+faststart",
-        "-f",
-        "flv",
+        "-vsync", "1",
+        "-fflags", "+genpts",
+        "-flush_packets", "1",
+        "-movflags", "+faststart",
+        "-f", "flv",
     ]
 
     return [
@@ -181,7 +224,7 @@ def run_stream(
     height: int = 720,
     fps: int = 30,
     video_bitrate: str = "5000k",
-    audio_bitrate: str = "128k",
+    audio_bitrate: str = "160k",
 ):
     enc = pick_h264_encoder()
     cmd = build_ffmpeg_cmd(
