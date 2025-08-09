@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 import argparse
 import signal
 import logging
+import shlex
 
 import roster
 import csv
@@ -41,6 +42,185 @@ try:
     load_dotenv()
 except Exception:
     pass
+
+YOUTUBE_URL = os.environ.get("YT_RTMP_URL", "<PUT_YOUR_RTMPS_URL_HERE>")
+
+
+def ffmpeg_has_encoder(name: str) -> bool:
+    try:
+        out = subprocess.check_output(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        return name in out
+    except Exception:
+        return False
+
+
+def pick_h264_encoder():
+    # Prefer Jetson HW paths if present, else software
+    candidates = [
+        "h264_v4l2m2m",  # common on Jetson builds
+        "h264_nvmpi",  # some Jetson ffmpeg builds
+        "h264_omx",  # older Jetson/Nano builds
+        "libx264",  # software fallback (always last)
+    ]
+    for enc in candidates:
+        if ffmpeg_has_encoder(enc):
+            return enc
+    return "libx264"
+
+
+def build_ffmpeg_cmd(
+    encoder: str,
+    rtmp_url: str,
+    dev="/dev/video0",
+    alsa="hw:1,0",
+    width=1280,
+    height=720,
+    fps=30,
+    video_bitrate="5000k",
+    audio_bitrate="128k",
+):
+    # Input legs with large thread queues to avoid blocking
+    video_in = [
+        "-f",
+        "v4l2",
+        "-thread_queue_size",
+        "2048",
+        "-input_format",
+        "mjpeg",
+        "-framerate",
+        str(fps),
+        "-video_size",
+        f"{width}x{height}",
+        "-i",
+        dev,
+    ]
+    audio_in = [
+        "-f",
+        "alsa",
+        "-thread_queue_size",
+        "2048",
+        "-ac",
+        "1",
+        "-ar",
+        "48000",
+        "-i",
+        alsa,
+    ]
+
+    # Filters: ensure yuv420p for YouTube, keep fps stable
+    vf = f"scale={width}:{height}:flags=bicubic,format=yuv420p,fps={fps}"
+
+    # Encoder-specific options
+    v_opts = [
+        "-c:v",
+        encoder,
+        "-b:v",
+        video_bitrate,
+        "-maxrate",
+        video_bitrate,
+        "-bufsize",
+        "10M",
+        "-g",
+        str(fps * 2),
+    ]
+    if encoder == "libx264":
+        # Only libx264 supports these:
+        v_opts += [
+            "-preset",
+            "veryfast",
+            "-tune",
+            "zerolatency",
+            "-pix_fmt",
+            "yuv420p",
+        ]
+    else:
+        # Hardware encoders often want a constrained profile/level; no x264 preset flags
+        v_opts += [
+            "-pix_fmt",
+            "yuv420p",
+            "-profile:v",
+            "high",
+            "-level:v",
+            "4.1",
+        ]
+
+    a_opts = ["-c:a", "aac", "-b:a", audio_bitrate, "-ar", "48000"]
+
+    common = [
+        "-vsync",
+        "1",
+        "-fflags",
+        "+genpts",
+        "-flush_packets",
+        "1",
+        "-color_range",
+        "tv",
+        "-movflags",
+        "+faststart",
+        "-f",
+        "flv",
+    ]
+
+    return [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "info",
+    ] + video_in + audio_in + ["-vf", vf] + v_opts + a_opts + common + [rtmp_url]
+
+
+def run_stream(
+    rtmp_url: str = YOUTUBE_URL,
+    dev: str = "/dev/video0",
+    alsa: str = "hw:1,0",
+    width: int = 1280,
+    height: int = 720,
+    fps: int = 30,
+    video_bitrate: str = "5000k",
+    audio_bitrate: str = "128k",
+):
+    enc = pick_h264_encoder()
+    cmd = build_ffmpeg_cmd(
+        enc,
+        rtmp_url,
+        dev=dev,
+        alsa=alsa,
+        width=width,
+        height=height,
+        fps=fps,
+        video_bitrate=video_bitrate,
+        audio_bitrate=audio_bitrate,
+    )
+    print(f"[DEBUG] Using encoder: {enc}")
+    print("FFmpeg command:", " ".join(shlex.quote(c) for c in cmd))
+    proc = subprocess.Popen(cmd)
+    rc = proc.wait()
+    if rc != 0 or enc != "libx264":
+        # Detect common HW init failure and fall back
+        if rc != 0:
+            print(f"[WARN] FFmpeg exited with code {rc}. Falling back to libx264…")
+        else:
+            print("[WARN] Hardware encoder path unstable; retrying with libx264…")
+        fallback = build_ffmpeg_cmd(
+            "libx264",
+            rtmp_url,
+            dev=dev,
+            alsa=alsa,
+            width=width,
+            height=height,
+            fps=fps,
+            video_bitrate=video_bitrate,
+            audio_bitrate=audio_bitrate,
+        )
+        print(
+            "FFmpeg fallback command:",
+            " ".join(shlex.quote(c) for c in fallback),
+        )
+        subprocess.call(fallback)
 
 ERROR_KEYWORDS = (
     "input/output error",
@@ -357,75 +537,6 @@ def is_ffmpeg_alive(process) -> bool:
     """Return True if the given FFmpeg process is running."""
 
     return process is not None and process.poll() is None
-
-
-def run_ffmpeg_direct(stream_url: str, audio_device: str = "hw:1,0") -> int:
-    """Stream directly from V4L2 and ALSA to RTMP(S) using Jetson hardware encoder.
-
-    This bypasses OpenCV frame capture and pipes the raw camera feed directly
-    to FFmpeg so that the Jetson's ``h264_v4l2m2m`` encoder can operate at full
-    speed.
-    """
-    ffmpeg_command = [
-        "ffmpeg",
-        "-f",
-        "v4l2",
-        "-input_format",
-        "mjpeg",
-        "-video_size",
-        "640x480",
-        "-framerate",
-        "30",
-        "-i",
-        "/dev/video0",
-        "-f",
-        "alsa",
-        "-ac",
-        "1",
-        "-ar",
-        "44100",
-        "-i",
-        audio_device,
-        "-vf",
-        "format=yuv420p",  # Ensure encoder-compatible format
-        "-c:v",
-        "h264_v4l2m2m",
-        "-preset",
-        "ultrafast",
-        "-b:v",
-        "2500k",
-        "-bufsize",
-        "4000k",
-        "-maxrate",
-        "3000k",
-        "-g",
-        "60",
-        "-keyint_min",
-        "30",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-ar",
-        "44100",
-        "-ac",
-        "1",
-        "-af",
-        "volume=3.0dB",
-        "-f",
-        "flv",
-        stream_url,
-    ]
-    process = subprocess.Popen(
-        ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-    )
-    assert process.stdout is not None
-    try:
-        for line in process.stdout:
-            print(line, end="")
-    except KeyboardInterrupt:
-        process.terminate()
-    return process.wait()
 
 
 def monitor_audio_level(
@@ -1142,7 +1253,7 @@ def main() -> None:
     # Stream directly with FFmpeg using the Jetson hardware encoder. This
     # bypasses the prior OpenCV capture loop and avoids Python-based frame
     # piping that caused low FPS on the device.
-    run_ffmpeg_direct(RTMP_URL, args.mic_device or "hw:1,0")
+    run_stream(RTMP_URL, alsa=args.mic_device or "hw:1,0")
     return
 
     global WIDTH, HEIGHT, FPS
