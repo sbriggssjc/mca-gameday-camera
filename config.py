@@ -20,7 +20,7 @@ class StreamConfig:
     fps: int = 30
     mic_device: str = "hw:1,0"
     gain_boost: float = 3.0
-    stream_key: str = "rtmp://a.rtmp.youtube.com/live2/STREAM_KEY"
+    stream_key: str = "rtmps://a.rtmps.youtube.com/live2/xcuz-3x1d-9y7v-ghec-2xmh"
     encoder: str = "auto"
     preset: str = "veryfast"
     maxrate: str = "3000k"
