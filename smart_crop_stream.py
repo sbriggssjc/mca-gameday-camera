@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
 import os
 import shutil
 import subprocess
@@ -24,21 +27,19 @@ from upload_to_drive import upload_to_drive
 
 def upload_after_stream(video_path: Path, folder_id: str) -> None:
     """Upload ``video_path`` to Google Drive once streaming finishes."""
-    print("Streaming finished, uploading to Drive...")
+    logging.info("Streaming finished, uploading to Drive...")
     try:
         file_id, url_view = upload_to_drive(video_path, folder_id)
         uploaded_dir = Path("video/uploaded")
         uploaded_dir.mkdir(exist_ok=True)
         video_path.rename(uploaded_dir / video_path.name)
-        print(f"Upload successful: {video_path.name} -> {file_id}")
+        logging.info(f"Upload successful: {video_path.name} -> {file_id}")
     except ImportError:
-        print(
+        logging.info(
             "PyDrive is not installed. Run `pip install PyDrive google-api-python-client oauth2client` to enable Google Drive uploads."
         )
     except Exception as exc:
-        print(f"Upload failed: {exc}")
-
-
+        logging.info(f"Upload failed: {exc}")
 def load_env(env_path: str = ".env") -> None:
     if not os.path.exists(env_path):
         return
@@ -67,9 +68,7 @@ def log_ffmpeg_stderr(stderr, log_file=None, buffer=None) -> None:
         if log_file is not None:
             log_file.write(text)
             log_file.flush()
-        print("[FFMPEG]", text, end="")
-
-
+        logging.info("[FFMPEG]", text, end="")
 def build_ffmpeg_command(
     url: str,
     size: tuple[int, int],
@@ -130,17 +129,15 @@ def main() -> None:
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
         fps = 30.0
-    print(f"Capture settings: {width}x{height} @ {fps}fps")
-
+    logging.info(f"Capture settings: {width}x{height} @ {fps}fps")
     tracker = SmartAutoTracker()
 
     try:
         video_encoder = detect_encoder()
     except RuntimeError as exc:
-        print(exc)
+        logging.info(exc)
         return
-    print("[INFO] Streaming raw BGR → FFmpeg rawvideo → RTMP using", video_encoder)
-
+    logging.info("[INFO] Streaming raw BGR → FFmpeg rawvideo → RTMP using", video_encoder)
     retries = 0
     max_retries = 1
     while True:
@@ -154,8 +151,8 @@ def main() -> None:
         log_file = log_dir / f"smart_crop_{timestamp}.log"
         lf = log_file.open("w", encoding="utf-8", errors="ignore")
         cmd_str = " ".join(cmd)
-        print("Starting FFmpeg stream...")
-        print("Running FFmpeg command:", cmd_str)
+        logging.info("Starting FFmpeg stream...")
+        logging.info("Running FFmpeg command:", cmd_str)
         lf.write("Running FFmpeg command: " + cmd_str + "\n")
         process = subprocess.Popen(
             cmd,
@@ -171,7 +168,7 @@ def main() -> None:
         def _reader(pipe, logf):
             for raw in pipe:
                 line = raw.decode("utf-8", errors="ignore")
-                print(line, end="")
+                logging.info(line, end="")
                 logf.write(line)
 
         thread_out = threading.Thread(target=_reader, args=(process.stdout, lf), daemon=True)
@@ -185,7 +182,7 @@ def main() -> None:
         while time.time() - start < 15:
             if process.poll() is not None:
                 err = "".join(stderr_lines)
-                print("FFmpeg failed to launch. Exiting...", err)
+                logging.info("FFmpeg failed to launch. Exiting...", err)
                 lf.write(err)
                 lf.close()
                 return
@@ -206,9 +203,9 @@ def main() -> None:
                     process.stdin.flush()
                     frame_count += 1
                     if frame_count % 100 == 0:
-                        print(f"🟢 {frame_count} frames sent to FFmpeg")
+                        logging.info(f"🟢 {frame_count} frames sent to FFmpeg")
                 except BrokenPipeError:
-                    print("❌ FFmpeg pipe broken — exiting stream loop")
+                    logging.info("❌ FFmpeg pipe broken — exiting stream loop")
                     break
                 elapsed = time.time() - start_time
                 delay = frame_interval - elapsed
@@ -225,26 +222,26 @@ def main() -> None:
                 if not ret:
                     break
                 if first_frame:
-                    print("Frame shape:", frame.shape, "dtype:", frame.dtype)
+                    logging.info("Frame shape:", frame.shape, "dtype:", frame.dtype)
                     cv2.imwrite("debug_frame.jpg", frame)
                     if frame.shape[0] != height or frame.shape[1] != width:
-                        print(
+                        logging.info(
                             f"Warning: frame size {frame.shape[1]}x{frame.shape[0]} != {width}x{height}"
                         )
                     if frame.dtype != "uint8" or (len(frame.shape) > 2 and frame.shape[2] != 3):
-                        print("Warning: frame is not bgr24 format")
+                        logging.info("Warning: frame is not bgr24 format")
                     first_frame = False
                 x, y, w, h = tracker.track(frame)
                 crop = frame[y : y + h, x : x + w]
                 crop = cv2.resize(crop, (out_width, out_height))
                 if crop.shape != (out_height, out_width, 3) or crop.dtype != np.uint8:
                     raise ValueError(f"Crop frame has shape {crop.shape} and dtype {crop.dtype}")
-                print(f"Queuing frame of shape {crop.shape} for FFmpeg")
+                logging.info(f"Queuing frame of shape {crop.shape} for FFmpeg")
                 try:
                     frame_yuv = cv2.cvtColor(crop, cv2.COLOR_BGR2YUV_I420)
                     frame_queue.put_nowait(frame_yuv.tobytes())
                 except Full:
-                    print("[WARNING] Encoding queue full; dropping frame")
+                    logging.info("[WARNING] Encoding queue full; dropping frame")
         except KeyboardInterrupt:
             pass
         finally:
@@ -257,15 +254,15 @@ def main() -> None:
             thread_err.join()
             err_output = "".join(stderr_lines)
             if err_output:
-                print(err_output)
+                logging.info(err_output)
                 lf.write(err_output)
             lf.write(f"\nffmpeg exited with code {ret}\n")
             lf.close()
             if ret != 0:
-                print("FFmpeg exited with error:", ret)
+                logging.info("FFmpeg exited with error:", ret)
         if ret != 0 and retries < max_retries:
             retries += 1
-            print(f"FFmpeg failed with code {ret}. Restarting (attempt {retries})")
+            logging.info(f"FFmpeg failed with code {ret}. Restarting (attempt {retries})")
             time.sleep(2)
             continue
         # after each run break
