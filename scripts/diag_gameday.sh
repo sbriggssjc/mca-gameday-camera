@@ -2,14 +2,14 @@
 set -euo pipefail
 echo "== Device & Stream Stack Quick Diag =="
 echo "-- FFmpeg version --"
-ffmpeg -version | head -n1 || true
+command -v ffmpeg >/dev/null && ffmpeg -version | head -n1 || echo "ffmpeg not found"
 echo "-- Encoders (grep h264/aac) --"
-ffmpeg -hide_banner -encoders | egrep -i 'h264|aac' || true
+command -v ffmpeg >/dev/null && ffmpeg -hide_banner -encoders | egrep -i 'h264|aac' || echo "ffmpeg not available"
 echo "-- Video devices --"
 ls /dev/video* 2>/dev/null || echo "No /dev/video*"
-echo "-- v4l2 formats (first 100 lines) --"
-v4l2-ctl --list-formats-ext 2>/dev/null | head -n100 || true
+echo "-- v4l2 formats (first 60 lines) --"
+command -v v4l2-ctl >/dev/null && v4l2-ctl --list-formats-ext 2>/dev/null | head -n60 || echo "v4l2-ctl not available"
 echo "-- ALSA capture devices --"
-arecord -l || true
+command -v arecord >/dev/null && arecord -l || echo "arecord not available"
 echo "-- Env: YT_RTMP_URL --"
 ( test -n "${YT_RTMP_URL:-}" && echo "YT_RTMP_URL is set" ) || echo "YT_RTMP_URL is NOT set"
