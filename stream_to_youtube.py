@@ -97,9 +97,8 @@ def build_audio_filter():
     chain = [
         f"volume={gain_db}dB",
         f"highpass=f={highpass_hz}",
-        # attack/release in ms, threshold in dBFS, ratio, knee
-        "acompressor=threshold=-24dB:ratio=3:attack=5:release=100:makeup=0:knee=2",
-        "alimiter=limit=-1.0dB:level=disabled"
+        "acompressor=threshold=-24dB:ratio=3:attack=5:release=100:makeup=6",
+        "alimiter=limit=-1.0dB"
     ]
 
     # Optional adaptive normalizer (single pass, live-safe)
@@ -110,6 +109,7 @@ def build_audio_filter():
         # Stronger leveling for noisy environments
         chain.append("dynaudnorm=f=200:g=7:n=1:p=0.8")
 
+    chain.append("aformat=channel_layouts=stereo,pan=stereo|c0=c0|c1=c0")
     return ",".join(chain)
 
 
@@ -123,6 +123,8 @@ def build_ffmpeg_cmd(
     fps=30,
     video_bitrate="5000k",
     audio_bitrate="160k",
+    input_format="mjpeg",
+    use_wallclock_ts=True,
 ):
     # Input legs with large thread queues to avoid blocking
     video_in = [
@@ -131,14 +133,15 @@ def build_ffmpeg_cmd(
         "-thread_queue_size",
         "2048",
         "-input_format",
-        "mjpeg",
+        input_format,
         "-framerate",
         str(fps),
         "-video_size",
         f"{width}x{height}",
-        "-i",
-        dev,
     ]
+    if use_wallclock_ts:
+        video_in += ["-use_wallclock_as_timestamps", "1"]
+    video_in += ["-i", dev]
     audio_in = [
         "-f",
         "alsa",
@@ -179,15 +182,8 @@ def build_ffmpeg_cmd(
             "yuv420p",
         ]
     else:
-        # Hardware encoders often want a constrained profile/level; no x264 preset flags
-        v_opts += [
-            "-pix_fmt",
-            "yuv420p",
-            "-profile:v",
-            "high",
-            "-level:v",
-            "4.1",
-        ]
+        # Some Jetson builds reject -profile/-level on v4l2m2m – omit them
+        v_opts += ["-pix_fmt", "yuv420p"]
 
     # NEW: audio filter chain + bump bitrate
     a_filter = build_audio_filter()
@@ -216,8 +212,8 @@ def build_ffmpeg_cmd(
     ] + video_in + audio_in + ["-vf", vf] + v_opts + a_opts + common + [rtmp_url]
 
 
-def run_stream(
-    rtmp_url: str = YOUTUBE_URL,
+def run_with_retries(
+    rtmp_url: str,
     dev: str = "/dev/video0",
     alsa: str = "hw:1,0",
     width: int = 1280,
@@ -226,30 +222,16 @@ def run_stream(
     video_bitrate: str = "5000k",
     audio_bitrate: str = "160k",
 ):
-    enc = pick_h264_encoder()
-    cmd = build_ffmpeg_cmd(
-        enc,
-        rtmp_url,
-        dev=dev,
-        alsa=alsa,
-        width=width,
-        height=height,
-        fps=fps,
-        video_bitrate=video_bitrate,
-        audio_bitrate=audio_bitrate,
-    )
-    print(f"[DEBUG] Using encoder: {enc}")
-    print("FFmpeg command:", " ".join(shlex.quote(c) for c in cmd))
-    proc = subprocess.Popen(cmd)
-    rc = proc.wait()
-    if rc != 0 or enc != "libx264":
-        # Detect common HW init failure and fall back
-        if rc != 0:
-            print(f"[WARN] FFmpeg exited with code {rc}. Falling back to libx264…")
-        else:
-            print("[WARN] Hardware encoder path unstable; retrying with libx264…")
-        fallback = build_ffmpeg_cmd(
-            "libx264",
+    attempts = [
+        {"encoder": pick_h264_encoder(), "input_format": "mjpeg", "use_ts": True},
+        {"encoder": "libx264", "input_format": "mjpeg", "use_ts": True},
+        {"encoder": "libx264", "input_format": "yuyv422", "use_ts": True},
+        {"encoder": "libx264", "input_format": "yuyv422", "use_ts": False},
+    ]
+
+    for i, cfg in enumerate(attempts, 1):
+        cmd = build_ffmpeg_cmd(
+            cfg["encoder"],
             rtmp_url,
             dev=dev,
             alsa=alsa,
@@ -258,12 +240,45 @@ def run_stream(
             fps=fps,
             video_bitrate=video_bitrate,
             audio_bitrate=audio_bitrate,
+            input_format=cfg["input_format"],
+            use_wallclock_ts=cfg["use_ts"],
         )
         print(
-            "FFmpeg fallback command:",
-            " ".join(shlex.quote(c) for c in fallback),
+            f"[DEBUG] Attempt {i}/{len(attempts)} using encoder={cfg['encoder']} format={cfg['input_format']} wallclock_ts={cfg['use_ts']}"
         )
-        subprocess.call(fallback)
+        print("FFmpeg command:", " ".join(shlex.quote(c) for c in cmd))
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+        )
+
+        saw_v4l2_corrupt = False
+        saw_pts_drop = False
+        rc = None
+        try:
+            for line in proc.stdout:
+                sys.stdout.write(line)
+                if "Dequeued v4l2 buffer contains corrupted data (0 bytes)" in line:
+                    saw_v4l2_corrupt = True
+                if "invalid dropping" in line and "PTS" in line:
+                    saw_pts_drop = True
+        finally:
+            rc = proc.wait()
+
+        if rc == 0 and not (saw_v4l2_corrupt or saw_pts_drop):
+            print("[INFO] Stream ended cleanly.")
+            return rc
+        else:
+            print(
+                f"[WARN] Stream ended rc={rc}, v4l2_corrupt={saw_v4l2_corrupt}, pts_drop={saw_pts_drop}. Retrying…"
+            )
+
+    print("[ERROR] All attempts failed.")
+    return 1
 
 ERROR_KEYWORDS = (
     "input/output error",
@@ -1296,7 +1311,7 @@ def main() -> None:
     # Stream directly with FFmpeg using the Jetson hardware encoder. This
     # bypasses the prior OpenCV capture loop and avoids Python-based frame
     # piping that caused low FPS on the device.
-    run_stream(RTMP_URL, alsa=args.mic_device or "hw:1,0")
+    run_with_retries(RTMP_URL, alsa=args.mic_device or "hw:1,0")
     return
 
     global WIDTH, HEIGHT, FPS
