@@ -20,6 +20,29 @@ coach report under `output/reports/`.
 The coach summary report includes per-play tables and player grades. A
 sample output is generated during tests under `tests/data`.
 
+## Playbook
+
+Playbooks may be authored in a legacy flat list format or using the
+new `split_sections` schema.  The latter separates offense and defense
+sections:
+
+```json
+{
+  "schema": "split_sections",
+  "offense": {"plays": [{"name": "Rit Dive", "formation": "Rit"}]},
+  "defense": {
+    "positions": [{"name": "DT1", "gap": "A"}],
+    "calls": [{"cue": "RUN", "trigger": "downfield blocking"}]
+  }
+}
+```
+
+When using `split_sections` the `defense.positions` array is required and
+the pipeline will raise an error if it is missing.  Defensive grading weights
+can be customised by editing
+`analysis/configs/grading_weights_defense.yaml`; defaults are used when the
+file is absent.
+
 ## Processing uploaded game film
 
 Place a video inside `video/manual_uploads/` and run:
