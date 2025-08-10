@@ -69,6 +69,54 @@ except Exception:  # pragma: no cover - missing dependency handled at runtime
     FPDF = None  # type: ignore
 import re
 
+# --- stable ffmpeg runner (auto-inserted) ---
+def _detect_encoder():
+    import shutil, subprocess
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return "libx264"
+    try:
+        out = subprocess.run([ffmpeg, "-hide_banner", "-encoders"],
+                             capture_output=True, text=True, timeout=5)
+        if out.returncode == 0 and "h264_v4l2m2m" in out.stdout:
+            return "h264_v4l2m2m"
+    except Exception:
+        pass
+    return "libx264"
+
+_ENCODER_OPTS = {
+    "h264_v4l2m2m": ["-c:v","h264_v4l2m2m","-b:v","4M","-pix_fmt","yuv420p"],
+    "libx264":      ["-c:v","libx264","-preset","veryfast","-crf","23","-pix_fmt","yuv420p"],
+}
+_AUDIO_OPTS = ["-c:a","aac","-b:a","128k","-ar","48000","-ac","2"]
+
+def _ensure_codec_flags(cmd:list, enc:str)->list:
+    cmd = cmd[:]
+    has_cv = any(x == "-c:v" for x in cmd)
+    has_ca = any(x == "-c:a" for x in cmd)
+    ins = len(cmd)-1 if len(cmd)>=2 else len(cmd)  # before output
+    if not has_cv:
+        cmd[ins:ins] = _ENCODER_OPTS.get(enc, _ENCODER_OPTS["libx264"]); ins = len(cmd)-1
+    if not has_ca:
+        cmd[ins:ins] = _AUDIO_OPTS; ins = len(cmd)-1
+    if "-shortest" not in cmd:
+        cmd.insert(ins, "-shortest")
+    return cmd
+
+def _run_ffmpeg_command(cmd:list, timeout:int=180):
+    import subprocess
+    enc = _detect_encoder()
+    cmd = _ensure_codec_flags(cmd, enc)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return proc.returncode == 0, proc.stdout, proc.stderr
+    except subprocess.TimeoutExpired as e:
+        return False, "", f"ffmpeg timeout after {timeout}s: {e}"
+    except Exception as e:
+        return False, "", f"ffmpeg error: {e}"
+# --- end stable runner ---
+
+
 
 log = logging.getLogger(__name__)
 
@@ -458,7 +506,7 @@ def cut_clip(
         "copy",
         str(out_path),
     ]
-    ret, _, _ = run_ffmpeg_command(cmd, timeout=120)
+    ret, _, _ = _run_ffmpeg_command(cmd, timeout=120)
     return ret == 0
 
 
@@ -483,7 +531,7 @@ def concat_clips(clips: List[Path], out_path: Path, encoder: str) -> bool:
         "copy",
         str(out_path),
     ]
-    ret, _, _ = run_ffmpeg_command(cmd, timeout=120)
+    ret, _, _ = _run_ffmpeg_command(cmd, timeout=120)
     list_file.unlink(missing_ok=True)
     return ret == 0
 
@@ -753,7 +801,7 @@ def _ensure_codec_flags(cmd:list, encoder:str)->list:
         cmd.insert(insert_at, "-shortest")
     return cmd
 
-def run_ffmpeg_command(cmd:list, timeout:int=120):
+def _run_ffmpeg_command(cmd:list, timeout:int=120):
     enc = detect_encoder()
     cmd = _ensure_codec_flags(cmd, enc)
     try:
