@@ -8,3 +8,10 @@ preset: veryfast
 maxrate: 3000k
 bitrate: 2500k
 bufsize: 4000k
+
+analysis_defaults:
+  fps: 12
+  ocr: tesseract
+  min_grade_good: 2.5
+  max_grade_needs: 1.5
+  clip_padding: 1.0

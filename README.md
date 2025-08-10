@@ -4,6 +4,22 @@ This repository contains utilities for tracking play participation during a game
 
 Large video recordings (`.mp4`) are saved in the `video/` folder but individual recording files are ignored by Git. Use `upload_to_drive.py` to sync these videos to Google Drive instead of committing them.
 
+## Automated Film Analysis
+
+The `analysis` package provides a small end-to-end pipeline that ingests a
+full game video, performs lightweight play recognition and writes summary
+artefacts. Run it with:
+
+```bash
+python -m analysis.pipeline --video path/to/game.mp4 --team WHITE --playbook mca_full_playbook_final.json --out output/ --generate-report
+```
+
+The command creates JSON lines files and, when `--generate-report` is used, a
+coach report under `output/reports/`.
+
+The coach summary report includes per-play tables and player grades. A
+sample output is generated during tests under `tests/data`.
+
 ## Processing uploaded game film
 
 Place a video inside `video/manual_uploads/` and run:
