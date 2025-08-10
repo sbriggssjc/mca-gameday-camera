@@ -332,3 +332,4 @@ discipline as outlined in the coaching rubric:
 - Secondary players are graded on keeping the top of the coverage.
 
 These rules are configurable via `config/settings.yaml`.
+
