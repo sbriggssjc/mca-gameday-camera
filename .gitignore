@@ -12,3 +12,4 @@ video/uploaded/
 *.mkv
 output.mp4
 livestream_logs/
+output/
