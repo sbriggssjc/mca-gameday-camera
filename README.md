@@ -333,3 +333,20 @@ discipline as outlined in the coaching rubric:
 
 These rules are configurable via `config/settings.yaml`.
 
+
+## Jetson quickstart
+
+```bash
+cd ~/mca-gameday-camera
+OUT=output/scrimmage_$(date +%Y%m%d_%H%M)
+mkdir -p "$OUT"
+
+python3 -m analysis.pipeline \
+  --video video/manual_uploads/IMG_4129.MP4 \
+  --team WHITE \
+  --playbook mca_full_playbook_final.json \
+  --out "$OUT" \
+  --player-ids config/player_visual_ids.yaml \
+  --generate-report \
+  --clip-corrections --clip-wins --clip-highlights
+```
