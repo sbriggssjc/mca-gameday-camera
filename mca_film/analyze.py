@@ -18,6 +18,12 @@ import subprocess
 from .models import CoachSummary, PlayAnalysis, PlayerGrade
 from .grading import grade_play
 
+# Lightweight player identification pipeline components.  These are simple
+# stubs that enable unit tests to exercise the integration points without
+# requiring heavy ML dependencies.
+from player_id import assign_player_ids, io as pid_io, tracker as pid_tracker
+from schemas import Tracklet
+
 
 def _detect_fps(video_path: str) -> float:
     if cv2 is not None:
@@ -65,6 +71,16 @@ def analyze_game(video_path: str, side: str, roster: dict, settings: dict) -> Li
     """
 
     fps = _detect_fps(video_path)
+
+    # ------------------------------------------------------------------
+    # Player identification: run a stub tracker and attempt to associate
+    # tracklets with known player profiles.  The resulting IDs are not used in
+    # the toy grading logic but the call verifies the subsystem wiring.
+    pid_settings = settings.get("player_id", {})
+    player_profiles = pid_io.load_roster(pid_settings.get("roster_path", "data/players.json"))
+    tracklets: List[Tracklet] = pid_tracker.track([])
+    assign_player_ids(tracklets, player_profiles, pid_settings)
+
     # In the real system we would split plays and track players. Here we
     # simply fabricate a single play with neutral grades.
     analyses: List[PlayAnalysis] = []
