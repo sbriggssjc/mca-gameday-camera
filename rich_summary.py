@@ -31,11 +31,31 @@ projects if desired.
 from __future__ import annotations
 
 import argparse
+import shutil
+import subprocess
+
 import csv
 import json
 import logging
-import math
-from pathlib import Path
+import math\1
+def detect_encoder():
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return "libx264"
+    try:
+        out = subprocess.run([ffmpeg, "-hide_banner", "-encoders"],
+                             capture_output=True, text=True, timeout=5)
+        if out.returncode == 0 and "h264_v4l2m2m" in out.stdout:
+            return "h264_v4l2m2m"
+    except Exception:
+        pass
+    return "libx264"
+
+ENCODER_OPTS = {
+    "h264_v4l2m2m": ["-c:v","h264_v4l2m2m","-b:v","4M","-pix_fmt","yuv420p"],
+    "libx264":      ["--ENCODER--","-preset","veryfast","-crf","23","-pix_fmt","yuv420p"],
+}
+
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
@@ -704,3 +724,13 @@ def main(argv: Optional[List[str]] = None) -> int:
 if __name__ == "__main__":  # pragma: no cover - CLI entry
     raise SystemExit(main())
 
+
+
+def _encoder_flags(enc):
+    return ENCODER_OPTS.get(enc or "libx264", ENCODER_OPTS["libx264"])
+
+def _splice_encoder(cmd:list, enc:str)->list:
+    if "--ENCODER--" in cmd:
+        ix = cmd.index("--ENCODER--")
+        return cmd[:ix] + _encoder_flags(enc) + cmd[ix+1:]
+    return cmd
