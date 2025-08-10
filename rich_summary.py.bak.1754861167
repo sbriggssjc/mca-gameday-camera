@@ -37,7 +37,7 @@ import subprocess
 import csv
 import json
 import logging
-import math
+import math\1
 def detect_encoder():
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
