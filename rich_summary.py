@@ -735,3 +735,32 @@ def _splice_encoder(cmd:list, enc:str)->list:
         ix = cmd.index("--ENCODER--")
         return cmd[:ix] + _encoder_flags(enc) + cmd[ix+1:]
     return cmd
+
+def _ensure_codec_flags(cmd:list, encoder:str)->list:
+    cmd = cmd[:]
+    has_cv = any(x == "-c:v" for x in cmd)
+    has_ca = any(x == "-c:a" for x in cmd)
+    # Insert before the final output path (last token)
+    insert_at = len(cmd)-1 if len(cmd)>=2 else len(cmd)
+    if not has_cv:
+        cmd[insert_at:insert_at] = ENCODER_OPTS.get(encoder, ENCODER_OPTS["libx264"])
+        insert_at = len(cmd)-1
+    if not has_ca:
+        cmd[insert_at:insert_at] = AUDIO_OPTS
+        insert_at = len(cmd)-1
+    # Shortest avoids audio/video length mismatch hangs
+    if "-shortest" not in cmd:
+        cmd.insert(insert_at, "-shortest")
+    return cmd
+
+def run_ffmpeg_command(cmd:list, timeout:int=120):
+    enc = detect_encoder()
+    cmd = _ensure_codec_flags(cmd, enc)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        ok = (proc.returncode == 0)
+        return ok, proc.stdout, proc.stderr
+    except subprocess.TimeoutExpired as e:
+        return False, "", f"ffmpeg timeout after {timeout}s: {e}"
+    except Exception as e:
+        return False, "", f"ffmpeg error: {e}"
