@@ -301,3 +301,34 @@ python generate_hudl_csv.py --week 3 --opponent "Victory Christian"
 ```
 
 Use `--player 23` to limit rows to a specific jersey number.
+
+## MCA Film Analysis Pipeline
+
+This repository now includes a minimal `mca_film` package that sketches an end-to-end
+analysis workflow for the Metro Christian Academy 5th grade team. The pipeline
+mirrors the coaching spec and is designed to be extended with real computer
+vision models.
+
+### Usage
+
+```bash
+python -m mca_film.cli analyze --video data/scrimmage.mp4 --side offense
+python -m mca_film.cli export --report coaches --players p1 p2 --highlights
+```
+
+The first command runs the analysis and stores per-play JSON under `out/json/`.
+The second command exports a coach summary CSV, per-player cutups and a simple
+highlights reel placeholder under `out/`.
+
+### Grading Heuristics
+
+Current grading uses a neutral baseline of `2.0` for every player.  Future work
+should expand this to measure contain responsibilities, gap fits and route
+discipline as outlined in the coaching rubric:
+
+- Defensive ends and edges are checked for outside contain.
+- Tackles are evaluated on A/B gap integrity.
+- Linebackers earn bonuses for visible read steps.
+- Secondary players are graded on keeping the top of the coverage.
+
+These rules are configurable via `config/settings.yaml`.
