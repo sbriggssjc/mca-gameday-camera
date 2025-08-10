@@ -19,6 +19,11 @@ def main(argv: list[str] | None = None) -> None:
     analyze_p.add_argument("--side", choices=["offense", "defense"], default="offense")
     analyze_p.add_argument("--roster", default="config/roster.json")
     analyze_p.add_argument("--settings", default="config/settings.yaml")
+    analyze_p.add_argument("--calibrate", action="store_true")
+    analyze_p.add_argument("--min-confidence", type=float, default=0.72)
+    analyze_p.add_argument("--export-clips", action="store_true")
+    analyze_p.add_argument("--export-summary", action="store_true")
+    analyze_p.add_argument("--export-highlights", action="store_true")
 
     export_p = sub.add_parser("export", help="export reports or clips")
     export_p.add_argument("--report", choices=["coaches"], nargs="?")
@@ -40,6 +45,15 @@ def main(argv: list[str] | None = None) -> None:
             out_path.write_text(json.dumps(play, default=lambda o: o.__dict__, indent=2))
         # save a marker that analysis completed
         Path("out/analysis.done").write_text("ok")
+
+        # Optional exports triggered via flags to mirror the command line
+        if args.export_summary:
+            export_coach_summary(analyses)
+        if args.export_clips:
+            for pid in roster.keys():
+                export_player_clips(analyses, pid)
+        if args.export_highlights:
+            export_highlights(analyses)
     elif args.cmd == "export":
         # Load analyses from prior run if available
         analyses = []
