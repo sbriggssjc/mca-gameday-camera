@@ -1,4 +1,3 @@
-from pathlib import Path
 #!/usr/bin/env python3
 """rich_summary.py
 
