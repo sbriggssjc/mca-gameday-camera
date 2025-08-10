@@ -28,6 +28,7 @@ def test_normalise_variants(minimal, split_sections, flat_lists):
 def test_real_playbooks_same_structure():
     pb1 = assignments.load_playbook("mca_full_playbook_final.json")
     pb2 = assignments.load_playbook("mca_playbook.json")
-    assert set(pb1.keys()) == set(pb2.keys())
-    assert set(pb1["offense"].keys()) == set(pb2["offense"].keys())
-    assert set(pb1["defense"].keys()) == set(pb2["defense"].keys())
+    assert isinstance(pb1.offense_plays, list)
+    assert isinstance(pb2.offense_plays, list)
+    assert isinstance(pb1.defense_positions, list)
+    assert isinstance(pb2.defense_positions, list)

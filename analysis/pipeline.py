@@ -64,8 +64,14 @@ def run_pipeline(
     _write_jsonl([p.as_dict() for p in plays], os.path.join(out_dir, "plays.jsonl"))
 
     playbook = assignments.load_playbook(playbook_path)
+    print(
+        f"Loaded offense plays: {len(playbook.offense_plays)}, defense positions: {len(playbook.defense_positions)}"
+    )
+    if playbook.schema == "split_sections" and not playbook.defense_positions:
+        raise SystemExit("Playbook missing defense.positions")
+
     preds = play_recognizer.recognize(
-        [p.as_dict() for p in plays], playbook["offense"]["plays"]
+        [p.as_dict() for p in plays], [pl.to_dict() for pl in playbook.offense_plays]
     )
     _write_jsonl(preds, os.path.join(out_dir, "play_predictions.jsonl"))
 
