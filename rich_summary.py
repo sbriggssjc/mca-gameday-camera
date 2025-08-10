@@ -42,15 +42,13 @@ import numpy as np
 import pandas as pd
 import yaml
 import cv2
-from fpdf import FPDF  # type: ignore
+from fpdf import FPDF
+import re
 
-from ffmpeg_utils import detect_encoder, run_ffmpeg_command
-
-
-# ---------------------------------------------------------------------------
-# Utility helpers
-
-
+def _soften_tokens(text, max_run=80):
+    # Insert a zero-width space after every max_run non-space chars
+    pat = re.compile(r'\S{' + str(max_run) + r'}')
+    return pat.sub(lambda m: m.group(0) + '\u200b', text)
 def read_jsonl(path: Path) -> List[Dict[str, Any]]:
     """Read a ``.jsonl`` file and return a list of dictionaries."""
 
@@ -321,9 +319,11 @@ def write_md_and_pdf(md_text: str, md_path: Path, pdf_path: Path) -> None:
     pdf = FPDF()
     pdf.set_auto_page_break(True, 15)
     pdf.add_page()
-    pdf.set_font("Arial", size=12)
+    pdf.set_auto_page_break(auto=True, margin=12)
+    pdf.set_left_margin(12); pdf.set_right_margin(12)
+    pdf.set_font("Helvetica", size=12)
     for line in md_text.splitlines():
-        pdf.multi_cell(0, 8, line)
+        pdf.multi_cell(0, 8, _soften_tokens(line))
     pdf.output(str(pdf_path))
 
 
