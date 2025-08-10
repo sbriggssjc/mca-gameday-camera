@@ -39,6 +39,47 @@ def generate(grades: Iterable[Dict[str, Any]], out_dir: str) -> None:
             lines.append(f"- {player}: {g['grade']}")
         lines.append("")
 
+    # ------------------------------------------------------------------
+    # Simple defence summary
+    # ------------------------------------------------------------------
+    edge_total = gap_total = read_total = 0
+    edge_mistakes = gap_mistakes = read_mistakes = 0
+    explosive = 0
+    pos_grades: Dict[str, list[float]] = {}
+    pos_corrections: Dict[str, list[str]] = {}
+    for play in grades:
+        for player, g in play["players"].items():
+            pos = g.get("position") or "Unknown"
+            pos_grades.setdefault(pos, []).append(g["grade"])
+            pos_corrections.setdefault(pos, []).extend(g["mistakes"])
+            edge_total += 1
+            gap_total += 1
+            read_total += 1
+            if "contain" in g["mistakes"]:
+                edge_mistakes += 1
+            if "gap_fill" in g["mistakes"]:
+                gap_mistakes += 1
+            if "read_first" in g["mistakes"]:
+                read_mistakes += 1
+            if "explosive_play" in g["mistakes"]:
+                explosive += 1
+
+    lines.extend(["## Defense", ""])
+    if edge_total:
+        lines.append(f"Edge-set rate: {1 - edge_mistakes / edge_total:.2f}")
+    if gap_total:
+        lines.append(f"Correct-gap rate: {1 - gap_mistakes / gap_total:.2f}")
+    if read_total:
+        lines.append(f"Read correctness: {1 - read_mistakes / read_total:.2f}")
+    lines.append(f"Explosive plays allowed: {explosive}")
+    lines.append("")
+    lines.append("### Position Groups")
+    for pos, grades_list in pos_grades.items():
+        avg = sum(grades_list) / len(grades_list)
+        corr = ", ".join(pos_corrections.get(pos, [])[:3])
+        lines.append(f"- {pos}: avg {avg:.2f} | corrections: {corr}")
+    lines.append("")
+
     with open(md_path, "w", encoding="utf8") as f:
         f.write("\n".join(lines))
 
