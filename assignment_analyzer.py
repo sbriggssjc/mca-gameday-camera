@@ -6,11 +6,15 @@ import argparse
 import csv
 import json
 import os
-from typing import Dict, List
+from typing import Dict, List, Tuple, Optional
 
 import cv2
+import logging
 
-from ai_detector import detect_jerseys
+from ai_detector import detect_jerseys as _detect_jerseys
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+Box = Tuple[int, int, int, int]
 
 
 CSV_HEADER = ["play_id", "jersey", "assignment", "timestamp"]
@@ -27,7 +31,13 @@ def analyze_clip(video_path: str, assignments: Dict[int, str] | None = None, *, 
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        print(f"Unable to open {video_path}")
+        logging.error("Unable to open %s", video_path)
+        return
+
+    ret, frame = cap.read()
+    if not ret or frame is None:
+        logging.error("Failed to read first frame from %s", video_path)
+        cap.release()
         return
 
     new_file = not os.path.exists(output)
@@ -36,18 +46,35 @@ def analyze_clip(video_path: str, assignments: Dict[int, str] | None = None, *, 
         if new_file:
             writer.writerow(CSV_HEADER)
 
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            jerseys: List[int] = detect_jerseys(frame)
+        while ret and frame is not None:
+            boxes: List[Box] = detect_players(frame)
+            jerseys: List[int] = detect_jerseys(frame, boxes)
             timestamp = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
             for num in jerseys:
                 assignment = assignments.get(num, "unknown") if assignments else "unknown"
                 writer.writerow([os.path.basename(video_path), num, assignment, timestamp])
+            ret, frame = cap.read()
 
     cap.release()
 
+
+# --- Detection helpers ---
+
+
+def detect_players(frame) -> List[Box]:
+    """Return list of person bounding boxes (x1,y1,x2,y2). Stub if no model yet."""
+    try:
+        # TODO: replace with your real detector/tracker; for now a safe stub
+        return []
+    except Exception as e:
+        logging.warning("detect_players failed: %s", e)
+        return []
+
+
+def detect_jerseys(frame, boxes: Optional[List[Box]] = None):
+    if boxes is None:
+        boxes = detect_players(frame)
+    return _detect_jerseys(frame, boxes)
 
 def load_assignments(path: str) -> Dict[int, str]:
     """Load a simple jersey->assignment mapping from JSON."""
