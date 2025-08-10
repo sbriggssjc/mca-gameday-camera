@@ -1,4 +1,3 @@
-from __future__ import annotations
 from pathlib import Path
 #!/usr/bin/env python3
 """rich_summary.py
@@ -30,6 +29,7 @@ This module is intentionally self‑contained so it can be copied into other
 projects if desired.
 """
 
+from __future__ import annotations
 
 import argparse
 import shutil
