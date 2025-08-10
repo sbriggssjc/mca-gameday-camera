@@ -20,6 +20,18 @@ coach report under `output/reports/`.
 The coach summary report includes per-play tables and player grades. A
 sample output is generated during tests under `tests/data`.
 
+### One-click end-to-end analysis
+
+Run the entire processing pipeline and summary generation with a single command:
+
+```bash
+python3 scripts/one_click_analyze.py \
+  --video video/manual_uploads/IMG_4129.MP4 \
+  --team WHITE \
+  --opponent "Victory Christian" \
+  --date 2025-08-08
+```
+
 ## Playbook
 
 Playbooks may be authored in a legacy flat list format or using the
