@@ -3,34 +3,44 @@
 from __future__ import annotations
 
 import json
-from typing import Dict, List
+from typing import Dict, List, Any
+
+from . import assignments_schema
 
 
-def load_playbook(path: str | None) -> List[Dict[str, str]]:
-    """Load a simplified playbook file.
+def load_playbook(path: str | None) -> Dict[str, Any]:
+    """Load and normalise a playbook file.
 
-    The expected format is a JSON object with a top level key ``plays``
-    containing a list of play definitions.  Each play definition should at
-    least provide a ``name`` and ``formation`` field.  The production
-    repository contains a much richer structure but that is unnecessary for
-    the unit tests in this kata.
+    The loader accepts a variety of JSON layouts and converts them into a
+    canonical in-memory representation.  Unknown keys are ignored with a
+    warning while missing required fields trigger :class:`ValueError` with a
+    helpful message.
     """
 
     if not path:
-        return []
+        return assignments_schema.CANONICAL_TEMPLATE.copy()
+
     with open(path, "r", encoding="utf8") as f:
         data = json.load(f)
-    if isinstance(data, dict) and "plays" in data:
-        return data["plays"]
-    if isinstance(data, list):
-        return data
-    raise ValueError("Unrecognised playbook format")
+
+    schema = assignments_schema.detect_schema(data)
+    playbook = assignments_schema.normalise(data)
+
+    # Emit helpful logging for tests / CLI users
+    print(
+        f"Detected playbook schema: {schema}\n"
+        f"Loaded offense plays: {len(playbook['offense']['plays'])}, "
+        f"defense positions: {len(playbook['defense']['positions'])}"
+    )
+    return playbook
 
 
-def assignments_for_play(play_name: str, playbook: List[Dict[str, str]]) -> Dict[str, str]:
+def assignments_for_play(play_name: str, playbook: Dict[str, Any]) -> Dict[str, Any]:
     """Return assignment mapping for ``play_name`` if present."""
 
-    for play in playbook:
+    plays = playbook.get("offense", {}).get("plays", [])
+    for play in plays:
         if play.get("name") == play_name:
-            return play.get("assignments", {})
+            # Prefer new ``roles`` section but fall back to ``assignments``
+            return play.get("roles") or play.get("assignments", {})
     return {}
