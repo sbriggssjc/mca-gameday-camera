@@ -11,6 +11,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
+import cv2
+import numpy as np
+
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +88,73 @@ def render_pdf_fpdf(out_dir: Path) -> Path:
     return pdf_path
 
 
+def fallback_segments_from_motion(
+    video_path: str, threshold: float, min_seg: float
+) -> list[tuple[float, float]]:
+    """Return motion-based segments from ``video_path``.
+
+    Frames are sampled at roughly 5fps. The mean absolute difference between
+    consecutive sampled frames is normalised to ``[0,1]`` and compared against
+    ``threshold``. Detected motion spans shorter than ``min_seg`` seconds are
+    discarded and neighbouring regions separated by less than ``0.8`` seconds
+    are merged.
+    """
+
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    step = max(1, int(fps / 5))
+    prev = None
+    scores: list[float] = []
+    times: list[float] = []
+    frame_idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if frame_idx % step == 0:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            blur = cv2.GaussianBlur(gray, (5, 5), 0)
+            if prev is not None:
+                diff = cv2.absdiff(prev, blur)
+                diff = cv2.normalize(
+                    diff.astype("float32"), None, 0.0, 1.0, cv2.NORM_MINMAX
+                )
+                scores.append(float(np.mean(diff)))
+                times.append(frame_idx / fps)
+            prev = blur
+        frame_idx += 1
+    cap.release()
+
+    motion = [s > threshold for s in scores]
+    segments: list[tuple[float, float]] = []
+    start = None
+    for t, m in zip(times, motion):
+        if m:
+            if start is None:
+                start = t
+        else:
+            if start is not None:
+                end = t
+                if end - start >= min_seg:
+                    segments.append((start, end))
+                start = None
+    if start is not None and times:
+        end = times[-1]
+        if end - start >= min_seg:
+            segments.append((start, end))
+
+    merged: list[list[float]] = []
+    for s, e in segments:
+        if not merged:
+            merged.append([s, e])
+        else:
+            if s - merged[-1][1] < 0.8:
+                merged[-1][1] = e
+            else:
+                merged.append([s, e])
+    return [(s, e) for s, e in merged]
+
+
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="One-click film analysis")
     parser.add_argument("--video", required=True, help="MP4 path")
@@ -96,6 +166,12 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--wins-threshold", type=float, default=3.0)
     parser.add_argument("--corrections-threshold", type=float, default=2.0)
     parser.add_argument("--min-clip-sec", type=float, default=1.5)
+    parser.add_argument("--fallback-segmentation", action="store_true")
+    parser.add_argument("--min-valid-plays", type=int, default=5)
+    parser.add_argument("--motion-threshold", type=float, default=0.45)
+    parser.add_argument("--min-seg-sec", type=float, default=2.0)
+    parser.add_argument("--pad-before", type=float, default=0.6)
+    parser.add_argument("--pad-after", type=float, default=1.2)
     parser.add_argument(
         "--out",
         help="Output directory",
@@ -193,6 +269,48 @@ def main(argv: List[str] | None = None) -> int:
         print("Missing artefacts:", ", ".join(missing), file=sys.stderr)
         return 3
 
+    plays_path = out_dir / "plays.jsonl"
+    try:
+        with plays_path.open("r", encoding="utf-8") as fh:
+            raw_play_count = sum(1 for line in fh if line.strip())
+    except FileNotFoundError:
+        raw_play_count = 0
+
+    plays_after_fallback = raw_play_count
+    if (
+        args.fallback_segmentation
+        and raw_play_count < args.min_valid_plays
+    ):
+        segments = fallback_segments_from_motion(
+            str(video_path), args.motion_threshold, args.min_seg_sec
+        )
+        padded: list[tuple[float, float]] = []
+        for start, end in segments:
+            s = max(0.0, start - args.pad_before)
+            e = min(duration, end + args.pad_after)
+            if e > s:
+                padded.append((s, e))
+        plays_after_fallback = len(padded)
+        lines = [
+            json.dumps(
+                {
+                    "play_id": i + 1,
+                    "start_s": s,
+                    "end_s": e,
+                    "label": "UNKNOWN",
+                    "source": "fallback_motion",
+                }
+            )
+            for i, (s, e) in enumerate(padded)
+        ]
+        plays_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+        log_file = out_dir / "logs" / "one_click.log"
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with log_file.open("a", encoding="utf-8") as lf:
+            lf.write(
+                f"{datetime.now().isoformat()} fallback_segmentation segments={plays_after_fallback}\n"
+            )
+
     # ---------------------------------------------------------------- rich_summary
     rs_cmd = [
         sys.executable,
@@ -229,12 +347,7 @@ def main(argv: List[str] | None = None) -> int:
         return 4
 
     # ---------------------------------------------------------------- PDF
-    if args.pdf_engine == "reportlab":
-        render_pdf_reportlab(out_dir)
-    elif args.pdf_engine == "fpdf":
-        render_pdf_fpdf(out_dir)
-    else:
-        log.info("Skipping PDF generation")
+    render_pdf_reportlab(out_dir)
 
     # ---------------------------------------------------------------- summary
     summary = {}
@@ -242,11 +355,12 @@ def main(argv: List[str] | None = None) -> int:
         summary = json.loads(dashboard.read_text())
     except Exception:
         pass
-    plays = summary.get("valid_plays_used", 0)
     wins = summary.get("wins", 0)
     corrections = summary.get("corrections", 0)
     print("Output:", out_dir)
-    print(f"Plays: {plays}, Wins: {wins}, Corrections: {corrections}")
+    print(f"Plays detected (raw): {raw_play_count}")
+    print(f"Plays after fallback: {plays_after_fallback}")
+    print(f"Wins: {wins}, Corrections: {corrections}")
     print("Report:", out_dir / "reports" / "report.pdf")
     print("Team highlights:", out_dir / "clips" / "highlights" / "team_highlights.mp4")
     print("Wins reel:", out_dir / "clips" / "wins" / "top_wins.mp4")
