@@ -10,7 +10,7 @@ PLAYBOOK="mca_full_playbook_final.json"
 OUT=""
 MIN_VALID=5
 MIN_CLIP=1.5
-MOTION_THRESHOLD="-1"   # -1 = auto-pick from distribution
+MOTION_THRESHOLD="-1"   # -1 = auto-pick
 MIN_SEG=1.8
 PAD_BEFORE=0.5
 PAD_AFTER=1.0
@@ -110,7 +110,7 @@ PY
 echo "—— DONE ——"
 echo "OUT: $OUT"
 if [ -f "$OUT/dashboards/summary.json" ]; then
-  python3 - <<'PY'
+  python3 - <<'PY' "$OUT/dashboards/summary.json"
 import json, sys, pathlib
 p=pathlib.Path(sys.argv[1])
 try:
@@ -118,7 +118,7 @@ try:
   print(f"Plays: {d.get('plays_detected','?')}, Valid: {d.get('valid_plays_used','?')}, Wins: {d.get('wins_count','?')}, Corrections: {d.get('corrections_count','?')}")
 except Exception as e:
   print("Summary JSON unreadable:", e)
-PY "$OUT/dashboards/summary.json"
+PY
 fi
 echo "Report: $OUT/reports/report.pdf"
 echo "Highlights: $OUT/clips/highlights/team_highlights.mp4"
