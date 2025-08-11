@@ -95,6 +95,7 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--player-ids")
     parser.add_argument("--wins-threshold", type=float, default=3.0)
     parser.add_argument("--corrections-threshold", type=float, default=2.0)
+    parser.add_argument("--min-clip-sec", type=float, default=1.5)
     parser.add_argument(
         "--out",
         help="Output directory",
@@ -108,6 +109,10 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="Skip clip rendering")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
+
+    if args.min_clip_sec < 0.5:
+        print("--min-clip-sec must be >= 0.5", file=sys.stderr)
+        return 1
 
     video_path = Path(args.video)
     if not video_path.exists():
@@ -208,6 +213,8 @@ def main(argv: List[str] | None = None) -> int:
         str(args.wins_threshold),
         "--corrections-threshold",
         str(args.corrections_threshold),
+        "--min-clip-sec",
+        str(args.min_clip_sec),
         "--pdf-engine",
         "none",
     ]
