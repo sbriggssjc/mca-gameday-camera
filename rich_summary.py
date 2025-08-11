@@ -232,7 +232,7 @@ def get_video_info(video_path: Path) -> Tuple[float, float]:
 
 def normalize_windows(
     plays: List[Dict[str, Any]], video_duration: float, min_len: float
-) -> Tuple[List[Dict[str, Any]], Dict[str, int], Dict[int, str], str]:
+) -> Tuple[List[Dict[str, Any]], Dict[str, int], str]:
     """Normalize play start/end times and filter invalid windows.
 
     Parameters
@@ -246,12 +246,11 @@ def normalize_windows(
 
     Returns
     -------
-    (valid_plays, exclusion_stats, per_play_reasons, unit)
+    (valid_plays, exclusion_stats, unit)
         ``valid_plays`` are mutated in-place with ``start_s``/``end_s`` fields
         normalised to seconds. ``exclusion_stats`` tallies the number of dropped
-        rows per reason and ``per_play_reasons`` maps the original play index to
-        the exclusion reason. ``unit`` describes whether timestamps were assumed
-        to be in seconds or converted from milliseconds.
+        rows per reason. ``unit`` describes whether timestamps were assumed to be
+        in seconds or converted from milliseconds.
     """
 
     start_vals: List[float] = []
@@ -271,7 +270,6 @@ def normalize_windows(
 
     valid: List[Dict[str, Any]] = []
     exclusion_stats: Dict[str, int] = {}
-    per_play_reasons: Dict[int, str] = {}
 
     for idx, play in enumerate(plays):
         s_raw = find_field(play, ["start_s", "start", "start_time", "t0", "ts", "begin", "clip_start"])
@@ -280,17 +278,14 @@ def normalize_windows(
             start = float(s_raw) * factor
             end = float(e_raw) * factor
         except Exception:
-            per_play_reasons[idx] = "missing_time"
             exclusion_stats["missing_time"] = exclusion_stats.get("missing_time", 0) + 1
             continue
         start = max(0.0, min(video_duration, start))
         end = max(0.0, min(video_duration, end))
         if end <= start:
-            per_play_reasons[idx] = "end_before_start"
             exclusion_stats["end_before_start"] = exclusion_stats.get("end_before_start", 0) + 1
             continue
         if end - start < min_len:
-            per_play_reasons[idx] = "too_short"
             exclusion_stats["too_short"] = exclusion_stats.get("too_short", 0) + 1
             continue
         play["start_s"] = float(start)
@@ -298,7 +293,7 @@ def normalize_windows(
         play["duration"] = float(end - start)
         valid.append(play)
 
-    return valid, exclusion_stats, per_play_reasons, unit
+    return valid, exclusion_stats, unit
 
 
 def validate_plays(
@@ -711,18 +706,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     grades_data = read_jsonl(out_dir / "grades.jsonl")
     plays = ingest_plays(plays_data, pred_data, grades_data)
 
-    norm_plays, excl_stats, per_play_reasons, unit = normalize_windows(
+    norm_plays, excl_stats, unit = normalize_windows(
         plays, duration, args.min_clip_sec
     )
     valid, invalid_post = validate_plays(
         norm_plays, duration=duration, min_len=args.min_clip_sec
     )
 
-    invalid_norm = []
-    for idx, reason in per_play_reasons.items():
-        raw = dict(plays[idx])
-        raw["invalid_reason"] = reason
-        invalid_norm.append(raw)
+    invalid_norm: List[Dict[str, Any]] = []
+    for reason, count in excl_stats.items():
+        invalid_norm.extend([{"invalid_reason": reason}] * count)
     invalid = invalid_norm + invalid_post
 
     classify_plays(valid, args.wins_threshold, args.corrections_threshold)
@@ -731,17 +724,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     write_timeline_csv(valid, out_dir / "dashboards" / "timeline.csv")
     write_summary_json(metrics, out_dir / "dashboards" / "summary.json")
 
+    post_excl: Dict[str, int] = {}
+    for p in invalid_post:
+        reason = p.get("invalid_reason", "invalid")
+        post_excl[reason] = post_excl.get(reason, 0) + 1
+    all_excl = excl_stats.copy()
+    for k, v in post_excl.items():
+        all_excl[k] = all_excl.get(k, 0) + v
+
     report = {
         "video_duration": float(duration),
         "min_clip_sec": float(args.min_clip_sec),
         "unit": unit,
         "total_rows": len(plays),
         "valid_rows": len(valid),
-        "exclusions": excl_stats,
-        "examples": [
-            {"idx": int(i), "reason": r, "raw": plays[int(i)]}
-            for i, r in list(per_play_reasons.items())[:10]
-        ],
+        "exclusions": all_excl,
     }
     report_path = out_dir / "sanity" / "validation_report.json"
     ensure_dir(report_path.parent)
@@ -751,8 +748,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         len(valid),
         len(plays),
         unit,
-        excl_stats,
+        all_excl,
     )
+
+    if len(valid) < 5:
+        logging.warning("ACTIONABLE HINTS: see %s", report_path)
 
     md_text = generate_report_md(metadata, metrics, valid)
     md_path = out_dir / "reports" / "report.md"
