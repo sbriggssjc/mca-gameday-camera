@@ -230,6 +230,77 @@ def get_video_info(video_path: Path) -> Tuple[float, float]:
     return float(duration), float(fps)
 
 
+def normalize_windows(
+    plays: List[Dict[str, Any]], video_duration: float, min_len: float
+) -> Tuple[List[Dict[str, Any]], Dict[str, int], Dict[int, str], str]:
+    """Normalize play start/end times and filter invalid windows.
+
+    Parameters
+    ----------
+    plays:
+        List of play dictionaries possibly containing various start/end keys.
+    video_duration:
+        Duration of the source video in seconds.
+    min_len:
+        Minimum allowed clip length in seconds.
+
+    Returns
+    -------
+    (valid_plays, exclusion_stats, per_play_reasons, unit)
+        ``valid_plays`` are mutated in-place with ``start_s``/``end_s`` fields
+        normalised to seconds. ``exclusion_stats`` tallies the number of dropped
+        rows per reason and ``per_play_reasons`` maps the original play index to
+        the exclusion reason. ``unit`` describes whether timestamps were assumed
+        to be in seconds or converted from milliseconds.
+    """
+
+    start_vals: List[float] = []
+    for p in plays:
+        start_raw = find_field(p, ["start_s", "start", "start_time", "t0", "ts", "begin", "clip_start"])
+        try:
+            if start_raw is not None:
+                start_vals.append(float(start_raw))
+        except Exception:
+            continue
+    median_start = float(np.median(start_vals)) if start_vals else 0.0
+    unit = "seconds"
+    factor = 1.0
+    if median_start > video_duration * 1.2:
+        unit = "milliseconds->seconds"
+        factor = 0.001
+
+    valid: List[Dict[str, Any]] = []
+    exclusion_stats: Dict[str, int] = {}
+    per_play_reasons: Dict[int, str] = {}
+
+    for idx, play in enumerate(plays):
+        s_raw = find_field(play, ["start_s", "start", "start_time", "t0", "ts", "begin", "clip_start"])
+        e_raw = find_field(play, ["end_s", "end", "end_time", "t1", "te", "finish", "clip_end"])
+        try:
+            start = float(s_raw) * factor
+            end = float(e_raw) * factor
+        except Exception:
+            per_play_reasons[idx] = "missing_time"
+            exclusion_stats["missing_time"] = exclusion_stats.get("missing_time", 0) + 1
+            continue
+        start = max(0.0, min(video_duration, start))
+        end = max(0.0, min(video_duration, end))
+        if end <= start:
+            per_play_reasons[idx] = "end_before_start"
+            exclusion_stats["end_before_start"] = exclusion_stats.get("end_before_start", 0) + 1
+            continue
+        if end - start < min_len:
+            per_play_reasons[idx] = "too_short"
+            exclusion_stats["too_short"] = exclusion_stats.get("too_short", 0) + 1
+            continue
+        play["start_s"] = float(start)
+        play["end_s"] = float(end)
+        play["duration"] = float(end - start)
+        valid.append(play)
+
+    return valid, exclusion_stats, per_play_reasons, unit
+
+
 def validate_plays(
     plays: List[Dict[str, Any]],
     *,
@@ -573,6 +644,13 @@ def export_hudl_csv(plays: List[Dict[str, Any]], path: Path) -> None:
 
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Build rich film summaries")
+
+    def clip_length(value: str) -> float:
+        v = float(value)
+        if v < 0.5:
+            raise argparse.ArgumentTypeError("min-clip-sec must be >= 0.5")
+        return v
+
     parser.add_argument("--video", required=True, help="MP4 path")
     parser.add_argument("--out", required=True, help="Pipeline output folder")
     parser.add_argument("--team")
@@ -583,6 +661,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--export-hudl", action="store_true")
     parser.add_argument("--per-player-cutups", action="store_true")
     parser.add_argument("--max-top", type=int, default=10)
+    parser.add_argument("--min-clip-sec", type=clip_length, default=2.0)
     parser.add_argument("--dry-run", action="store_true", help="Skip clip rendering")
     parser.add_argument(
         "--pdf-engine",
@@ -632,16 +711,48 @@ def main(argv: Optional[List[str]] = None) -> int:
     grades_data = read_jsonl(out_dir / "grades.jsonl")
     plays = ingest_plays(plays_data, pred_data, grades_data)
 
-    valid, invalid = validate_plays(plays, duration=duration)
-    classify_plays(valid, args.wins_threshold, args.corrections_threshold)
+    norm_plays, excl_stats, per_play_reasons, unit = normalize_windows(
+        plays, duration, args.min_clip_sec
+    )
+    valid, invalid_post = validate_plays(
+        norm_plays, duration=duration, min_len=args.min_clip_sec
+    )
 
-    if not valid:
-        logging.error("No valid plays after validation")
-        return 1
+    invalid_norm = []
+    for idx, reason in per_play_reasons.items():
+        raw = dict(plays[idx])
+        raw["invalid_reason"] = reason
+        invalid_norm.append(raw)
+    invalid = invalid_norm + invalid_post
+
+    classify_plays(valid, args.wins_threshold, args.corrections_threshold)
 
     metrics = compute_metrics(valid, invalid)
     write_timeline_csv(valid, out_dir / "dashboards" / "timeline.csv")
     write_summary_json(metrics, out_dir / "dashboards" / "summary.json")
+
+    report = {
+        "video_duration": float(duration),
+        "min_clip_sec": float(args.min_clip_sec),
+        "unit": unit,
+        "total_rows": len(plays),
+        "valid_rows": len(valid),
+        "exclusions": excl_stats,
+        "examples": [
+            {"idx": int(i), "reason": r, "raw": plays[int(i)]}
+            for i, r in list(per_play_reasons.items())[:10]
+        ],
+    }
+    report_path = out_dir / "sanity" / "validation_report.json"
+    ensure_dir(report_path.parent)
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    logging.info(
+        "Validation: %d/%d rows valid (unit=%s); exclusions=%s",
+        len(valid),
+        len(plays),
+        unit,
+        excl_stats,
+    )
 
     md_text = generate_report_md(metadata, metrics, valid)
     md_path = out_dir / "reports" / "report.md"
@@ -765,7 +876,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         print("Report: PDF not generated")
     if metrics["valid_plays_used"] < 5:
-        print("ACTIONABLE HINTS: very few valid plays detected; check inputs")
+        print(
+            "ACTIONABLE HINTS: very few valid plays detected; check validation_report.json and consider lowering --min-clip-sec"
+        )
 
     return 0
 
