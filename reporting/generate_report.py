@@ -4,6 +4,7 @@ from collections import Counter
 import json
 from pathlib import Path
 from typing import List, Dict, Any
+import statistics as stats
 
 
 def _load_jsonl(fp: Path) -> List[Dict[str, Any]]:
@@ -60,11 +61,14 @@ def summarize(joined: List[Dict[str, Any]]):
     )
 
     plays_detected: Counter[str] = Counter()
+    confs: List[float] = []
     for r in joined:
         name = r["predicted_play"]
         if not name or str(name).upper() == "UNKNOWN":
             name = "Unknown"
         plays_detected[name] += 1
+        if isinstance(r.get("confidence"), (int, float)):
+            confs.append(float(r.get("confidence") or 0.0))
 
     known = sum(v for k, v in plays_detected.items() if k != "Unknown")
     total = len(joined)
@@ -72,8 +76,10 @@ def summarize(joined: List[Dict[str, Any]]):
 
     grades = [r["grade_overall"] for r in joined if isinstance(r.get("grade_overall"), (int, float))]
     avg_grade = (sum(grades) / len(grades)) if grades else None
+    ungradables = total - len(grades)
+    median_conf = stats.median(confs) if confs else 0.0
 
-    return formations, plays_detected, known_rate, avg_grade
+    return formations, plays_detected, known_rate, avg_grade, median_conf, plays_detected.get("Unknown", 0), ungradables, total
 
 
 def _mmss(t: Any) -> str:
