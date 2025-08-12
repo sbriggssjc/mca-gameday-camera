@@ -31,6 +31,7 @@ from . import (
     classifier,
     grader,
     playbook_map,
+    features,
 )
 from .segmentation import Segment
 from segment.play_segmenter import segment_video
@@ -185,9 +186,11 @@ def run_pipeline(
     play_matches = play_matcher.match_all(segments, frames, fps, playbook)
 
     # Tracking grouped by segment
-    tracking_by_segment = {
-        p["segment_id"]: {"players": [t.as_dict() for t in tracks]} for p in plays
-    }
+    tracking_rows = [t.as_dict() for t in tracks]
+    tracking_by_segment = {}
+    for p in plays:
+        sid = p["segment_id"]
+        tracking_by_segment[sid] = {"players": tracking_rows}
 
     # ------------------------------------------------------------------
     # Play classification with UNKNOWN support
@@ -201,13 +204,28 @@ def run_pipeline(
 
     pred_rows: List[Dict[str, Any]] = []
     for p in plays:
-        feats = {"f1": 0, "f2": 0, "f3": 0, "f4": 0, "f5": 0}
-        r = classifier.predict_play(feats, dummy_model, label_map)
-        r["segment_id"] = p["segment_id"]
-        r["play_id"] = p.get("play_id")
+        sid = p["segment_id"]
+        feats = features.extract_features(p, tracking_by_segment.get(sid, {}))
+        r = classifier.predict_play_for_segment(feats, dummy_model, label_map)
+        r.update({"segment_id": sid, "play_id": p.get("play_id")})
         pred_rows.append(r)
 
     _write_jsonl(pred_rows, os.path.join(out_dir, "play_predictions.jsonl"))
+
+    # Audit distribution and confidence
+    from collections import Counter
+
+    dist = Counter([r["predicted_play"] for r in pred_rows])
+    print("[audit] predicted counts:", dict(dist))
+
+    confs = [r["confidence"] for r in pred_rows if isinstance(r.get("confidence"), (int, float))]
+    if confs:
+        confs_sorted = sorted(confs)
+        mid = confs_sorted[len(confs_sorted) // 2]
+        print(
+            f"[audit] confidence n={len(confs)} min={confs_sorted[0]:.2f} "
+            f"p50={mid:.2f} max={confs_sorted[-1]:.2f}"
+        )
 
     pred_by_segment = {r["segment_id"]: r for r in pred_rows}
 
@@ -222,7 +240,7 @@ def run_pipeline(
             playbook_data = {}
     if "offense" not in playbook_data:
         playbook_data = {"offense": {"plays": playbook_data.get("plays", [])}}
-    play_index, _formation_idx = playbook_map.build_play_index(playbook_data)
+    play_index = playbook_map.build_play_index(playbook_data)
 
     grade_rows: List[Dict[str, Any]] = []
     for p in plays:
@@ -230,8 +248,7 @@ def run_pipeline(
         pred = pred_by_segment.get(seg_id, {})
         tracking = tracking_by_segment.get(seg_id)
         g = grader.grade_defense(p, pred, tracking, play_index)
-        g["segment_id"] = seg_id
-        g["play_id"] = p.get("play_id")
+        g.update({"segment_id": seg_id, "play_id": p.get("play_id")})
         grade_rows.append(g)
 
     _write_jsonl(grade_rows, os.path.join(out_dir, "grades.jsonl"))
@@ -249,18 +266,6 @@ def run_pipeline(
         print(
             f"[WARN] grades missing for segments: {missing_grade[:5]}"
             + (f" ... (+{len(missing_grade)-5} more)" if len(missing_grade) > 5 else "")
-        )
-
-    from collections import Counter
-
-    pred_counts = Counter(r["predicted_play"] for r in pred_rows)
-    print("[audit] predicted plays:", dict(pred_counts))
-    conf_vals = [r.get("confidence", 0.0) for r in pred_rows if r.get("confidence") is not None]
-    if conf_vals:
-        conf_vals_sorted = sorted(conf_vals)
-        print(
-            f"[audit] confidence: n={len(conf_vals_sorted)} min={conf_vals_sorted[0]:.2f} "
-            f"p50={conf_vals_sorted[len(conf_vals_sorted)//2]:.2f} max={conf_vals_sorted[-1]:.2f}"
         )
 
     player_grades = grading.grade(pred_rows, tracks, identity_map, playbook, grading_weights)
