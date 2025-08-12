@@ -25,12 +25,13 @@ from . import (
     player_identity,
     grading,
     clipping,
-    segmentation,
     formation_classifier,
     defense_grader,
     report_builder,
     play_matcher,
 )
+from .segmentation import Segment
+from segment.play_segmenter import segment_video
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +120,18 @@ def run_pipeline(
     }
     meta_path = Path(out_dir) / "metadata.json"
     meta_path.write_text(json.dumps(meta, indent=2))
+    segs = segment_video(
+        video,
+        fps,
+        Path(out_dir),
+        cfg={"min_play_length": min_play_length, "min_play_gap": min_play_gap},
+        ctx={"video_length_sec": duration_sec},
+    )
+    print(f"[pipeline] Segments in memory: {len(segs)}")
+
+    # Update metadata with play count
+    meta["play_count"] = len(segs)
+    meta_path.write_text(json.dumps(meta, indent=2))
 
     tracks = detect_track.run(video, team=team, fps=fps)
     detect_track.write_jsonl(tracks, os.path.join(out_dir, "tracking.jsonl"))
@@ -131,20 +144,10 @@ def run_pipeline(
         )
 
     # ------------------------------------------------------------------
-    # Segmentation
+    # Segmentation-dependent structures
     # ------------------------------------------------------------------
     frames = [None] * int(fps * 10)
-    segments = segmentation.segment_video(
-        frames=frames,
-        fps=fps,
-        min_play_gap=min_play_gap,
-        min_play_length=min_play_length,
-        logger=logger,
-    )
-
-    # Update metadata with play count
-    meta["play_count"] = len(segments)
-    meta_path.write_text(json.dumps(meta, indent=2))
+    segments = [Segment(float(s["start_s"]), float(s["end_s"])) for s in segs]
 
     playbook = assignments.load_playbook(playbook_path)
 
@@ -154,18 +157,16 @@ def run_pipeline(
 
     # Build play-like structures for recogniser compatibility
     plays_dicts: List[Dict[str, Any]] = []
-    for idx, seg in enumerate(segments, 1):
-        plays_dicts.append(
+    for idx, seg in enumerate(segs, 1):
+        pd = dict(seg)
+        pd.update(
             {
-                "play_id": idx,
-                "start_s": seg.start_ts,
-                "end_s": seg.end_ts,
                 "offense_color": team,
                 "defense_color": "DARK",
                 "hash_features": {"formation": formations[idx - 1]},
             }
         )
-    _write_jsonl(plays_dicts, os.path.join(out_dir, "plays.jsonl"))
+        plays_dicts.append(pd)
 
     preds = play_recognizer.recognize(
         plays_dicts, [pl.to_dict() for pl in playbook.offense_plays]
