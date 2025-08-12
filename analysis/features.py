@@ -63,7 +63,7 @@ def compute_all(tracks: List[Dict[str, Any]], meta: Optional[Dict[str, Any]] = N
         players = t.get("players", [])
         coarse = _coarse_from_players(players, W, H)
         if coarse is None:
-            feats.append({"segment_id": sid, "ok": False, "why": "no_detections"})
+            feats.append({"segment_id": sid, "ok": False, "why": "no_detections", "n_players": 0})
             continue
         f: Dict[str, Any] = {"segment_id": sid, **coarse}
         f["ok"] = coarse["n_players"] >= min_players
