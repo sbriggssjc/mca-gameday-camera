@@ -10,3 +10,6 @@ audit:
 >python -m tools.audit_gameday --repo-root .
 fix-logging:
 >python -m tools.auto_instrument_logging
+
+run:
+>./scripts/run_game.sh $(VIDEO)
