@@ -1,60 +1,108 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import json
+from pathlib import Path
+from typing import Any, Dict, Iterable, List
 
-try:  # pragma: no cover - optional dependency
-    import cv2  # type: ignore
-except Exception:  # pragma: no cover - best effort
-    cv2 = None  # type: ignore
+import cv2
 
 
-def _windowize(duration_sec: float, min_len: float, min_gap: float) -> List[Dict[str, float]]:
-    """Generate sliding windows as fallback segmentation."""
-    win = max(3.5, float(min_len))
+def _windowize(duration_sec: float, min_len: float, min_gap: float) -> List[Dict[str, Any]]:
+    win = max(4.0, float(min_len))      # allow a bit shorter windows
     gap = max(0.8, float(min_gap))
     step = win + gap
     t = 0.0
-    segments: List[Dict[str, float]] = []
+    segs: List[Dict[str, Any]] = []
     pid = 1
-    while t + 0.75 * win < duration_sec:
-        start = t
+    # Build windows across the whole video
+    while t < duration_sec - 0.5 * win:
+        start = max(0.0, t)
         end = min(t + win, duration_sec)
         if end - start >= 0.66 * win:
-            segments.append({"play_id": pid, "start_s": float(start), "end_s": float(end)})
+            segs.append({
+                "play_id": pid,
+                "start_s": round(float(start), 3),
+                "end_s": round(float(end), 3),
+                "source": "fallback_windowize",
+            })
             pid += 1
         t += step
-    return segments
+    return segs
 
 
-def segment_video(
-    ctx: Optional[Dict[str, Any]] = None,
-    cfg: Optional[Dict[str, Any]] = None,
-    video_path: str | None = None,
-) -> List[Dict[str, float]]:
-    """Segment a video into play windows.
+def coalesce_segments(segments: Iterable[Dict[str, Any]], min_gap: float, *, allow_merge_sources: Iterable[str] = ("primary",)) -> List[Dict[str, Any]]:
+    """Merge segments separated by less than ``min_gap`` when allowed.
 
-    This function expects that a primary detection stage has populated ``ctx``
-    with a list of segments under the key ``"segments"``.  If no segments are
-    present, a sliding window fallback is used based on the minimum play
-    length and gap specified in ``cfg``.
+    Segments whose ``source`` is not in ``allow_merge_sources`` are kept
+    separate so fallback windows are never merged by accident.
     """
 
-    ctx = ctx or {}
-    cfg = cfg or {}
-    segs = ctx.get("segments") or []
+    out: List[Dict[str, Any]] = []
+    prev: Dict[str, Any] | None = None
+    for s in sorted(segments, key=lambda x: x["start_s"]):
+        if (
+            prev
+            and (s["start_s"] - prev["end_s"] < min_gap)
+            and (prev.get("source") in allow_merge_sources)
+            and (s.get("source") in allow_merge_sources)
+        ):
+            prev["end_s"] = max(prev["end_s"], s["end_s"])
+        else:
+            if prev:
+                out.append(prev)
+            prev = dict(s)
+    if prev:
+        out.append(prev)
+    return out
 
+
+def primary_detect(video_path: str, fps: float, cfg: Dict[str, Any], ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Placeholder for primary segmentation logic.
+
+    Returns any segments already present in ``ctx`` or an empty list.
+    """
+
+    segs = ctx.get("segments")
+    return list(segs) if segs else []
+
+
+def segment_video(video_path: str, fps: float, out_dir: Path, cfg: Dict[str, Any], ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Returns list of segments. Always writes the file once here to avoid downstream overriding."""
+
+    # 1) primary segmentation (your existing logic)
+    segs = primary_detect(video_path, fps, cfg, ctx)
+
+    # 2) fallback
     if not segs:
         print("Segmentation fallback: only 0 plays found; windowizing video")
-        duration_sec = float(ctx.get("duration_sec") or ctx.get("video_length_sec") or 0.0)
-        if duration_sec <= 0.0 and video_path and cv2 is not None:
-            cap = cv2.VideoCapture(video_path)
-            fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-            frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
-            duration_sec = (frames / fps) if fps and frames else 0.0
+        duration_sec = float(ctx.get("video_length_sec") or 0.0)
+        if duration_sec <= 0.0:
+            cap = cv2.VideoCapture(str(video_path))
+            f = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+            F = cap.get(cv2.CAP_PROP_FPS) or 30.0
+            duration_sec = (f / F) if f and F else 0.0
             cap.release()
-        segs = _windowize(
-            duration_sec,
-            cfg.get("min_play_length", 6.0),
-            cfg.get("min_play_gap", 1.5),
-        )
+        segs = _windowize(duration_sec, cfg.get("min_play_length", 6.0), cfg.get("min_play_gap", 1.5))
+        if not segs:
+            # As a last resort: split into 4 equal chunks so strict can catch it
+            chunk = max(1.0, duration_sec / 4.0)
+            segs = [
+                {
+                    "play_id": i + 1,
+                    "start_s": round(i * chunk, 3),
+                    "end_s": round(min(duration_sec, (i + 1) * chunk), 3),
+                    "source": "fallback_quarter",
+                }
+                for i in range(4)
+            ]
+
+    # 3) NEVER merge fallback windows here. Only normalize IDs.
+    for i, s in enumerate(segs, start=1):
+        s["play_id"] = i
+
+    # 4) Persist immediately so downstream cannot overwrite
+    plays_fp = out_dir / "plays.jsonl"
+    plays_fp.write_text("\n".join(json.dumps(s) for s in segs))
+    total_fallback = sum(1 for p in segs if str(p.get("source", "")).startswith("fallback"))
+    print(f"[segmenter] Segments written: {len(segs)} (fallback={total_fallback}) -> {plays_fp}")
     return segs
