@@ -4,8 +4,8 @@ from __future__ import annotations
 from typing import Dict, List, Any
 
 # constants
-MIN_FEATURES = 5            # tune as needed
-UNKNOWN_THRESH = 0.55       # below this, call it UNKNOWN
+MIN_FEATURES = 5          # tune if needed
+UNKNOWN_THRESH = 0.60     # <60% conf → UNKNOWN
 
 
 def to_vector(feats: Any) -> List[float] | None:
@@ -19,7 +19,7 @@ def to_vector(feats: Any) -> List[float] | None:
     return None
 
 
-def predict_play(feats: Any, model: Any, label_map: Dict[int, str]) -> Dict[str, Any]:
+def predict_play_for_segment(feats: Any, model: Any, label_map: Dict[int, str]) -> Dict[str, Any]:
     """
     feats: dict or list of derived features for the window
     returns: {"predicted_play": str, "confidence": float, "reasons": list[str]}
@@ -28,7 +28,7 @@ def predict_play(feats: Any, model: Any, label_map: Dict[int, str]) -> Dict[str,
     fv = to_vector(feats)
 
     if fv is None or len(fv) < MIN_FEATURES:
-        reasons.append(f"insufficient_features:{len(fv) if fv else 0}")
+        reasons.append(f"insufficient_features:{0 if fv is None else len(fv)}")
         return {"predicted_play": "UNKNOWN", "confidence": 0.0, "reasons": reasons}
 
     proba = model.predict_proba([fv])[0]
