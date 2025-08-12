@@ -173,17 +173,31 @@ def run_pipeline(
     tracks = detect_track.run(video, team=team, fps=fps)
 
     tracking_rows = [t.as_dict() for t in tracks]
-    safe_rows = []
-    for p in plays:
-        sid = p["segment_id"]
-        r_players = tracking_rows if tracking_rows else []
-        row: Dict[str, Any] = {"segment_id": sid, "players": r_players}
-        if not r_players:
-            row["meta"] = {"note": "empty_tracking"}
-        safe_rows.append(row)
 
-    _write_jsonl(safe_rows, os.path.join(out_dir, "tracking.jsonl"))
-    print(f"[tracking] wrote {len(safe_rows)} rows -> {os.path.join(out_dir, 'tracking.jsonl')}")
+    seg_id_keys = ("segment_id", "id", "seg_id")
+
+    def _sid(d: Dict[str, Any]) -> Any:
+        for k in seg_id_keys:
+            if k in d:
+                return d[k]
+        return None
+
+    rows_by_sid = { _sid(r): r for r in (tracking_rows or []) if _sid(r) is not None }
+    safe_rows: List[Dict[str, Any]] = []
+    for p in plays:
+        sid = _sid(p)
+        r = rows_by_sid.get(sid)
+        if not r:
+            r = {"segment_id": sid, "players": [], "meta": {"note": "empty_tracking"}}
+        else:
+            r["segment_id"] = r.get("segment_id") or r.get("seg_id") or sid
+            r.pop("seg_id", None)
+        safe_rows.append(r)
+
+    with open(Path(out_dir) / "tracking.jsonl", "w") as f:
+        for r in safe_rows:
+            f.write(json.dumps(r) + "\n")
+    print(f"[tracking] wrote {len(safe_rows)} rows -> {Path(out_dir)/'tracking.jsonl'}")
 
     identity_map = {t.player_id: t.player_id for t in tracks}
     if player_ids and os.path.exists(player_ids):
@@ -212,8 +226,10 @@ def run_pipeline(
     # ------------------------------------------------------------------
     meta_dims = {"width": width, "height": height}
     feats = features.compute_all(safe_rows, meta=meta_dims, min_players=3)
-    _write_jsonl(feats, os.path.join(out_dir, "features.jsonl"))
-    print(f"[features] wrote {len(feats)} rows -> {os.path.join(out_dir, 'features.jsonl')}")
+    with open(Path(out_dir) / "features.jsonl", "w") as f:
+        for r in feats:
+            f.write(json.dumps(r) + "\n")
+    print(f"[features] wrote {len(feats)} rows -> {Path(out_dir)/'features.jsonl'}")
 
     class _DummyModel:
         def predict_proba(self, X):  # type: ignore[override]
