@@ -4,6 +4,7 @@ import statistics as stats
 
 def print_debug_summary(out_dir: Path, plays, predictions, grades):
     total_plays = len(plays)
+    total_fallback = sum(1 for p in plays if p.get("source", "").startswith("fallback"))
     known_preds = sum(
         1 for p in predictions if p.get("predicted_play") and p.get("predicted_play") != "UNKNOWN"
     )
@@ -19,7 +20,7 @@ def print_debug_summary(out_dir: Path, plays, predictions, grades):
 
     print("\n==== Debug Summary ====")
     print(f"Output dir: {out_dir}")
-    print(f"Plays detected: {total_plays}")
+    print(f"Plays detected: {total_plays} (fallback: {total_fallback})")
     print(f"Predicted (known): {known_preds} | Unknown formations: {unknown_form}")
     print(f"Playbook/known rate: {top_match_rate:.2f}")
     if avg_grade is not None:
