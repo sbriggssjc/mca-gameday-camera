@@ -19,13 +19,14 @@ def predict_all(
 
     rows: List[Dict[str, Any]] = []
     for f in feats:
-        sid = f["segment_id"]
+        sid = f.get("segment_id") or f.get("seg_id")
         if not f.get("ok"):
             rows.append({
                 "segment_id": sid,
                 "predicted_play": "UNKNOWN",
                 "confidence": 0.0,
-                "why": f.get("why", ""),
+                "why": f.get("why", "unknown"),
+                "n_players": f.get("n_players", 0),
             })
             continue
         vec = [
