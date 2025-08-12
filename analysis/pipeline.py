@@ -28,10 +28,10 @@ from . import (
     formation_classifier,
     report_builder,
     play_matcher,
-    classifier,
     grader,
     playbook_map,
     features,
+    predict,
 )
 from .segmentation import Segment
 from segment.play_segmenter import segment_video
@@ -111,6 +111,13 @@ def run_pipeline(
     except Exception:
         detected_fps = None
 
+    # If portrait, swap W/H for downstream ROI math that assumes landscape
+    if height > width:
+        print(f"[video] Portrait detected ({width}x{height}); enabling portrait-safe ROI.")
+        portrait = True
+    else:
+        portrait = False
+
     if fps in (None, 0):
         fps = detected_fps
     else:
@@ -164,7 +171,19 @@ def run_pipeline(
     meta_path.write_text(json.dumps(meta, indent=2))
 
     tracks = detect_track.run(video, team=team, fps=fps)
-    detect_track.write_jsonl(tracks, os.path.join(out_dir, "tracking.jsonl"))
+
+    tracking_rows = [t.as_dict() for t in tracks]
+    safe_rows = []
+    for p in plays:
+        sid = p["segment_id"]
+        r_players = tracking_rows if tracking_rows else []
+        row: Dict[str, Any] = {"segment_id": sid, "players": r_players}
+        if not r_players:
+            row["meta"] = {"note": "empty_tracking"}
+        safe_rows.append(row)
+
+    _write_jsonl(safe_rows, os.path.join(out_dir, "tracking.jsonl"))
+    print(f"[tracking] wrote {len(safe_rows)} rows -> {os.path.join(out_dir, 'tracking.jsonl')}")
 
     identity_map = {t.player_id: t.player_id for t in tracks}
     if player_ids and os.path.exists(player_ids):
@@ -186,15 +205,16 @@ def run_pipeline(
     play_matches = play_matcher.match_all(segments, frames, fps, playbook)
 
     # Tracking grouped by segment
-    tracking_rows = [t.as_dict() for t in tracks]
-    tracking_by_segment = {}
-    for p in plays:
-        sid = p["segment_id"]
-        tracking_by_segment[sid] = {"players": tracking_rows}
+    tracking_by_segment = {r["segment_id"]: r for r in safe_rows}
 
     # ------------------------------------------------------------------
-    # Play classification with UNKNOWN support
+    # Feature computation and play classification with UNKNOWN support
     # ------------------------------------------------------------------
+    meta_dims = {"width": width, "height": height}
+    feats = features.compute_all(safe_rows, meta=meta_dims, min_players=3)
+    _write_jsonl(feats, os.path.join(out_dir, "features.jsonl"))
+    print(f"[features] wrote {len(feats)} rows -> {os.path.join(out_dir, 'features.jsonl')}")
+
     class _DummyModel:
         def predict_proba(self, X):  # type: ignore[override]
             return [[0.34, 0.33, 0.33]]
@@ -202,14 +222,15 @@ def run_pipeline(
     dummy_model = _DummyModel()
     label_map = {0: "Rit Dive", 1: "Rit Sweep", 2: "Pass"}
 
-    pred_rows: List[Dict[str, Any]] = []
-    for p in plays:
-        sid = p["segment_id"]
-        feats = features.extract_features(p, tracking_by_segment.get(sid, {}))
-        r = classifier.predict_play_for_segment(feats, dummy_model, label_map)
-        r.update({"segment_id": sid, "play_id": p.get("play_id")})
-        pred_rows.append(r)
+    def model_predict(vec: List[float]) -> tuple[str, float]:
+        probs = dummy_model.predict_proba([vec])[0]
+        idx = max(range(len(probs)), key=lambda i: probs[i])
+        return label_map[idx], probs[idx]
 
+    pred_rows = predict.predict_all(feats, model_predict)
+    play_lookup = {p["segment_id"]: p for p in plays}
+    for r in pred_rows:
+        r["play_id"] = play_lookup.get(r["segment_id"], {}).get("play_id")
     _write_jsonl(pred_rows, os.path.join(out_dir, "play_predictions.jsonl"))
 
     # Audit distribution and confidence
