@@ -19,7 +19,7 @@ def render_overlays_for_out_dir(out_dir: Path):
     plays = _load_jsonl(out_dir / "plays.jsonl")
     tracking = _load_jsonl(out_dir / "tracking.jsonl")
     meta = json.loads((out_dir / "metadata.json").read_text()) if (out_dir / "metadata.json").exists() else {}
-    video_path = meta.get("video_path") or meta.get("input_video")
+    video_path = meta.get("video_path") or meta.get("video") or meta.get("input_video")
 
     if not video_path or not Path(video_path).exists():
         print("[overlay] No video_path in metadata or file missing; skipping overlays.")
