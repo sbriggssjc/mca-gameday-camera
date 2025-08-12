@@ -2,7 +2,15 @@ from pathlib import Path
 import statistics as stats
 
 
-def print_debug_summary(out_dir: Path, plays, predictions, grades):
+def print_debug_summary(
+    out_dir: Path,
+    plays,
+    predictions,
+    grades,
+    profile=None,
+    min_len=None,
+    min_gap=None,
+):
     total_plays = len(plays)
     total_fallback = sum(1 for p in plays if p.get("source", "").startswith("fallback"))
     known_preds = sum(
@@ -20,6 +28,8 @@ def print_debug_summary(out_dir: Path, plays, predictions, grades):
 
     print("\n==== Debug Summary ====")
     print(f"Output dir: {out_dir}")
+    if profile or min_len or min_gap:
+        print(f"Profile: {profile} | min_play_length={min_len}s | min_play_gap={min_gap}s")
     print(f"Plays detected: {total_plays} (fallback: {total_fallback})")
     print(f"Predicted (known): {known_preds} | Unknown formations: {unknown_form}")
     print(f"Playbook/known rate: {top_match_rate:.2f}")
