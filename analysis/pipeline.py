@@ -5,6 +5,7 @@ import argparse
 import json
 import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -34,6 +35,25 @@ from .segmentation import Segment
 from segment.play_segmenter import segment_video
 
 
+DEFAULT_MIN_PLAY_LEN = 6.0
+DEFAULT_MIN_PLAY_GAP = 1.5
+
+PROFILE_DEFAULTS = {
+    "game": {"min_play_length": 6.0, "min_play_gap": 1.5},
+    "practice": {"min_play_length": 5.0, "min_play_gap": 1.0},
+    "clinic": {"min_play_length": 4.0, "min_play_gap": 0.8},
+}
+
+
+@dataclass
+class RunConfig:
+    min_play_length: float
+    min_play_gap: float
+    strict: bool
+    make_overlay: bool
+    debug_summary: bool
+
+
 # ---------------------------------------------------------------------------
 # Pipeline helpers
 # ---------------------------------------------------------------------------
@@ -55,8 +75,8 @@ def run_pipeline(
     generate_report: bool = True,
     generate_clips: bool = True,
     generate_highlights: bool = True,
-    min_play_gap: float = 7.0,
-    min_play_length: float = 4.0,
+    min_play_gap: float = DEFAULT_MIN_PLAY_GAP,
+    min_play_length: float = DEFAULT_MIN_PLAY_LEN,
     player_ids: str | None = None,
     id_overrides: str | None = None,
     team_color: str | None = None,
@@ -253,7 +273,9 @@ def run_pipeline(
 
 
 def main(argv: List[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Automated film analysis pipeline")
+    parser = argparse.ArgumentParser(
+        description="Automated film analysis pipeline (supports profiles, strict checks, overlays)"
+    )
     parser.add_argument("--video", required=True, help="Path to input video")
     parser.add_argument("--team", default="WHITE")
     parser.add_argument("--opponent", type=str, default=None)
@@ -267,8 +289,14 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--generate-report", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--generate-clips", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--generate-highlights", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--min-play-gap", type=float, default=7.0)
-    parser.add_argument("--min-play-length", type=float, default=4.0)
+    parser.add_argument("--min-play-gap", type=float, default=0.0)
+    parser.add_argument("--min-play-length", type=float, default=0.0)
+    parser.add_argument(
+        "--profile",
+        choices=["game", "practice", "clinic"],
+        default="game",
+        help="Preset tuning for segmentation thresholds (affects min-play-length/gap). Default: game",
+    )
     parser.add_argument(
         "--debug-vid",
         action="store_true",
@@ -300,6 +328,42 @@ def main(argv: List[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
+    # --- Build RunConfig with layered precedence ---
+    prof = PROFILE_DEFAULTS.get(args.profile, PROFILE_DEFAULTS["game"])
+
+    env_len = os.getenv("MCA_MIN_PLAY_LEN")
+    env_gap = os.getenv("MCA_MIN_PLAY_GAP")
+
+    min_play_length = (
+        args.min_play_length
+        if getattr(args, "min_play_length", None) not in (None, 0)
+        else float(env_len)
+        if env_len
+        else float(prof["min_play_length"]) if prof else DEFAULT_MIN_PLAY_LEN
+    )
+
+    min_play_gap = (
+        args.min_play_gap
+        if getattr(args, "min_play_gap", None) not in (None, 0)
+        else float(env_gap)
+        if env_gap
+        else float(prof["min_play_gap"]) if prof else DEFAULT_MIN_PLAY_GAP
+    )
+
+    run_cfg = RunConfig(
+        min_play_length=min_play_length,
+        min_play_gap=min_play_gap,
+        strict=bool(args.strict),
+        make_overlay=bool(args.make_overlay),
+        debug_summary=bool(getattr(args, "debug_summary", False)),
+    )
+
+    print(
+        f"[config] profile={args.profile} min_play_length={run_cfg.min_play_length:.2f}s "
+        f"min_play_gap={run_cfg.min_play_gap:.2f}s strict={run_cfg.strict} "
+        f"overlay={run_cfg.make_overlay} summary={run_cfg.debug_summary}"
+    )
+
     run_pipeline(
         video=args.video,
         team=args.team,
@@ -310,8 +374,8 @@ def main(argv: List[str] | None = None) -> None:
         generate_report=args.generate_report,
         generate_clips=args.generate_clips,
         generate_highlights=args.generate_highlights,
-        min_play_gap=args.min_play_gap,
-        min_play_length=args.min_play_length,
+        min_play_gap=run_cfg.min_play_gap,
+        min_play_length=run_cfg.min_play_length,
         player_ids=args.player_ids,
         id_overrides=args.id_overrides,
         team_color=args.team_color,
@@ -360,7 +424,7 @@ def main(argv: List[str] | None = None) -> None:
             video_len_s = 0.0
 
     # STRICT: basic sanity checks
-    if args.strict:
+    if run_cfg.strict:
         # if the clip is long but we got almost no segments, something is wrong with the segmenter thresholds
         if video_len_s >= 45.0 and len(plays) < 3:
             raise SystemExit(
@@ -376,7 +440,7 @@ def main(argv: List[str] | None = None) -> None:
             )
 
     # Overlays
-    if args.make_overlay:
+    if run_cfg.make_overlay:
         if render_overlays_for_out_dir is None:
             print(
                 "[WARN] --make-overlay requested but overlays.debug_overlay not importable; skipping overlays."
@@ -388,15 +452,23 @@ def main(argv: List[str] | None = None) -> None:
                 print(f"[WARN] Overlay rendering failed: {e}")
 
     # Debug summary
-    if getattr(args, "debug-summary", False) or getattr(args, "debug_summary", False):  # allow either spelling if someone typed the dash
+    if run_cfg.debug_summary:
         if print_debug_summary is None:
             print(
                 "[WARN] --debug-summary requested but reporting.debug_summary not importable; skipping summary."
             )
-            
+
         else:
             try:
-                print_debug_summary(out_dir, plays, predictions, grades)
+                print_debug_summary(
+                    out_dir,
+                    plays,
+                    predictions,
+                    grades,
+                    profile=args.profile,
+                    min_len=run_cfg.min_play_length,
+                    min_gap=run_cfg.min_play_gap,
+                )
             except Exception as e:  # pragma: no cover - best effort
                 print(f"[WARN] Debug summary failed: {e}")
 
