@@ -39,7 +39,7 @@ def run_pipeline(
     team: str,
     playbook_path: str | None,
     out_dir: str,
-    fps: int = 12,
+    fps: int | None = None,
     generate_report: bool = True,
     generate_clips: bool = True,
     generate_highlights: bool = True,
@@ -52,12 +52,40 @@ def run_pipeline(
     clip_corrections: bool = False,
     clip_wins: bool = False,
     clip_highlights: bool = False,
+    args: argparse.Namespace | None = None,
 ) -> None:
     """Execute the toy analysis pipeline."""
 
     os.makedirs(out_dir, exist_ok=True)
 
     logger = logging.getLogger("pipeline")
+
+    # Detect FPS from the input video unless explicitly provided
+    detected_fps = None
+    if fps in (None, 0):
+        try:  # pragma: no cover - best effort only
+            import cv2  # type: ignore
+
+            cap = cv2.VideoCapture(video)
+            detected_fps = cap.get(cv2.CAP_PROP_FPS) or None
+            cap.release()
+        except Exception:
+            detected_fps = None
+        fps = detected_fps
+    else:
+        detected_fps = fps
+
+    # --- FPS fallback ---
+    if ((args is None) or getattr(args, "fps", None) in (None, 0, "")) and (
+        detected_fps is None or detected_fps < 15
+    ):
+        fps = 30
+        if logger:
+            logger.warning(
+                f"FPS fallback engaged: detected={detected_fps}, using fps={fps}"
+            )
+
+    fps = fps or 30
 
     tracks = detect_track.run(video, team=team, fps=fps)
     detect_track.write_jsonl(tracks, os.path.join(out_dir, "tracking.jsonl"))
@@ -72,7 +100,7 @@ def run_pipeline(
     # ------------------------------------------------------------------
     # Segmentation
     # ------------------------------------------------------------------
-    dummy_frames = [None] * (fps * 10)
+    dummy_frames = [None] * int(fps * 10)
     segments = segmentation.segment_video(
         dummy_frames, fps, min_play_gap=min_play_gap, min_play_length=min_play_length, logger=logger
     )
@@ -162,7 +190,7 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--team", default="WHITE")
     parser.add_argument("--playbook", default=None)
     parser.add_argument("--out", default="output")
-    parser.add_argument("--fps", type=int, default=12)
+    parser.add_argument("--fps", type=int, default=0)
     parser.add_argument("--detect-model")
     parser.add_argument("--ocr", default="tesseract")
     parser.add_argument("--min-grade-good", type=float, default=2.5)
@@ -200,6 +228,7 @@ def main(argv: List[str] | None = None) -> None:
         clip_corrections=args.clip_corrections,
         clip_wins=args.clip_wins,
         clip_highlights=args.clip_highlights,
+        args=args,
     )
 
 
