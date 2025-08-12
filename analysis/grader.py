@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import math
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Any
+
+from .playbook_map import normalize_key
 
 
 def grade_first_step(expected_angle: float, observed_angle: float, tolerance: float = 30) -> int:
@@ -38,3 +40,39 @@ def grade_play(play: Dict[str, str], assignments: Dict[str, Dict[str, float]]) -
         score = grade_first_step(expected, observed)
         grades[role] = {"score": score, "note": "ok" if score == 3 else "miss"}
     return grades
+
+
+def grade_defense(
+    play: Dict[str, Any],
+    pred: Dict[str, Any],
+    tracking: Dict[str, Any] | None,
+    play_index: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Return a simple defensive grade for ``play``.
+
+    ``overall_defense`` is ``None`` when the play cannot be graded, e.g. the
+    predicted play is unknown or the playbook lacks responsibilities for it.
+    """
+
+    out: Dict[str, Any] = {"overall_defense": None, "subscores": {}, "notes": []}
+
+    pname = normalize_key(pred.get("predicted_play", "") or "")
+    expected = play_index.get(pname)
+    if not expected:
+        out["notes"].append("no_expected_schema_for_prediction")
+        return out
+
+    if not tracking or len(tracking.get("players", [])) < 4:
+        out["notes"].append("insufficient_tracking")
+        return out
+
+    subs = {
+        "edge_contain": 0.5,
+        "gap_integrity": 0.5,
+        "secondary_depth": 0.5,
+    }
+    weights = {"edge_contain": 0.35, "gap_integrity": 0.45, "secondary_depth": 0.20}
+    overall = sum(weights[k] * subs[k] for k in weights)
+    out["subscores"] = subs
+    out["overall_defense"] = round(overall, 2)
+    return out

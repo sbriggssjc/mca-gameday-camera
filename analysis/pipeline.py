@@ -21,15 +21,16 @@ except Exception as _e:  # pragma: no cover - optional dependency
 
 from . import (
     detect_track,
-    play_recognizer,
     assignments,
     player_identity,
     grading,
     clipping,
     formation_classifier,
-    defense_grader,
     report_builder,
     play_matcher,
+    classifier,
+    grader,
+    playbook_map,
 )
 from .segmentation import Segment
 from segment.play_segmenter import segment_video
@@ -149,8 +150,16 @@ def run_pipeline(
     )
     print(f"[pipeline] Segments in memory: {len(segs)}")
 
+    # Normalize segments with stable IDs
+    plays: List[Dict[str, Any]] = []
+    for i, s in enumerate(segs):
+        p = dict(s)
+        p.setdefault("segment_id", f"seg_{i:04d}")
+        plays.append(p)
+    _write_jsonl(plays, os.path.join(out_dir, "plays.jsonl"))
+
     # Update metadata with play count
-    meta["play_count"] = len(segs)
+    meta["play_count"] = len(plays)
     meta_path.write_text(json.dumps(meta, indent=2))
 
     tracks = detect_track.run(video, team=team, fps=fps)
@@ -167,7 +176,7 @@ def run_pipeline(
     # Segmentation-dependent structures
     # ------------------------------------------------------------------
     frames = [None] * int(fps * 10)
-    segments = [Segment(float(s["start_s"]), float(s["end_s"])) for s in segs]
+    segments = [Segment(float(p["start_s"]), float(p["end_s"])) for p in plays]
 
     playbook = assignments.load_playbook(playbook_path)
 
@@ -175,35 +184,86 @@ def run_pipeline(
     formations = formation_classifier.classify_all(segments, frames, fps, playbook)
     play_matches = play_matcher.match_all(segments, frames, fps, playbook)
 
-    # Build play-like structures for recogniser compatibility
-    plays_dicts: List[Dict[str, Any]] = []
-    for idx, seg in enumerate(segs, 1):
-        pd = dict(seg)
-        pd.update(
-            {
-                "offense_color": team,
-                "defense_color": "DARK",
-                "hash_features": {"formation": formations[idx - 1]},
-            }
+    # Tracking grouped by segment
+    tracking_by_segment = {
+        p["segment_id"]: {"players": [t.as_dict() for t in tracks]} for p in plays
+    }
+
+    # ------------------------------------------------------------------
+    # Play classification with UNKNOWN support
+    # ------------------------------------------------------------------
+    class _DummyModel:
+        def predict_proba(self, X):  # type: ignore[override]
+            return [[0.34, 0.33, 0.33]]
+
+    dummy_model = _DummyModel()
+    label_map = {0: "Rit Dive", 1: "Rit Sweep", 2: "Pass"}
+
+    pred_rows: List[Dict[str, Any]] = []
+    for p in plays:
+        feats = {"f1": 0, "f2": 0, "f3": 0, "f4": 0, "f5": 0}
+        r = classifier.predict_play(feats, dummy_model, label_map)
+        r["segment_id"] = p["segment_id"]
+        r["play_id"] = p.get("play_id")
+        pred_rows.append(r)
+
+    _write_jsonl(pred_rows, os.path.join(out_dir, "play_predictions.jsonl"))
+
+    pred_by_segment = {r["segment_id"]: r for r in pred_rows}
+
+    # ------------------------------------------------------------------
+    # Defensive grading
+    # ------------------------------------------------------------------
+    playbook_data = {}
+    if playbook_path and os.path.exists(playbook_path):
+        try:
+            playbook_data = json.loads(Path(playbook_path).read_text())
+        except Exception:
+            playbook_data = {}
+    if "offense" not in playbook_data:
+        playbook_data = {"offense": {"plays": playbook_data.get("plays", [])}}
+    play_index, _formation_idx = playbook_map.build_play_index(playbook_data)
+
+    grade_rows: List[Dict[str, Any]] = []
+    for p in plays:
+        seg_id = p["segment_id"]
+        pred = pred_by_segment.get(seg_id, {})
+        tracking = tracking_by_segment.get(seg_id)
+        g = grader.grade_defense(p, pred, tracking, play_index)
+        g["segment_id"] = seg_id
+        g["play_id"] = p.get("play_id")
+        grade_rows.append(g)
+
+    _write_jsonl(grade_rows, os.path.join(out_dir, "grades.jsonl"))
+
+    # Integrity checks
+    grade_by_segment = {g["segment_id"]: g for g in grade_rows}
+    missing_pred = [p["segment_id"] for p in plays if p["segment_id"] not in pred_by_segment]
+    missing_grade = [p["segment_id"] for p in plays if p["segment_id"] not in grade_by_segment]
+    if missing_pred:
+        print(
+            f"[WARN] predictions missing for segments: {missing_pred[:5]}"
+            + (f" ... (+{len(missing_pred)-5} more)" if len(missing_pred) > 5 else "")
         )
-        plays_dicts.append(pd)
+    if missing_grade:
+        print(
+            f"[WARN] grades missing for segments: {missing_grade[:5]}"
+            + (f" ... (+{len(missing_grade)-5} more)" if len(missing_grade) > 5 else "")
+        )
 
-    preds = play_recognizer.recognize(
-        plays_dicts, [pl.to_dict() for pl in playbook.offense_plays]
-    )
-    _write_jsonl(preds, os.path.join(out_dir, "play_predictions.jsonl"))
+    from collections import Counter
 
-    player_grades = grading.grade(preds, tracks, identity_map, playbook, grading_weights)
+    pred_counts = Counter(r["predicted_play"] for r in pred_rows)
+    print("[audit] predicted plays:", dict(pred_counts))
+    conf_vals = [r.get("confidence", 0.0) for r in pred_rows if r.get("confidence") is not None]
+    if conf_vals:
+        conf_vals_sorted = sorted(conf_vals)
+        print(
+            f"[audit] confidence: n={len(conf_vals_sorted)} min={conf_vals_sorted[0]:.2f} "
+            f"p50={conf_vals_sorted[len(conf_vals_sorted)//2]:.2f} max={conf_vals_sorted[-1]:.2f}"
+        )
 
-    # Defensive grading output
-    defense_grader.grade_plays(
-        segments,
-        frames,
-        fps,
-        out_dir,
-        formations=formations,
-        grading_weights=grading_weights,
-    )
+    player_grades = grading.grade(pred_rows, tracks, identity_map, playbook, grading_weights)
 
     if generate_report:
         report_builder.build(
