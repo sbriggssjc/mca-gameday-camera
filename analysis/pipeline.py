@@ -29,7 +29,6 @@ from . import (
     formation_classifier,
     defense_grader,
     report_builder,
-    io_utils,
     play_matcher,
 )
 
@@ -72,17 +71,24 @@ def run_pipeline(
 
     logger = logging.getLogger("pipeline")
 
-    # Detect FPS from the input video unless explicitly provided
+    # Open the video to gather metadata and detect FPS if not provided
     detected_fps = None
-    if fps in (None, 0):
-        try:  # pragma: no cover - best effort only
-            import cv2  # type: ignore
+    frame_count = 0
+    width = 0
+    height = 0
+    try:  # pragma: no cover - best effort only
+        import cv2  # type: ignore
 
-            cap = cv2.VideoCapture(video)
-            detected_fps = cap.get(cv2.CAP_PROP_FPS) or None
-            cap.release()
-        except Exception:
-            detected_fps = None
+        cap = cv2.VideoCapture(video)
+        detected_fps = cap.get(cv2.CAP_PROP_FPS) or None
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        cap.release()
+    except Exception:
+        detected_fps = None
+
+    if fps in (None, 0):
         fps = detected_fps
     else:
         detected_fps = fps
@@ -98,6 +104,21 @@ def run_pipeline(
             )
 
     fps = fps or 30
+    duration_sec = (frame_count / fps) if (fps and frame_count) else 0.0
+
+    meta = {
+        "team": (args.team if args else team) or "",
+        "opponent": (args.opponent if args else opponent) or "",
+        "video_path": str(video),
+        "video": str(video),
+        "fps": fps,
+        "frame_count": frame_count,
+        "width": width,
+        "height": height,
+        "video_length_sec": duration_sec,
+    }
+    meta_path = Path(out_dir) / "metadata.json"
+    meta_path.write_text(json.dumps(meta, indent=2))
 
     tracks = detect_track.run(video, team=team, fps=fps)
     detect_track.write_jsonl(tracks, os.path.join(out_dir, "tracking.jsonl"))
@@ -121,16 +142,9 @@ def run_pipeline(
         logger=logger,
     )
 
-    # Write metadata early with accurate play count
-    meta_path = Path(out_dir) / "metadata.json"
-    meta = {
-        "team": (args.team if args else team) or "Metro Christian Academy",
-        "opponent": (args.opponent if args else opponent) or "UNKNOWN",
-        "video": args.video if args else video,
-        "fps": fps,
-        "play_count": len(segments),
-    }
-    io_utils.write_json(meta_path, meta)
+    # Update metadata with play count
+    meta["play_count"] = len(segments)
+    meta_path.write_text(json.dumps(meta, indent=2))
 
     playbook = assignments.load_playbook(playbook_path)
 
@@ -331,14 +345,23 @@ def main(argv: List[str] | None = None) -> None:
     tracking_rows = _safe_load_jsonl(tracking_fp)
     meta = _safe_load_json(metadata_fp)
 
-    video_len_s = float(meta.get("video_length_sec", 0.0)) or float(
-        meta.get("duration_sec", 0.0) or 0.0
-    )
+    video_len_s = float(meta.get("video_length_sec") or 0.0)
+    if (not video_len_s) and meta.get("video_path"):
+        try:  # pragma: no cover - best effort only
+            import cv2  # type: ignore
+
+            cap2 = cv2.VideoCapture(meta["video_path"])
+            fps2 = cap2.get(cv2.CAP_PROP_FPS) or 30.0
+            frames2 = cap2.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+            video_len_s = (frames2 / fps2) if fps2 and frames2 else 0.0
+            cap2.release()
+        except Exception:
+            video_len_s = 0.0
 
     # STRICT: basic sanity checks
     if args.strict:
         # if the clip is long but we got almost no segments, something is wrong with the segmenter thresholds
-        if video_len_s >= 45 and len(plays) < 3:
+        if video_len_s >= 45.0 and len(plays) < 3:
             raise SystemExit(
                 f"Strict mode: too few plays ({len(plays)}) for video length {video_len_s:.1f}s"
             )
