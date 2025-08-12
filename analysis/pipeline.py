@@ -8,6 +8,16 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
+try:
+    from overlays.debug_overlay import render_overlays_for_out_dir
+except Exception as _e:  # pragma: no cover - optional dependency
+    render_overlays_for_out_dir = None
+
+try:
+    from reporting.debug_summary import print_debug_summary
+except Exception as _e:  # pragma: no cover - optional dependency
+    print_debug_summary = None
+
 from . import (
     detect_track,
     play_recognizer,
@@ -256,6 +266,23 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--clip-corrections", action="store_true")
     parser.add_argument("--clip-wins", action="store_true")
     parser.add_argument("--clip-highlights", action="store_true")
+    parser.add_argument(
+        "--make-overlay",
+        action="store_true",
+        help="Generate debug overlay videos per play (and optionally a stitched full overlay)",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail if suspicious output (e.g., too few plays for clip length, zero matches, etc.)",
+    )
+    parser.add_argument(
+        "--debug-summary",
+        "--debug_summary",
+        dest="debug_summary",
+        action="store_true",
+        help="Print counts of plays, formations, matches, and average grades at the end",
+    )
     args = parser.parse_args(argv)
 
     run_pipeline(
@@ -279,6 +306,75 @@ def main(argv: List[str] | None = None) -> None:
         clip_highlights=args.clip_highlights,
         args=args,
     )
+
+    # ---- Strict checks & overlays & summary ----
+    out_dir = Path(args.out) if args.out else Path("output")
+    plays_fp = out_dir / "plays.jsonl"
+    predictions_fp = out_dir / "play_predictions.jsonl"
+    grades_fp = out_dir / "grades.jsonl"
+    tracking_fp = out_dir / "tracking.jsonl"
+    metadata_fp = out_dir / "metadata.json"
+
+    def _safe_load_jsonl(fp: Path) -> List[Dict[str, Any]]:
+        if not fp.exists():
+            return []
+        return [json.loads(line) for line in fp.read_text().splitlines() if line.strip()]
+
+    def _safe_load_json(fp: Path) -> Dict[str, Any]:
+        if not fp.exists():
+            return {}
+        return json.loads(fp.read_text())
+
+    plays = _safe_load_jsonl(plays_fp)
+    predictions = _safe_load_jsonl(predictions_fp)
+    grades = _safe_load_jsonl(grades_fp)
+    tracking_rows = _safe_load_jsonl(tracking_fp)
+    meta = _safe_load_json(metadata_fp)
+
+    video_len_s = float(meta.get("video_length_sec", 0.0)) or float(
+        meta.get("duration_sec", 0.0) or 0.0
+    )
+
+    # STRICT: basic sanity checks
+    if args.strict:
+        # if the clip is long but we got almost no segments, something is wrong with the segmenter thresholds
+        if video_len_s >= 45 and len(plays) < 3:
+            raise SystemExit(
+                f"Strict mode: too few plays ({len(plays)}) for video length {video_len_s:.1f}s"
+            )
+        # if tracking never populated, flag it
+        if len(tracking_rows) == 0:
+            raise SystemExit("Strict mode: no tracking.jsonl rows found (tracking likely failed)")
+        # if classifier/predictions are empty, flag it
+        if len(predictions) == 0:
+            raise SystemExit(
+                "Strict mode: no play_predictions.jsonl produced (classification likely failed)"
+            )
+
+    # Overlays
+    if args.make_overlay:
+        if render_overlays_for_out_dir is None:
+            print(
+                "[WARN] --make-overlay requested but overlays.debug_overlay not importable; skipping overlays."
+            )
+        else:
+            try:
+                render_overlays_for_out_dir(out_dir)
+            except Exception as e:  # pragma: no cover - best effort
+                print(f"[WARN] Overlay rendering failed: {e}")
+
+    # Debug summary
+    if getattr(args, "debug-summary", False) or getattr(args, "debug_summary", False):  # allow either spelling if someone typed the dash
+        if print_debug_summary is None:
+            print(
+                "[WARN] --debug-summary requested but reporting.debug_summary not importable; skipping summary."
+            )
+            
+        else:
+            try:
+                print_debug_summary(out_dir, plays, predictions, grades)
+            except Exception as e:  # pragma: no cover - best effort
+                print(f"[WARN] Debug summary failed: {e}")
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry
