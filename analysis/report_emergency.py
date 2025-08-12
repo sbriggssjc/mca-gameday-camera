@@ -2,6 +2,7 @@ import json
 import pathlib
 import shutil
 import subprocess
+import statistics
 
 from reporting.generate_report import build_joined_rows, summarize, timeline_rows
 
@@ -15,17 +16,53 @@ def build_emergency_report(out_dir: pathlib.Path):
             meta = json.loads(pmeta.read_text())
         except Exception:
             pass
+    else:
+        proot = pathlib.Path("metadata.json")
+        if proot.exists():
+            try:
+                meta = json.loads(proot.read_text())
+            except Exception:
+                pass
 
     joined = build_joined_rows(out)
-    formations, plays_detected, known_rate, avg_grade = summarize(joined)
+    formations, plays_detected, known_rate, _ = summarize(joined)
     rows = timeline_rows(joined)
-    grade_count = len([r for r in joined if isinstance(r.get("grade_overall"), (int, float))])
+
+    gpath = out / "grades.jsonl"
+    defense_grades = []
+    if gpath.exists():
+        try:
+            for line in gpath.read_text().splitlines():
+                if not line.strip():
+                    continue
+                play = json.loads(line)
+                val = next(
+                    (
+                        play.get(k)
+                        for k in [
+                            "overall_defense",
+                            "overall",
+                            "defense_overall",
+                        ]
+                        if isinstance(play.get(k), (int, float))
+                    ),
+                    None,
+                )
+                if isinstance(val, (int, float)):
+                    defense_grades.append(val)
+        except Exception:
+            pass
+
+    avg_defense = (
+        statistics.mean(defense_grades) if defense_grades else None
+    )
+    grade_count = len(defense_grades)
 
     md = out / "report_emergency.md"
     with md.open("w") as f:
         f.write("# Game Report\n\n")
         f.write(
-            f"**Summary:** plays={len(joined)} • known_rate={known_rate:.2f} • avg_defense={avg_grade if avg_grade is not None else 'N/A'}\n\n"
+            f"**Summary:** plays={len(joined)} • known_rate={known_rate:.2f} • avg_defense={avg_defense if avg_defense is not None else 'N/A'}\n\n"
         )
         f.write(
             f"**Team:** {meta.get('team','')}  \n**Opponent:** {meta.get('opponent','')}  \n**FPS:** {meta.get('fps','')}  \n**Detected Plays:** {len(joined)}\n\n"
@@ -40,10 +77,10 @@ def build_emergency_report(out_dir: pathlib.Path):
             for k, v in sorted(plays_detected.items(), key=lambda x: (-x[1], x[0])):
                 f.write(f"- {k}: {v}\n")
             f.write("\n")
-        if avg_grade is not None:
+        if avg_defense is not None:
             f.write("## Defensive Summary\n")
             f.write(
-                f"- Plays graded: {grade_count}\n- Avg Overall Defense: {avg_grade:.2f}\n\n"
+                f"- Plays graded: {grade_count}\n- Avg Overall Defense: {avg_defense:.2f}\n\n"
             )
         if rows:
             f.write("## Timeline\n")
