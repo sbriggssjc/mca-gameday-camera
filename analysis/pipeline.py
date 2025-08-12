@@ -39,6 +39,7 @@ def run_pipeline(
     team: str,
     playbook_path: str | None,
     out_dir: str,
+    opponent: str | None = None,
     fps: int | None = None,
     generate_report: bool = True,
     generate_clips: bool = True,
@@ -145,9 +146,9 @@ def run_pipeline(
     else:
         meta = {}
     meta = {
-        "team": team or meta.get("team") or "Metro Christian Academy",
-        "opponent": meta.get("opponent", "UNKNOWN"),
-        "video": video,
+        "team": (args.team if args else team) or meta.get("team") or "Metro Christian Academy",
+        "opponent": (args.opponent if args else opponent) or meta.get("opponent") or "UNKNOWN",
+        "video": args.video if args else video,
         "fps": fps,
         "play_count": len(segments),
     }
@@ -178,6 +179,24 @@ def run_pipeline(
             highlights=clip_highlights or generate_highlights,
         )
 
+    if generate_highlights:
+        from .highlights import build_highlight
+
+        try:
+            build_highlight(Path(out_dir) / "clips", Path(out_dir) / "highlights")
+        except Exception as exc:  # pragma: no cover - best effort only
+            if logger:
+                logger.warning("Highlight build failed: %s", exc)
+
+    if generate_report:
+        from .report_emergency import build_emergency_report
+
+        try:
+            build_emergency_report(Path(out_dir))
+        except Exception as exc:  # pragma: no cover - best effort only
+            if logger:
+                logger.warning("Emergency report build failed: %s", exc)
+
 
 # ---------------------------------------------------------------------------
 # CLI entry point
@@ -188,6 +207,7 @@ def main(argv: List[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Automated film analysis pipeline")
     parser.add_argument("--video", required=True, help="Path to input video")
     parser.add_argument("--team", default="WHITE")
+    parser.add_argument("--opponent")
     parser.add_argument("--playbook", default=None)
     parser.add_argument("--out", default="output")
     parser.add_argument("--fps", type=int, default=0)
@@ -213,6 +233,7 @@ def main(argv: List[str] | None = None) -> None:
     run_pipeline(
         video=args.video,
         team=args.team,
+        opponent=args.opponent,
         playbook_path=args.playbook,
         out_dir=args.out,
         fps=args.fps,
