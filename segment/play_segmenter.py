@@ -4,7 +4,10 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
-import cv2
+try:
+    import cv2  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    cv2 = None
 
 
 def _windowize(duration_sec: float, min_len: float, min_gap: float) -> List[Dict[str, Any]]:
@@ -76,7 +79,7 @@ def segment_video(video_path: str, fps: float, out_dir: Path, cfg: Dict[str, Any
     if not segs:
         print("Segmentation fallback: only 0 plays found; windowizing video")
         duration_sec = float(ctx.get("video_length_sec") or 0.0)
-        if duration_sec <= 0.0:
+        if duration_sec <= 0.0 and cv2 is not None:
             cap = cv2.VideoCapture(str(video_path))
             f = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
             F = cap.get(cv2.CAP_PROP_FPS) or 30.0
