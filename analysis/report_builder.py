@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Sequence
 
 from reporting.generate_report import (
-    build_joined_rows,
+    build_join,
     summarize,
     timeline_rows,
 )
@@ -28,11 +28,9 @@ def build(
     dashboards = out_dir / "dashboards"
     ensure_dir(dashboards)
 
-    joined = build_joined_rows(out_dir)
+    joined = build_join(out_dir)
     (
-        formation_counts,
         play_counts,
-        known_rate,
         avg_grade,
         median_conf,
         unknown_count,
@@ -42,7 +40,6 @@ def build(
 
     summary = {
         "play_count": len(joined),
-        "formations": dict(formation_counts),
         "plays": dict(play_counts),
         "median_confidence": median_conf,
         "unknown_predictions": unknown_count,
@@ -61,11 +58,6 @@ def build(
     md_lines.append(f"Unknown predictions: {unknown_count}")
     md_lines.append("")
 
-    md_lines.append("## Formations Used")
-    for name, count in formation_counts.items():
-        md_lines.append(f"- {name}: {count}")
-    md_lines.append("")
-
     md_lines.append("## Plays Detected")
     for name, count in play_counts.items():
         md_lines.append(f"- {name}: {count}")
@@ -73,11 +65,11 @@ def build(
 
     md_lines.append("## Defensive Grade")
     if total and ungradables / total > 0.4:
-        md_lines.append("⚠️  More than 40% of plays ungradable")
+        md_lines.append("Avg defense: N/A (insufficient gradable plays)")
     elif avg_grade is not None:
         md_lines.append(f"Average: {avg_grade:.2f}")
     else:
-        md_lines.append("Average: N/A")
+        md_lines.append("Avg defense: N/A")
     md_lines.append("")
 
     md_path = out_dir / "report.md"
