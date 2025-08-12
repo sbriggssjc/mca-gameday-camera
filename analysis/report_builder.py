@@ -29,12 +29,23 @@ def build(
     ensure_dir(dashboards)
 
     joined = build_joined_rows(out_dir)
-    formation_counts, play_counts, _, _ = summarize(joined)
+    (
+        formation_counts,
+        play_counts,
+        known_rate,
+        avg_grade,
+        median_conf,
+        unknown_count,
+        ungradables,
+        total,
+    ) = summarize(joined)
 
     summary = {
         "play_count": len(joined),
         "formations": dict(formation_counts),
         "plays": dict(play_counts),
+        "median_confidence": median_conf,
+        "unknown_predictions": unknown_count,
     }
     write_json(dashboards / "summary.json", summary)
 
@@ -46,6 +57,9 @@ def build(
             writer.writerow([r["num"], r["start"], r["end"], r["dur"], r["tag"], r["note"]])
 
     md_lines = ["# Game Report", "", f"Total plays: {len(joined)}", ""]
+    md_lines.append(f"Median confidence: {median_conf:.2f}")
+    md_lines.append(f"Unknown predictions: {unknown_count}")
+    md_lines.append("")
 
     md_lines.append("## Formations Used")
     for name, count in formation_counts.items():
@@ -55,6 +69,15 @@ def build(
     md_lines.append("## Plays Detected")
     for name, count in play_counts.items():
         md_lines.append(f"- {name}: {count}")
+    md_lines.append("")
+
+    md_lines.append("## Defensive Grade")
+    if total and ungradables / total > 0.4:
+        md_lines.append("⚠️  More than 40% of plays ungradable")
+    elif avg_grade is not None:
+        md_lines.append(f"Average: {avg_grade:.2f}")
+    else:
+        md_lines.append("Average: N/A")
     md_lines.append("")
 
     md_path = out_dir / "report.md"
