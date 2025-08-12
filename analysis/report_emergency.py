@@ -1,4 +1,9 @@
-import json, csv, pathlib, shutil, subprocess
+import json
+import pathlib
+import shutil
+import subprocess
+
+from reporting.generate_report import build_joined_rows, summarize, timeline_rows
 
 
 def build_emergency_report(out_dir: pathlib.Path):
@@ -10,52 +15,44 @@ def build_emergency_report(out_dir: pathlib.Path):
             meta = json.loads(pmeta.read_text())
         except Exception:
             pass
-    tl = out / "dashboards" / "timeline.csv"
-    rows = []
-    if tl.exists():
-        rows = list(csv.DictReader(tl.open()))
-    grades = []
-    g = out / "grades.jsonl"
-    if g.exists():
-        for line in g.read_text().splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                o = json.loads(line)
-                if "overall_defense" in o:
-                    grades.append(o["overall_defense"])
-            except Exception:
-                pass
 
-    def h(x):
-        return "" if x is None else str(x)
-
-    fc = {}
-    for r in rows:
-        fc[r.get("Tag", "Unknown")] = fc.get(r.get("Tag", "Unknown"), 0) + 1
+    joined = build_joined_rows(out)
+    formations, plays_detected, known_rate, avg_grade = summarize(joined)
+    rows = timeline_rows(joined)
+    grade_count = len([r for r in joined if isinstance(r.get("grade_overall"), (int, float))])
 
     md = out / "report_emergency.md"
     with md.open("w") as f:
         f.write("# Game Report\n\n")
         f.write(
-            f"**Team:** {meta.get('team','')}  \n**Opponent:** {meta.get('opponent','')}  \n**FPS:** {meta.get('fps','')}  \n**Detected Plays:** {meta.get('play_count', len(rows))}\n\n"
+            f"**Summary:** plays={len(joined)} • known_rate={known_rate:.2f} • avg_defense={avg_grade if avg_grade is not None else 'N/A'}\n\n"
         )
-        if fc:
+        f.write(
+            f"**Team:** {meta.get('team','')}  \n**Opponent:** {meta.get('opponent','')}  \n**FPS:** {meta.get('fps','')}  \n**Detected Plays:** {len(joined)}\n\n"
+        )
+        if formations:
             f.write("## Formations Used\n")
-            for k, v in sorted(fc.items(), key=lambda x: (-x[1], x[0])):
+            for k, v in sorted(formations.items(), key=lambda x: (-x[1], x[0])):
                 f.write(f"- {k}: {v}\n")
             f.write("\n")
-        if grades:
-            avg = sum(grades) / len(grades)
+        if plays_detected:
+            f.write("## Plays Detected\n")
+            for k, v in sorted(plays_detected.items(), key=lambda x: (-x[1], x[0])):
+                f.write(f"- {k}: {v}\n")
+            f.write("\n")
+        if avg_grade is not None:
             f.write("## Defensive Summary\n")
-            f.write(f"- Plays graded: {len(grades)}\n- Avg Overall Defense: {avg:.2f}\n\n")
+            f.write(
+                f"- Plays graded: {grade_count}\n- Avg Overall Defense: {avg_grade:.2f}\n\n"
+            )
         if rows:
             f.write("## Timeline\n")
-            f.write("| # | Start | End | Duration | Tag | Note |\n|---:|:-----:|:---:|:-------:|:----|:-----|\n")
+            f.write(
+                "| # | Start | End | Duration | Tag | Note |\n|---:|:-----:|:---:|:-------:|:----|:-----|\n"
+            )
             for r in rows:
                 f.write(
-                    f"| {h(r.get('#'))} | {h(r.get('Start'))} | {h(r.get('End'))} | {h(r.get('Duration'))} | {h(r.get('Tag'))} | {h(r.get('Note'))} |\n"
+                    f"| {r['num']} | {r['start']} | {r['end']} | {r['dur']} | {r['tag']} | {r['note']} |\n"
                 )
 
     html = out / "report_emergency.html"
