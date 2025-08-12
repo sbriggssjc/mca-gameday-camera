@@ -4,6 +4,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, List, Sequence
 
+import numpy as np
+
 
 @dataclass
 class Segment:
@@ -57,25 +59,81 @@ def _primary_segmentation(
     min_play_length: float,
     logger: logging.Logger | None = None,
 ) -> List[Segment]:
-    """Existing segmentation logic wrapped for fallback handling."""
+    """Improved segmentation using adaptive motion thresholds.
+
+    A basic motion energy approach is used to detect periods of activity.
+    The temporal median of frame-to-frame absolute differences determines an
+    adaptive threshold.  Detected segments are separated by a short "dead"
+    time to avoid rapid re-triggering and sub-4s micro segments are merged
+    into their neighbours.
+    """
 
     segments: List[Segment] = []
     total_frames = len(frames)
-    if total_frames == 0:
+    if total_frames <= 1:
         return segments
 
-    total_time = total_frames / float(fps)
-    seg = Segment(0.0, total_time)
-    if seg.duration >= min_play_length:
-        segments.append(seg)
-        if logger:
+    # ------------------------------------------------------------------
+    # Motion energy & adaptive thresholding
+    # ------------------------------------------------------------------
+    energies: List[float] = []
+    for i in range(1, total_frames):
+        prev, cur = frames[i - 1], frames[i]
+        if prev is None or cur is None:
+            energies.append(0.0)
+            continue
+        diff = np.abs(cur.astype("float32") - prev.astype("float32"))
+        energies.append(float(diff.mean()))
+
+    if not energies:
+        return segments
+
+    median_energy = float(np.median(energies))
+    threshold = max(median_energy * 2.0, 1e-6)
+
+    # ------------------------------------------------------------------
+    # Scan for segments with dead-time protection
+    # ------------------------------------------------------------------
+    dead_frames = int(2.0 * fps)
+    start_idx: int | None = None
+    last_end = -dead_frames
+
+    def _commit(start: int, end: int) -> None:
+        seg = Segment(start / fps, end / fps)
+        if seg.duration >= min_play_length:
+            segments.append(seg)
+        elif segments and seg.duration > 0:
+            # merge micro segments into previous if close enough
+            prev = segments[-1]
+            if seg.start_ts - prev.end_ts <= min_play_gap:
+                prev.end_ts = seg.end_ts
+            else:
+                segments.append(seg)
+
+    for idx, energy in enumerate(energies):
+        active = energy > threshold
+        if start_idx is None:
+            if active and idx - last_end > dead_frames:
+                start_idx = idx
+        else:
+            if not active:
+                _commit(start_idx, idx)
+                last_end = idx
+                start_idx = None
+
+    if start_idx is not None:
+        _commit(start_idx, total_frames - 1)
+
+    if logger:
+        for i, seg in enumerate(segments, 1):
             logger.info(
                 "Segment %d: start=%.2f end=%.2f duration=%.2f",
-                len(segments),
+                i,
                 seg.start_ts,
                 seg.end_ts,
                 seg.duration,
             )
+
     return segments
 
 

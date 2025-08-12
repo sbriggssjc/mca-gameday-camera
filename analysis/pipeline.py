@@ -20,6 +20,7 @@ from . import (
     defense_grader,
     report_builder,
     io_utils,
+    play_matcher,
 )
 
 
@@ -101,16 +102,31 @@ def run_pipeline(
     # ------------------------------------------------------------------
     # Segmentation
     # ------------------------------------------------------------------
-    dummy_frames = [None] * int(fps * 10)
+    frames = [None] * int(fps * 10)
     segments = segmentation.segment_video(
-        dummy_frames, fps, min_play_gap=min_play_gap, min_play_length=min_play_length, logger=logger
+        frames=frames,
+        fps=fps,
+        min_play_gap=min_play_gap,
+        min_play_length=min_play_length,
+        logger=logger,
     )
 
-    formations: List[str] = []
+    # Write metadata early with accurate play count
+    meta_path = Path(out_dir) / "metadata.json"
+    meta = {
+        "team": (args.team if args else team) or "Metro Christian Academy",
+        "opponent": (args.opponent if args else opponent) or "UNKNOWN",
+        "video": args.video if args else video,
+        "fps": fps,
+        "play_count": len(segments),
+    }
+    io_utils.write_json(meta_path, meta)
+
     playbook = assignments.load_playbook(playbook_path)
-    for seg in segments:
-        f = formation_classifier.classify_formation(playbook, [], fps)
-        formations.append(f)
+
+    # Formation and play matching for all segments
+    formations = formation_classifier.classify_all(segments, frames, fps, playbook)
+    play_matches = play_matcher.match_all(segments, frames, fps, playbook)
 
     # Build play-like structures for recogniser compatibility
     plays_dicts: List[Dict[str, Any]] = []
@@ -135,31 +151,22 @@ def run_pipeline(
     player_grades = grading.grade(preds, tracks, identity_map, playbook, grading_weights)
 
     # Defensive grading output
-    defense_grades = defense_grader.grade_plays(
-        segments, formations, out_dir, grading_weights=grading_weights
+    defense_grader.grade_plays(
+        segments,
+        frames,
+        fps,
+        out_dir,
+        formations=formations,
+        grading_weights=grading_weights,
     )
-
-    # Metadata
-    meta_path = Path(out_dir) / "metadata.json"
-    if meta_path.exists():
-        meta = json.loads(meta_path.read_text())
-    else:
-        meta = {}
-    meta = {
-        "team": (args.team if args else team) or meta.get("team") or "Metro Christian Academy",
-        "opponent": (args.opponent if args else opponent) or meta.get("opponent") or "UNKNOWN",
-        "video": args.video if args else video,
-        "fps": fps,
-        "play_count": len(segments),
-    }
-    io_utils.write_json(meta_path, meta)
 
     if generate_report:
         report_builder.build(
             out_dir=Path(out_dir),
             metadata_path=meta_path,
-            formations=formations,
             segments=segments,
+            formations=formations,
+            play_matches=play_matches,
             grades_path=Path(out_dir) / "grades.jsonl",
         )
 
@@ -207,7 +214,7 @@ def main(argv: List[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Automated film analysis pipeline")
     parser.add_argument("--video", required=True, help="Path to input video")
     parser.add_argument("--team", default="WHITE")
-    parser.add_argument("--opponent")
+    parser.add_argument("--opponent", type=str, default=None)
     parser.add_argument("--playbook", default=None)
     parser.add_argument("--out", default="output")
     parser.add_argument("--fps", type=int, default=0)
