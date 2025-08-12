@@ -26,11 +26,38 @@ def segment_video(
 ) -> List[Segment]:
     """Segment ``frames`` into plays.
 
-    The real project would analyse motion/whistles etc.  For tests we simply
-    return a single segment covering the full video duration while honouring
-    ``min_play_length``.  No artificial cap is applied so all plays are
-    returned.
+    Runs the primary segmentation logic first and, if that yields too few
+    segments, falls back to a simple windowizer that slices the entire video
+    into fixed-length windows.  This keeps the downstream pipeline moving even
+    when the sophisticated logic fails to find enough plays.
     """
+
+    segments = _primary_segmentation(frames, fps, min_play_gap, min_play_length, logger)
+
+    MIN_PLAYS = 5
+    if len(segments) < MIN_PLAYS:
+        if logger:
+            logger.warning(
+                f"Segmentation fallback: only {len(segments)} plays found; windowizing video"
+            )
+        segments = windowize_segments(
+            total_frames=len(frames),
+            fps=fps,
+            window_sec=12.0,
+            gap_sec=2.0,
+        )
+
+    return segments
+
+
+def _primary_segmentation(
+    frames: Sequence[Any],
+    fps: float,
+    min_play_gap: float,
+    min_play_length: float,
+    logger: logging.Logger | None = None,
+) -> List[Segment]:
+    """Existing segmentation logic wrapped for fallback handling."""
 
     segments: List[Segment] = []
     total_frames = len(frames)
@@ -49,4 +76,27 @@ def segment_video(
                 seg.end_ts,
                 seg.duration,
             )
+    return segments
+
+
+def windowize_segments(
+    total_frames: int,
+    fps: float,
+    window_sec: float = 12.0,
+    gap_sec: float = 2.0,
+) -> List[Segment]:
+    """Generate fixed-length segments across the video as a simple fallback."""
+
+    segments: List[Segment] = []
+    win = int(window_sec * fps)
+    gap = int(gap_sec * fps)
+    min_len = int(3.0 * fps)
+
+    start = 0
+    while start + min_len < total_frames:
+        end = min(start + win, total_frames - 1)
+        seg = Segment(start / fps, end / fps)
+        segments.append(seg)
+        start = end + gap
+
     return segments
