@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import statistics
 
-from reporting.generate_report import build_joined_rows, summarize, timeline_rows
+from reporting.generate_report import build_join, summarize, timeline_rows
 
 
 def build_emergency_report(out_dir: pathlib.Path):
@@ -24,8 +24,9 @@ def build_emergency_report(out_dir: pathlib.Path):
             except Exception:
                 pass
 
-    joined = build_joined_rows(out)
-    formations, plays_detected, known_rate, _ = summarize(joined)
+    joined = build_join(out)
+    play_counts, avg_grade, _median_conf, unknown_count, _ungradables, total = summarize(joined)
+    known_rate = (1 - (unknown_count / total)) if total else 0.0
     rows = timeline_rows(joined)
 
     gpath = out / "grades.jsonl"
@@ -67,14 +68,9 @@ def build_emergency_report(out_dir: pathlib.Path):
         f.write(
             f"**Team:** {meta.get('team','')}  \n**Opponent:** {meta.get('opponent','')}  \n**FPS:** {meta.get('fps','')}  \n**Detected Plays:** {len(joined)}\n\n"
         )
-        if formations:
-            f.write("## Formations Used\n")
-            for k, v in sorted(formations.items(), key=lambda x: (-x[1], x[0])):
-                f.write(f"- {k}: {v}\n")
-            f.write("\n")
-        if plays_detected:
+        if play_counts:
             f.write("## Plays Detected\n")
-            for k, v in sorted(plays_detected.items(), key=lambda x: (-x[1], x[0])):
+            for k, v in sorted(play_counts.items(), key=lambda x: (-x[1], x[0])):
                 f.write(f"- {k}: {v}\n")
             f.write("\n")
         if avg_defense is not None:
