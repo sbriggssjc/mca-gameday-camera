@@ -170,6 +170,23 @@ def run_pipeline(
             grades_path=Path(out_dir) / "grades.jsonl",
         )
 
+    if args and getattr(args, "debug_vid", False):
+        from . import debug_overlay
+
+        seg_dicts = [
+            {"start_frame": int(seg.start_ts * fps), "end_frame": int(seg.end_ts * fps)}
+            for seg in segments
+        ]
+        debug_overlay.build_debug_video(
+            video_path=Path(video),
+            out_dir=Path(out_dir),
+            segments=seg_dicts,
+            fps=fps,
+            formations=formations,
+            play_matches=play_matches,
+            grades_path=Path(out_dir) / "grades.jsonl",
+        )
+
     if generate_report and not (clip_corrections or clip_wins or clip_highlights):
         clip_corrections = clip_wins = clip_highlights = True
 
@@ -227,7 +244,11 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--generate-highlights", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--min-play-gap", type=float, default=7.0)
     parser.add_argument("--min-play-length", type=float, default=4.0)
-    parser.add_argument("--debug-vid", action="store_true")
+    parser.add_argument(
+        "--debug-vid",
+        action="store_true",
+        help="Render a debug video with overlays",
+    )
     parser.add_argument("--player-ids")
     parser.add_argument("--id-overrides")
     parser.add_argument("--team-color")
