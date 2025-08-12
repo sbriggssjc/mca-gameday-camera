@@ -1,19 +1,18 @@
 from __future__ import annotations
 
 import csv
-import json
 from pathlib import Path
 from typing import Dict, Sequence
+
+from reporting.generate_report import (
+    build_joined_rows,
+    summarize,
+    timeline_rows,
+)
 
 from .io_utils import ensure_dir, write_json
 from .segmentation import Segment
 from . import report as _legacy_report
-
-
-def _fmt_time(seconds: float) -> str:
-    m = int(seconds // 60)
-    s = int(seconds % 60)
-    return f"{m:02d}:{s:02d}"
 
 
 def build(
@@ -29,59 +28,24 @@ def build(
     dashboards = out_dir / "dashboards"
     ensure_dir(dashboards)
 
-    # Load grades if available
-    grade_map: Dict[int, Dict[str, object]] = {}
-    if grades_path.exists():
-        with grades_path.open("r", encoding="utf8") as gf:
-            for line in gf:
-                g = json.loads(line)
-                grade_map[int(g.get("play_index", 0))] = g
-
-    # ------------------------------------------------------------------
-    # Summary JSON
-    # ------------------------------------------------------------------
-    formation_counts: dict[str, int] = {}
-    for f in formations:
-        formation_counts[f] = formation_counts.get(f, 0) + 1
-
-    play_counts: dict[str, int] = {}
-    for m in play_matches:
-        name = m.get("name", "Unknown")
-        play_counts[name] = play_counts.get(name, 0) + 1
+    joined = build_joined_rows(out_dir)
+    formation_counts, play_counts, _, _ = summarize(joined)
 
     summary = {
-        "play_count": len(segments),
-        "formations": formation_counts,
-        "plays": play_counts,
+        "play_count": len(joined),
+        "formations": dict(formation_counts),
+        "plays": dict(play_counts),
     }
     write_json(dashboards / "summary.json", summary)
 
-    # ------------------------------------------------------------------
-    # Timeline CSV
-    # ------------------------------------------------------------------
+    rows = timeline_rows(joined)
     with (dashboards / "timeline.csv").open("w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["#", "Start", "End", "Dur", "Formation", "Play (conf)", "Def Grade"])
-        for idx, seg in enumerate(segments, 1):
-            formation = formations[idx - 1] if idx - 1 < len(formations) else "Unknown"
-            pm = play_matches[idx - 1] if idx - 1 < len(play_matches) else {"name": "Unknown", "confidence": 0.0}
-            grade = grade_map.get(idx - 1, {})
-            writer.writerow(
-                [
-                    idx,
-                    _fmt_time(seg.start_ts),
-                    _fmt_time(seg.end_ts),
-                    _fmt_time(seg.duration),
-                    formation,
-                    f"{pm.get('name')} ({pm.get('confidence', 0.0):.2f})",
-                    grade.get("overall_defense", ""),
-                ]
-            )
+        writer.writerow(["#", "Start", "End", "Duration", "Tag", "Note"])
+        for r in rows:
+            writer.writerow([r["num"], r["start"], r["end"], r["dur"], r["tag"], r["note"]])
 
-    # ------------------------------------------------------------------
-    # Simple markdown / PDF report
-    # ------------------------------------------------------------------
-    md_lines = ["# Game Report", "", f"Total plays: {len(segments)}", ""]
+    md_lines = ["# Game Report", "", f"Total plays: {len(joined)}", ""]
 
     md_lines.append("## Formations Used")
     for name, count in formation_counts.items():
