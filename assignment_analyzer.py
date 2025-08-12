@@ -6,7 +6,7 @@ import argparse
 import csv
 import json
 import os
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 
 import cv2
 import logging
@@ -71,9 +71,17 @@ def detect_players(frame) -> List[Box]:
         return []
 
 
-def detect_jerseys(frame, boxes: Optional[List[Box]] = None):
-    if boxes is None:
-        boxes = detect_players(frame)
+def detect_jerseys(frame, boxes: List[Box]) -> List[int]:
+    """Return jersey numbers detected within ``boxes`` on ``frame``.
+
+    The previous implementation allowed ``boxes`` to be omitted which
+    resulted in ``TypeError`` whenever :func:`ai_detector.detect_jerseys`
+    was invoked without the required argument.  Enforce the explicit
+    ``boxes`` parameter so call sites must provide the current detection
+    boxes.  This mirrors the signature of
+    :func:`ai_detector.detect_jerseys` and prevents silent mis-use.
+    """
+
     return _detect_jerseys(frame, boxes)
 
 def load_assignments(path: str) -> Dict[int, str]:
