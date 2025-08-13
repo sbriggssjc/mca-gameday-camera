@@ -34,7 +34,9 @@ class Track:
         }
 
 
-def run(video_path: str, team: str = "WHITE", fps: int = 12) -> List[Track]:
+def run(
+    video_path: str, team: str = "WHITE", fps: int = 12, model_path: str | None = None
+) -> List[Track]:
     """Fake detection routine used for tests.
 
     Parameters
@@ -55,9 +57,13 @@ def run(video_path: str, team: str = "WHITE", fps: int = 12) -> List[Track]:
         boxes are arbitrary and only exist to satisfy the tracking schema.
     """
 
+    if model_path:
+        print(f"[detect_track] using model: {model_path}")
+
     # Generate a couple of dummy tracks so downstream modules have something
     # to work with.  In a real implementation these would be derived from
-    # model predictions.
+    # model predictions. ``model_path`` is accepted to mirror the real API and
+    # allow callers to explicitly provide detector weights.
     tracks = [
         Track(frame=0, player_id="1", team=team, jersey_number="10", bbox=[0, 0, 10, 10]),
         Track(frame=0, player_id="2", team=team, jersey_number="20", bbox=[20, 0, 30, 10]),
