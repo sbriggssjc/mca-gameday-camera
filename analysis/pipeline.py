@@ -5,6 +5,7 @@ import argparse
 import json
 import logging
 import os
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
@@ -67,6 +68,64 @@ def _write_jsonl(rows: List[Dict[str, Any]], path: str) -> None:
             f.write(json.dumps(row) + "\n")
 
 
+def _normalize_video_if_needed(path: str) -> str:
+    """Re-encode video to 720p landscape if portrait or not standard.
+
+    Returns the path to the possibly re-encoded file. If the file does not
+    exist or FFmpeg fails, the original path is returned unchanged.
+    """
+
+    if not os.path.exists(path):
+        return path
+
+    width = height = 0
+    try:  # pragma: no cover - best effort only
+        import cv2  # type: ignore
+
+        cap = cv2.VideoCapture(path)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        cap.release()
+    except Exception:
+        return path
+
+    if width >= height and width == 1280 and height == 720:
+        return path
+
+    filters = []
+    if height > width:
+        filters.append("transpose=1")
+    filters.append("scale=1280:720:flags=bicubic")
+    vf = ",".join(filters)
+    out_path = Path(path).with_name(Path(path).stem + "_720p_landscape.mp4")
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        path,
+        "-vf",
+        vf,
+        "-r",
+        "30",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "20",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        str(out_path),
+    ]
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return str(out_path)
+    except Exception:
+        return path
+
+
 def run_pipeline(
     video: str,
     team: str,
@@ -86,11 +145,15 @@ def run_pipeline(
     clip_corrections: bool = False,
     clip_wins: bool = False,
     clip_highlights: bool = False,
+    detect_model: str | None = None,
     args: argparse.Namespace | None = None,
 ) -> None:
     """Execute the toy analysis pipeline."""
 
     os.makedirs(out_dir, exist_ok=True)
+
+    # Normalize/rotate video when needed so detectors see a standard input
+    video = _normalize_video_if_needed(video)
 
     logger = logging.getLogger("pipeline")
 
@@ -170,7 +233,7 @@ def run_pipeline(
     meta["play_count"] = len(plays)
     meta_path.write_text(json.dumps(meta, indent=2))
 
-    tracks = detect_track.run(video, team=team, fps=fps)
+    tracks = detect_track.run(video, team=team, fps=fps, model_path=detect_model)
 
     tracking_rows = [t.as_dict() for t in tracks]
 
@@ -485,6 +548,7 @@ def main(argv: List[str] | None = None) -> None:
         clip_corrections=args.clip_corrections,
         clip_wins=args.clip_wins,
         clip_highlights=args.clip_highlights,
+        detect_model=args.detect_model,
         args=args,
     )
 
