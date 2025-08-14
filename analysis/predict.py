@@ -43,7 +43,8 @@ def predict_all(
             "segment_id": sid,
             "predicted_play": label,
             "confidence": float(conf),
-            "why": f.get("why", "ok"),
+            "why": "ok",
+            "n_players": f.get("n_players", 0),
         })
     return rows
 
