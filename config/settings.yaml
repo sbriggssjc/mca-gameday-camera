@@ -15,3 +15,6 @@ grading:
 export:
   pre_snap_pad_sec: 3.0
   post_whistle_pad_sec: 2.0
+enable_motion_blob_fallback: true
+motion_blob_min_area: 150
+motion_blob_confidence: 0.4
