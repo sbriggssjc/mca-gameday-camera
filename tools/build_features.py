@@ -36,7 +36,8 @@ def filter_players(bbs, confs=None):
         if conf<0.20: continue
         a=area(bb)
         if a<MIN_A or a>MAX_A: continue
-        if (r:=ar(bb))<0.25 or r>1.2: continue
+        r=ar(bb)
+        if r<0.25 or r>1.2: continue
         out.append(bb)
     return out
 
