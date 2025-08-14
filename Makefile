@@ -1,15 +1,20 @@
-.RECIPEPREFIX := >
-.PHONY: deps diag preflight audit fix-logging
-deps:
->scripts/install_deps.sh
-diag:
->scripts/diag_gameday.sh
-preflight:
->python -m tools.preflight_gameday
-audit:
->python -m tools.audit_gameday --repo-root .
-fix-logging:
->python -m tools.auto_instrument_logging
+VIDEO ?= video/manual_uploads/IMG_4129.MP4
+TEAM ?= WHITE
+PLAYBOOK ?= mca_full_playbook_final.json
 
-run:
->./scripts/run_game.sh $(VIDEO)
+.PHONY: run-pipeline
+run-pipeline:
+	@OUT=output/$$(basename -s .MP4 $(VIDEO))_$$(date +%Y%m%d_%H%M); \
+	mkdir -p "$$OUT"; \
+	echo "[make] OUT=$$OUT"; \
+	PYTHONPATH=. python3 -m analysis.pipeline \
+	  --video $(VIDEO) \
+	  --team $(TEAM) \
+	  --playbook $(PLAYBOOK) \
+	  --out "$$OUT" \
+	  --make-overlay \
+	  --debug-summary
+
+.PHONY: probe-detector
+probe-detector:
+	@PYTHONPATH=. python3 tools/probe_detector.py --video $(VIDEO) --max-frames 50
