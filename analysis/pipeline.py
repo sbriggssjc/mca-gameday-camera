@@ -37,6 +37,10 @@ from . import (
 from .segmentation import Segment
 from segment.play_segmenter import segment_video
 
+try:  # pragma: no cover - optional dependency
+    import yaml
+except Exception:  # pragma: no cover - optional dependency
+    yaml = None  # type: ignore
 
 DEFAULT_MIN_PLAY_LEN = 6.0
 DEFAULT_MIN_PLAY_GAP = 1.5
@@ -233,7 +237,19 @@ def run_pipeline(
     meta["play_count"] = len(plays)
     meta_path.write_text(json.dumps(meta, indent=2))
 
-    tracks = detect_track.run(video, team=team, fps=fps, model_path=detect_model)
+    settings_data: Dict[str, Any] = {}
+    settings_fp = Path("config/settings.yaml")
+    if settings_fp.exists() and yaml:
+        try:
+            loaded = yaml.safe_load(settings_fp.read_text()) or {}
+            if isinstance(loaded, dict):
+                settings_data = loaded
+        except Exception:
+            settings_data = {}
+
+    tracks = detect_track.run(
+        video, team=team, fps=fps, model_path=detect_model, settings=settings_data
+    )
 
     tracking_rows = [t.as_dict() for t in tracks]
 
