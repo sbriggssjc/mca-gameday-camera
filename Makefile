@@ -29,5 +29,5 @@ run-pipeline:
 >  --debug-summary \
 >  --debug-detections \
 >  --max-debug-frames 12 \
->  --conf-thresh 0.22 \
->  --nms-thresh 0.55
+>  --conf-thresh $${MCA_DET_CONF:-0.22} \
+>  --nms-thresh $${MCA_DET_NMS:-0.55}

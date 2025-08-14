@@ -1,1 +1,1 @@
-# Marks analysis as a package.
+# analysis package
