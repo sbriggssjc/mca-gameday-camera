@@ -7,6 +7,7 @@ import logging
 import os
 import os.path as osp
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
@@ -161,6 +162,10 @@ def run_pipeline(
     """Execute the toy analysis pipeline."""
 
     os.makedirs(out_dir, exist_ok=True)
+    out_path = Path(out_dir)
+    tracking_path = out_path / "tracking.jsonl"
+    plays_path = out_path / "plays.jsonl"
+    features_path = out_path / "features.jsonl"
 
     # Normalize/rotate video when needed so detectors see a standard input
     video = _normalize_video_if_needed(video)
@@ -250,7 +255,7 @@ def run_pipeline(
         p = dict(s)
         p.setdefault("segment_id", f"seg_{i:04d}")
         plays.append(p)
-    _write_jsonl(plays, os.path.join(out_dir, "plays.jsonl"))
+    _write_jsonl(plays, str(plays_path))
 
     # Update metadata with play count
     meta["play_count"] = len(plays)
@@ -288,10 +293,10 @@ def run_pipeline(
                 r.setdefault("reason", "no_detections")
         safe_rows.append(r)
 
-    with open(Path(out_dir) / "tracking.jsonl", "w") as f:
+    with tracking_path.open("w") as f:
         for r in safe_rows:
             f.write(json.dumps(r) + "\n")
-    print(f"[tracking] wrote {len(safe_rows)} rows -> {Path(out_dir)/'tracking.jsonl'}")
+    print(f"[tracking] wrote {len(safe_rows)} rows -> {tracking_path}")
     detected_count = sum(1 for r in safe_rows if r.get("players"))
     if len(safe_rows) and detected_count == 0:
         print(
@@ -317,6 +322,47 @@ def run_pipeline(
 
     identity_map: Dict[str, str] = {}
 
+    # ALWAYS build features if plays exist; do not early-return just because strict
+    if plays_path.exists():
+        cmd = [
+            sys.executable,
+            "tools/build_features.py",
+            "--tracking",
+            str(tracking_path),
+            "--segments",
+            str(plays_path),
+            "--out",
+            str(features_path),
+        ]
+        rc = subprocess.run(cmd, check=False)
+        if rc.returncode != 0:
+            print("[feat] build_features.py failed; writing empty shell to keep pipeline consistent")
+            features_path.write_text("")
+    else:
+        print("[feat] plays.jsonl missing; skipping feature build")
+
+    feats: List[Dict[str, Any]] = []
+    if features_path.exists():
+        with features_path.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue
+                sid = obj.get("seg_id") or obj.get("segment_id")
+                feat_dict = obj.get("features", {})
+                feats.append({
+                    "segment_id": sid,
+                    "features": feat_dict,
+                    "_sufficient": feat_dict.get("_sufficient"),
+                    "num_players": feat_dict.get("player_count_p50")
+                    or feat_dict.get("player_count_mean", 0),
+                })
+    print(f"[features] read {len(feats)} rows from {features_path}")
+
     # ------------------------------------------------------------------
     # Segmentation-dependent structures
     # ------------------------------------------------------------------
@@ -331,16 +377,6 @@ def run_pipeline(
 
     # Tracking grouped by segment
     tracking_by_segment = {r["segment_id"]: r for r in safe_rows}
-
-    # ------------------------------------------------------------------
-    # Feature computation and play classification with UNKNOWN support
-    # ------------------------------------------------------------------
-    meta_dims = {"width": width, "height": height}
-    feats = features.compute_all(safe_rows, meta=meta_dims, min_players=3)
-    with open(Path(out_dir) / "features.jsonl", "w") as f:
-        for r in feats:
-            f.write(json.dumps(r) + "\n")
-    print(f"[features] wrote {len(feats)} rows -> {Path(out_dir)/'features.jsonl'}")
 
     class _DummyModel:
         def predict_proba(self, X):  # type: ignore[override]
@@ -545,6 +581,7 @@ def main(argv: List[str] | None = None) -> None:
         help="Print counts of plays, formations, matches, and average grades at the end",
     )
     args = parser.parse_args(argv)
+    out_dir = Path(args.out).resolve()
 
     # --- Build RunConfig with layered precedence ---
     prof = PROFILE_DEFAULTS.get(args.profile, PROFILE_DEFAULTS["game"])
@@ -587,7 +624,7 @@ def main(argv: List[str] | None = None) -> None:
         team=args.team,
         opponent=args.opponent,
         playbook_path=args.playbook,
-        out_dir=args.out,
+        out_dir=str(out_dir),
         fps=args.fps,
         generate_report=args.generate_report,
         generate_clips=args.generate_clips,
@@ -611,7 +648,6 @@ def main(argv: List[str] | None = None) -> None:
     )
 
     # ---- Strict checks & overlays & summary ----
-    out_dir = Path(args.out) if args.out else Path("output")
     plays_fp = out_dir / "plays.jsonl"
     predictions_fp = out_dir / "play_predictions.jsonl"
     grades_fp = out_dir / "grades.jsonl"
@@ -695,6 +731,9 @@ def main(argv: List[str] | None = None) -> None:
                 )
             except Exception as e:  # pragma: no cover - best effort
                 print(f"[WARN] Debug summary failed: {e}")
+    print(f"[ok] tracking -> {tracking_path}  exists={tracking_path.exists()}")
+    print(f"[ok] features -> {features_path}  exists={features_path.exists()}")
+    print(f"[ok] feature rows: {len(feats)}")
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry
