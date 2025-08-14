@@ -1,31 +1,53 @@
-import os
-import os.path as osp
+"""
+Alias loader for the actual player detector implementation.
 
-DEFAULT_CONF = float(os.environ.get("MCA_DET_CONF", "0.25"))
-DEFAULT_NMS = float(os.environ.get("MCA_DET_NMS", "0.50"))
-EXPECTS_RGB = True
-INPUT_SIZE = (960, 540)  # (w, h)
-WEIGHTS_PATH = os.environ.get("MCA_DET_WEIGHTS", "models/player_detector/best.onnx")
+This module looks for another module under `analysis.detectors.*`
+that exposes a `detect(...)` function (and optionally DEFAULT_CONF,
+DEFAULT_NMS, EXPECTS_RGB, INPUT_SIZE, WEIGHTS_PATH) and then
+re-exports its public symbols so existing imports keep working:
 
-def _ensure_weights():
-    if not osp.exists(WEIGHTS_PATH):
-        raise FileNotFoundError(f"Detector weights missing: {WEIGHTS_PATH}")
+    from analysis.detectors import player_detector
+    boxes, scores, classes = player_detector.detect(...)
 
-def detect(frame, conf_thresh=None, nms_thresh=None):
-    """
-    Args:
-      frame: np.ndarray (H, W, 3) BGR by OpenCV; we convert to RGB if EXPECTS_RGB.
-    Returns:
-      boxes (List[xyxy]), scores (List[float]), classes (List[int])
-      Return []/[]/[] on no detections, never None.
-    """
-    _ensure_weights()
-    conf = DEFAULT_CONF if conf_thresh is None else conf_thresh
-    nms = DEFAULT_NMS if nms_thresh is None else nms_thresh
-    try:
-        # existing inference code should go here
-        # ensure resize & color ordering are correct
-        # boxes, scores, classes = your_infer(frame_rgb_resized, conf, nms)
-        return [], [], []  # placeholder
-    except Exception:
-        return [], [], []
+If you know the exact file (e.g., yolo_player.py), you can replace
+this module with:
+    from .yolo_player import *
+"""
+import pkgutil, importlib
+from types import ModuleType
+
+PKG_PREFIX = __name__.rsplit('.', 1)[0]  # 'analysis.detectors'
+
+
+def _load_impl() -> ModuleType:
+    preferred = ["yolo_player", "yolo_detector", "players", "detector", "people_detector"]
+    for base in preferred:
+        try:
+            return importlib.import_module(f"{PKG_PREFIX}.{base}")
+        except Exception:
+            pass
+
+    # Fallback: discover any module with a detect() function
+    import analysis.detectors as _pkg
+    for mod in pkgutil.walk_packages(_pkg.__path__, prefix=_pkg.__name__ + "."):
+        name_l = mod.name.lower()
+        if name_l.endswith("__init__"):
+            continue
+        if ("player" in name_l or "detect" in name_l) and "player_detector" not in name_l:
+            try:
+                m = importlib.import_module(mod.name)
+                if hasattr(m, "detect"):
+                    return m
+            except Exception:
+                continue
+    raise ImportError("No detector implementation with detect() found under analysis.detectors.*")
+
+
+_impl = _load_impl()
+
+# Re-export everything public from the impl module
+for k in dir(_impl):
+    if not k.startswith("_"):
+        globals()[k] = getattr(_impl, k)
+__all__ = [k for k in globals().keys() if not k.startswith("_")]
+
