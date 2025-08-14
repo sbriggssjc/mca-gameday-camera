@@ -328,24 +328,20 @@ def run_pipeline(
 
     identity_map: Dict[str, str] = {}
 
-    # ALWAYS build features if plays exist; do not early-return just because strict
+    # ALWAYS build features after tracking if plays exist
     if plays_path.exists():
-        cmd = [
-            sys.executable,
-            "tools/build_features.py",
-            "--tracking",
-            str(tracking_path),
-            "--segments",
-            str(plays_path),
-            "--out",
-            str(features_path),
-        ]
-        rc = subprocess.run(cmd, check=False)
+        print(f"[feat] running tools/build_features.py -> {features_path}")
+        rc = subprocess.run([
+            sys.executable, "tools/build_features.py",
+            "--tracking", str(tracking_path),
+            "--segments", str(plays_path),
+            "--out", str(features_path),
+        ], check=False)
         if rc.returncode != 0:
-            print("[feat] build_features.py failed; writing empty shell to keep pipeline consistent")
+            print("[feat] build_features.py failed; writing empty file")
             features_path.write_text("")
     else:
-        print("[feat] plays.jsonl missing; skipping feature build")
+        print("[feat] plays.jsonl missing; skip feature build")
 
     feats: List[Dict[str, Any]] = []
     if features_path.exists():
