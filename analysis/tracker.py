@@ -86,10 +86,12 @@ def _frames_to_tracking_row(seg_id: str, frames: list, used_fallback: bool) -> d
         ts = fr["ts"]
         for x1, y1, x2, y2, conf in fr.get("boxes", []):
             players.append({"ts": ts, "bbox": [x1, y1, x2, y2], "conf": conf})
+    reason = "no_detections" if len(players) == 0 else "ok"
     return {
         "segment_id": seg_id,
         "players": players,
         "meta": {"used_fallback": bool(used_fallback), "frames": len(frames)},
+        "reason": reason,
     }
 
 # --- end helpers ---
