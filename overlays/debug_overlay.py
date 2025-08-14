@@ -18,7 +18,11 @@ def render_overlays_for_out_dir(out_dir: Path):
     """
     plays = _load_jsonl(out_dir / "plays.jsonl")
     tracking = _load_jsonl(out_dir / "tracking.jsonl")
-    meta = json.loads((out_dir / "metadata.json").read_text()) if (out_dir / "metadata.json").exists() else {}
+    meta = (
+        json.loads((out_dir / "metadata.json").read_text())
+        if (out_dir / "metadata.json").exists()
+        else {}
+    )
     video_path = meta.get("video_path") or meta.get("video") or meta.get("input_video")
 
     if not video_path or not Path(video_path).exists():
@@ -33,43 +37,48 @@ def render_overlays_for_out_dir(out_dir: Path):
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1280)
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 720)
 
-    # Group tracking rows by play_id for fast lookup
-    by_play = {}
-    for r in tracking:
-        by_play.setdefault(r.get("play_id"), []).append(r)
+    by_seg = {
+        (r.get("segment_id") or r.get("id") or r.get("seg_id")): r for r in tracking
+    }
 
     for p in plays:
-        pid = p.get("play_id")
+        sid = p.get("segment_id") or p.get("id") or p.get("seg_id")
         start_s = float(p.get("start_s", 0.0))
         end_s = float(p.get("end_s", 0.0))
         if end_s <= start_s:
             continue
-        out_fp = str((overlay_dir / f"PLAY_{int(pid):03d}.mp4"))
+        out_fp = str((overlay_dir / f"SEG_{sid}.mp4"))
 
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(out_fp, fourcc, fps, (w, h))
 
-        # seek to start
         cap.set(cv2.CAP_PROP_POS_MSEC, start_s * 1000.0)
         t = start_s
-        rows = by_play.get(pid, [])
+        t_row = by_seg.get(sid, {})
+        players = t_row.get("players", [])
+        used_fallback = bool((t_row.get("meta") or {}).get("used_fallback"))
 
         while t <= end_s:
             ret, frame = cap.read()
             if not ret:
                 break
 
-            t_rows = [r for r in rows if abs(float(r.get("time_s", 0.0)) - t) <= (1.0 / fps) * 1.1]
-            for r in t_rows:
-                x1, y1, x2, y2 = [int(v) for v in r.get("bbox", [0, 0, 0, 0])]
-                color = (0, 255, 0)
-                prefix = ""
-                if r.get("detection_source") == "motion_blob_fallback":
-                    color = (0, 255, 255)
-                    prefix = "FB "
+            frame_players = [
+                pl for pl in players if abs(float(pl.get("ts", 0.0)) - t) <= (1.0 / fps) * 1.1
+            ]
+            for pl in frame_players:
+                x1, y1, x2, y2 = [int(v) for v in pl.get("bbox", [0, 0, 0, 0])]
+                color = (0, 255, 255) if used_fallback else (0, 255, 0)
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                label = f"{prefix}#{r.get('jersey_number', '?')} id:{r.get('track_id', '?')}"
-                cv2.putText(frame, label, (x1, max(20, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                cv2.putText(
+                    frame,
+                    "F" if used_fallback else "P",
+                    (x1, max(18, y1 - 4)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.55,
+                    (255, 255, 255),
+                    1,
+                )
 
             writer.write(frame)
             t += 1.0 / fps
