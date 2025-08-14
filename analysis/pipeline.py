@@ -144,6 +144,7 @@ def run_pipeline(
     generate_highlights: bool = True,
     min_play_gap: float = DEFAULT_MIN_PLAY_GAP,
     min_play_length: float = DEFAULT_MIN_PLAY_LEN,
+    max_per_seg: int | None = None,
     player_ids: str | None = None,
     id_overrides: str | None = None,
     team_color: str | None = None,
@@ -243,9 +244,9 @@ def run_pipeline(
     segs = segment_video(
         video,
         fps,
-        Path(out_dir),
         cfg={"min_play_length": min_play_length, "min_play_gap": min_play_gap},
         ctx={"video_length_sec": duration_sec},
+        max_per_seg=max_per_seg,
     )
     print(f"[pipeline] Segments in memory: {len(segs)}")
 
@@ -256,6 +257,11 @@ def run_pipeline(
         p.setdefault("segment_id", f"seg_{i:04d}")
         plays.append(p)
     _write_jsonl(plays, str(plays_path))
+    fallback = any(str(p.get("source", "")).startswith("fallback") for p in plays)
+    msg_tail = f" max_per_seg={max_per_seg}" if max_per_seg else ""
+    print(
+        f"[segmenter] Segments written: {len(plays)} (fallback={int(fallback)}) -> {plays_path}{msg_tail}"
+    )
 
     # Update metadata with play count
     meta["play_count"] = len(plays)
@@ -552,6 +558,12 @@ def main(argv: List[str] | None = None) -> None:
         help="Preset tuning for segmentation thresholds (affects min-play-length/gap). Default: game",
     )
     parser.add_argument(
+        "--max-per-seg",
+        type=int,
+        default=None,
+        help="Maximum frames per generated segment when windowizing fallback; if None, use default.",
+    )
+    parser.add_argument(
         "--debug-vid",
         action="store_true",
         help="Render a debug video with overlays",
@@ -631,6 +643,7 @@ def main(argv: List[str] | None = None) -> None:
         generate_highlights=args.generate_highlights,
         min_play_gap=run_cfg.min_play_gap,
         min_play_length=run_cfg.min_play_length,
+        max_per_seg=args.max_per_seg,
         player_ids=args.player_ids,
         id_overrides=args.id_overrides,
         team_color=args.team_color,
