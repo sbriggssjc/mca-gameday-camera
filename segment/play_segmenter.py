@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 try:
@@ -69,8 +67,14 @@ def primary_detect(video_path: str, fps: float, cfg: Dict[str, Any], ctx: Dict[s
     return list(segs) if segs else []
 
 
-def segment_video(video_path: str, fps: float, out_dir: Path, cfg: Dict[str, Any], ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Returns list of segments. Always writes the file once here to avoid downstream overriding."""
+def segment_video(
+    video_path: str,
+    fps: float,
+    cfg: Dict[str, Any],
+    ctx: Dict[str, Any],
+    max_per_seg: int | None = None,
+) -> List[Dict[str, Any]]:
+    """Return list of segments for ``video_path``."""
 
     # 1) primary segmentation (your existing logic)
     segs = primary_detect(video_path, fps, cfg, ctx)
@@ -85,7 +89,11 @@ def segment_video(video_path: str, fps: float, out_dir: Path, cfg: Dict[str, Any
             F = cap.get(cv2.CAP_PROP_FPS) or 30.0
             duration_sec = (f / F) if f and F else 0.0
             cap.release()
-        segs = _windowize(duration_sec, cfg.get("min_play_length", 6.0), cfg.get("min_play_gap", 1.5))
+        segs = _windowize(
+            duration_sec,
+            cfg.get("min_play_length", 6.0),
+            cfg.get("min_play_gap", 1.5),
+        )
         if not segs:
             # As a last resort: split into 4 equal chunks so strict can catch it
             chunk = max(1.0, duration_sec / 4.0)
@@ -98,14 +106,18 @@ def segment_video(video_path: str, fps: float, out_dir: Path, cfg: Dict[str, Any
                 }
                 for i in range(4)
             ]
+        if max_per_seg and fps > 0:
+            max_len_sec = max_per_seg / float(fps)
+            clamped: List[Dict[str, Any]] = []
+            for s in segs:
+                end_s = min(s["end_s"], s["start_s"] + max_len_sec)
+                if end_s > s["start_s"]:
+                    s["end_s"] = round(end_s, 3)
+                    clamped.append(s)
+            segs = clamped
 
     # 3) NEVER merge fallback windows here. Only normalize IDs.
     for i, s in enumerate(segs, start=1):
         s["play_id"] = i
 
-    # 4) Persist immediately so downstream cannot overwrite
-    plays_fp = out_dir / "plays.jsonl"
-    plays_fp.write_text("\n".join(json.dumps(s) for s in segs))
-    total_fallback = sum(1 for p in segs if str(p.get("source", "")).startswith("fallback"))
-    print(f"[segmenter] Segments written: {len(segs)} (fallback={total_fallback}) -> {plays_fp}")
     return segs
