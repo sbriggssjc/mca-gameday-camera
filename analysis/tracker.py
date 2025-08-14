@@ -4,6 +4,7 @@ from __future__ import annotations
 import cv2  # type: ignore
 import numpy as np  # type: ignore
 from typing import List, Dict, Any
+import statistics
 
 # --- Motion-blob fallback helpers ---
 ENABLE_MOTION_BLOB_FALLBACK = True
@@ -86,7 +87,36 @@ def _frames_to_tracking_row(seg_id: str, frames: list, used_fallback: bool) -> d
         ts = fr["ts"]
         for x1, y1, x2, y2, conf in fr.get("boxes", []):
             players.append({"ts": ts, "bbox": [x1, y1, x2, y2], "conf": conf})
+
+    def _filtered_count(frame: Dict[str, Any]) -> int:
+        boxes = frame.get("boxes") or frame.get("detections") or []
+        out: List[Any] = []
+        for b in boxes:
+            if isinstance(b, dict):
+                conf = b.get("conf") or b.get("score") or 0.0
+                x1 = b.get("x1", 0)
+                y1 = b.get("y1", 0)
+                x2 = b.get("x2", 0)
+                y2 = b.get("y2", 0)
+            else:
+                x1, y1, x2, y2 = b[:4]
+                conf = b[4] if len(b) > 4 else 0.0
+            if conf < 0.20:
+                continue
+            w, h = max(1, x2 - x1), max(1, y2 - y1)
+            area = w * h
+            if area < 144 or area > 40000:
+                continue
+            ar = w / h
+            if ar < 0.25 or ar > 1.2:
+                continue
+            out.append(b)
+        return min(len(out), 22)
+
     reason = "no_detections" if len(players) == 0 else "ok"
+    avg_players = statistics.mean([_filtered_count(fr) for fr in frames]) if frames else 0
+    max_players = max([_filtered_count(fr) for fr in frames]) if frames else 0
+    print(f"[tracker] {seg_id} avg_players={avg_players:.2f} max={max_players}")
     return {
         "segment_id": seg_id,
         "players": players,
