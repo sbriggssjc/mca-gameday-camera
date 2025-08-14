@@ -21,7 +21,7 @@ except Exception as _e:  # pragma: no cover - optional dependency
     print_debug_summary = None
 
 from . import (
-    detect_track,
+    tracker,
     assignments,
     player_identity,
     grading,
@@ -247,24 +247,18 @@ def run_pipeline(
         except Exception:
             settings_data = {}
 
-    tracks = detect_track.run(
-        video, team=team, fps=fps, model_path=detect_model, settings=settings_data
-    )
-
-    tracking_rows = [t.as_dict() for t in tracks]
-
-    seg_id_keys = ("segment_id", "id", "seg_id")
+    tracks = tracker.track(video, plays, team=team, team_color=team_color)
 
     def _sid(d: Dict[str, Any]) -> Any:
-        for k in seg_id_keys:
+        for k in ("segment_id", "id", "seg_id"):
             if k in d:
                 return d[k]
         return None
 
-    rows_by_sid = { _sid(r): r for r in (tracking_rows or []) if _sid(r) is not None }
+    rows_by_sid = { _sid(r): r for r in (tracks or []) if _sid(r) is not None }
     safe_rows: List[Dict[str, Any]] = []
-    for p in plays:
-        sid = _sid(p)
+    for s in plays:
+        sid = _sid(s)
         r = rows_by_sid.get(sid)
         if not r:
             r = {"segment_id": sid, "players": [], "meta": {"note": "empty_tracking"}}
@@ -278,12 +272,7 @@ def run_pipeline(
             f.write(json.dumps(r) + "\n")
     print(f"[tracking] wrote {len(safe_rows)} rows -> {Path(out_dir)/'tracking.jsonl'}")
 
-    identity_map = {t.player_id: t.player_id for t in tracks}
-    if player_ids and os.path.exists(player_ids):
-        signatures = player_identity.build_visual_signature_bank(player_ids)
-        identity_map = player_identity.attach_identities_to_tracks(
-            tracks, signatures, team_color or team, id_overrides
-        )
+    identity_map: Dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # Segmentation-dependent structures
@@ -384,7 +373,7 @@ def run_pipeline(
             + (f" ... (+{len(missing_grade)-5} more)" if len(missing_grade) > 5 else "")
         )
 
-    player_grades = grading.grade(pred_rows, tracks, identity_map, playbook, grading_weights)
+    player_grades = grading.grade(pred_rows, [], identity_map, playbook, grading_weights)
 
     if generate_report:
         report_builder.build(
