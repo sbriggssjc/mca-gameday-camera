@@ -44,15 +44,8 @@ def _coarse_from_players(players: List[Dict[str, Any]], W: int = 1280, H: int = 
 def compute_all(tracks: List[Dict[str, Any]], meta: Optional[Dict[str, Any]] = None, min_players: int = 3) -> List[Dict[str, Any]]:
     """Compute coarse features for all segments.
 
-    Parameters
-    ----------
-    tracks:
-        List of per-segment tracking rows. Each row must include a
-        ``segment_id`` and a ``players`` list.
-    meta:
-        Optional metadata providing ``width`` and ``height`` of the frame.
-    min_players:
-        Minimum player detections required for ``ok`` to be True.
+    Always returns a row per input segment with a ``reason`` field when
+    features cannot be computed.
     """
 
     W = (meta or {}).get("width", 1280)
@@ -63,11 +56,27 @@ def compute_all(tracks: List[Dict[str, Any]], meta: Optional[Dict[str, Any]] = N
         players = t.get("players", [])
         coarse = _coarse_from_players(players, W, H)
         if coarse is None:
-            feats.append({"segment_id": sid, "ok": False, "why": "no_detections", "n_players": 0})
+            feats.append({
+                "segment_id": sid,
+                "num_players": 0,
+                "features": {},
+                "reason": "no_tracks",
+            })
             continue
-        f: Dict[str, Any] = {"segment_id": sid, **coarse}
-        f["ok"] = coarse["n_players"] >= min_players
-        f["why"] = "ok" if f["ok"] else "low_players"
-        feats.append(f)
+        feat_dict = {
+            "mx": coarse["mx"],
+            "sx": coarse["sx"],
+            "my": coarse["my"],
+            "sy": coarse["sy"],
+            "spread_x": coarse["spread_x"],
+            "spread_y": coarse["spread_y"],
+        }
+        reason = "ok" if coarse["n_players"] >= min_players else "low_players"
+        feats.append({
+            "segment_id": sid,
+            "num_players": coarse["n_players"],
+            "features": feat_dict,
+            "reason": reason,
+        })
     return feats
 
