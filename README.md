@@ -385,3 +385,17 @@ python3 -m analysis.pipeline \
   --generate-report \
   --clip-corrections --clip-wins --clip-highlights
 ```
+
+### Detector probe
+Ensure imports work outside `-m`:
+
+```
+PYTHONPATH=. python3 tools/probe_detector.py
+```
+
+Tune at runtime:
+
+```
+MCA_DET_CONF=0.20 MCA_DET_NMS=0.55 MCA_DET_WEIGHTS=models/player_detector/best.onnx make run-pipeline
+```
+Use `--force-cpu` if GPU runtime is misconfigured.
