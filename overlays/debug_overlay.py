@@ -62,8 +62,13 @@ def render_overlays_for_out_dir(out_dir: Path):
             t_rows = [r for r in rows if abs(float(r.get("time_s", 0.0)) - t) <= (1.0 / fps) * 1.1]
             for r in t_rows:
                 x1, y1, x2, y2 = [int(v) for v in r.get("bbox", [0, 0, 0, 0])]
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                label = f"#{r.get('jersey_number', '?')} id:{r.get('track_id', '?')}"
+                color = (0, 255, 0)
+                prefix = ""
+                if r.get("detection_source") == "motion_blob_fallback":
+                    color = (0, 255, 255)
+                    prefix = "FB "
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                label = f"{prefix}#{r.get('jersey_number', '?')} id:{r.get('track_id', '?')}"
                 cv2.putText(frame, label, (x1, max(20, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
             writer.write(frame)
