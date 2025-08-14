@@ -1,1 +1,1 @@
-# Marks detectors as a subpackage.
+# detectors subpackage
