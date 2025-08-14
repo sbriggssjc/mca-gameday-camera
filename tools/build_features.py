@@ -30,25 +30,33 @@ def ar(bb):
     x1,y1,x2,y2 = bb; w,h = max(1.0,x2-x1), max(1.0,y2-y1); return w/h
 
 def filter_players(bbs, confs=None):
-    out=[]; MIN_A,MAX_A=12*12,200*200
+    out=[]
+    # Easier thresholds (your sample had 10x10 bboxes = 100 px^2)
+    MIN_A, MAX_A = 8*8, 400*400
+    MIN_CONF = 0.10
     for i,bb in enumerate(bbs):
         conf=(confs[i] if confs and i<len(confs) else 1.0) or 0.0
-        if conf<0.20: continue
+        if conf<MIN_CONF: continue
         a=area(bb)
         if a<MIN_A or a>MAX_A: continue
         r=ar(bb)
-        if r<0.25 or r>1.2: continue
+        if r<0.20 or r>1.6: continue
         out.append(bb)
     return out
 
 def seg_index(plays_p: Path):
+    """
+    Build ordered ids + (optional) frame ranges.
+    Accept id keys: id, seg_id, segment_id, name; if missing, auto-assign seg_{i:04d}.
+    Accept range keys: start_frame/f0/start_idx/start and end_frame/f1/end_idx/end.
+    """
     ordered=[]; ranges={}
-    for seg in read_jsonl(plays_p):
-        sid=g(seg,"id") or g(seg,"seg_id")
-        if not sid: continue
+    for i, seg in enumerate(read_jsonl(plays_p)):
+        sid = (g(seg,"id") or g(seg,"seg_id") or g(seg,"segment_id") or
+               g(seg,"name") or f"seg_{i:04d}")
         ordered.append(sid)
-        s = g(seg,"start_frame", g(seg,"f0", g(seg,"start_idx")))
-        e = g(seg,"end_frame",   g(seg,"f1", g(seg,"end_idx")))
+        s = g(seg,"start_frame", g(seg,"f0", g(seg,"start_idx", g(seg,"start"))))
+        e = g(seg,"end_frame",   g(seg,"f1", g(seg,"end_idx", g(seg,"end"))))
         s = int(s) if isinstance(s,(int,float)) else None
         e = int(e) if isinstance(e,(int,float)) else None
         ranges[sid]=(s,e)
@@ -103,7 +111,8 @@ def main():
             if bb: bbs.append(bb); confs.append(1.0)
 
         bbs=filter_players(bbs, confs if confs else None)
-        if not bbs and "frame" not in row and not sid: continue
+        # If we still have nothing and no frame/seg_id, skip
+        if not bbs and ("frame" not in row) and not sid: continue
 
         try: frame=int(g(row,"frame",0))
         except Exception: frame=0
@@ -113,7 +122,8 @@ def main():
 
         for bb in bbs: buckets[sid][frame].append(bb)
 
-    seg_ids = ordered if ordered else list(buckets.keys())
+    # Guarantee we write one row per segment in plays.jsonl (even if tracking is empty)
+    seg_ids = (ordered if ordered else list(buckets.keys())) or ["__unknown__"]
 
     wrote=0
     with out_p.open("w") as f:
