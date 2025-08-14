@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-import argparse, json, sys, math, statistics
+import argparse, json, math, statistics
 from pathlib import Path
-from typing import Dict, Any, Iterable, List, Tuple
-
-# --- Utilities ---------------------------------------------------------------
+from typing import Any, Dict, Iterable, List, Tuple, Optional, DefaultDict
+from collections import defaultdict
 
 def read_jsonl(p: Path) -> Iterable[Dict[str, Any]]:
     if not p.exists():
@@ -11,8 +10,7 @@ def read_jsonl(p: Path) -> Iterable[Dict[str, Any]]:
     with p.open() as f:
         for line in f:
             line=line.strip()
-            if not line:
-                continue
+            if not line: continue
             try:
                 yield json.loads(line)
             except Exception:
@@ -21,155 +19,157 @@ def read_jsonl(p: Path) -> Iterable[Dict[str, Any]]:
 def safe_get(d: Dict[str, Any], key: str, default=None):
     return d.get(key, default) if isinstance(d, dict) else default
 
-def bbox_area(b):
-    # b = [x1,y1,x2,y2] or dict
+def bbox_from_any(b: Any) -> Optional[Tuple[float,float,float,float]]:
+    if b is None: return None
     if isinstance(b, dict):
-        x1,y1,x2,y2 = b.get("x1",0), b.get("y1",0), b.get("x2",0), b.get("y2",0)
-    else:
-        x1,y1,x2,y2 = b
-    return max(0, x2-x1) * max(0, y2-y1)
+        x1,y1,x2,y2 = b.get("x1"), b.get("y1"), b.get("x2"), b.get("y2")
+        if None in (x1,y1,x2,y2): return None
+        return float(x1),float(y1),float(x2),float(y2)
+    if isinstance(b, (list,tuple)) and len(b)>=4:
+        return float(b[0]),float(b[1]),float(b[2]),float(b[3])
+    return None
 
-def bbox_ar(b):
-    if isinstance(b, dict):
-        x1,y1,x2,y2 = b.get("x1",0), b.get("y1",0), b.get("x2",0), b.get("y2",0)
-    else:
-        x1,y1,x2,y2 = b
-    w, h = max(1, x2-x1), max(1, y2-y1)
-    return w / h
+def bbox_area(bb: Tuple[float,float,float,float]) -> float:
+    x1,y1,x2,y2 = bb
+    return max(0.0, x2-x1) * max(0.0, y2-y1)
 
-def robust_player_filter(boxes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    # Filter by confidence, min/max area, and plausible aspect ratio for a standing person
+def bbox_ar(bb: Tuple[float,float,float,float]) -> float:
+    x1,y1,x2,y2 = bb
+    w,h = max(1.0, x2-x1), max(1.0, y2-y1)
+    return w/h
+
+def robust_player_filter(bboxes: List[Tuple[float,float,float,float]], confs: Optional[List[float]]=None) -> List[Tuple[float,float,float,float]]:
     out = []
-    # approximate HD frame heuristic; adjust by frame area if available later
-    MIN_AREA, MAX_AREA = 12*12, 200*200
-    for b in boxes or []:
-        conf = safe_get(b, "conf", 0.0) or safe_get(b, "score", 0.0) or 0.0
-        if conf < 0.20:
-            continue
-        a = bbox_area(b)
-        if a < MIN_AREA or a > MAX_AREA:
-            continue
-        ar = bbox_ar(b)
-        if ar < 0.25 or ar > 1.2:
-            continue
-        out.append(b)
+    MIN_A, MAX_A = 12*12, 200*200
+    for i,bb in enumerate(bboxes):
+        conf = (confs[i] if confs and i < len(confs) else 1.0) or 0.0
+        if conf < 0.20: continue
+        a = bbox_area(bb)
+        if a < MIN_A or a > MAX_A: continue
+        ar = bbox_ar(bb)
+        if ar < 0.25 or ar > 1.2: continue
+        out.append(bb)
     return out
 
-def motion_stats(tracks: List[Dict[str, Any]]) -> Tuple[float,float]:
-    # Expect per-frame dx,dy or speed if present; otherwise derive from centers
-    speeds = []
-    for t in tracks:
-        pts = safe_get(t, "points", []) or safe_get(t, "centers", [])
-        for i in range(1, len(pts)):
-            x0,y0 = pts[i-1][:2]
-            x1,y1 = pts[i][:2]
-            dx, dy = x1-x0, y1-y0
-            speeds.append(math.hypot(dx, dy))
-    if not speeds:
-        return (0.0, 0.0)
-    return (statistics.mean(speeds), statistics.median(speeds))
+def build_seg_index(plays_path: Path):
+    """Return (ordered_ids, seg_range_by_id) with frame ranges if present."""
+    ordered_ids: List[str] = []
+    seg_ranges: Dict[str, Tuple[Optional[int], Optional[int]]] = {}
+    for seg in read_jsonl(plays_path):
+        sid = safe_get(seg, "id") or safe_get(seg, "seg_id")
+        if not sid: continue
+        ordered_ids.append(sid)
 
-def summarize_segment(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    rows: all tracking rows for this seg_id (mixed frame data)
-    Build schema-agnostic features usable by downstream classifier:
-    - player_count_mean / max (after robust filtering)
-    - bbox area stats
-    - motion mean/median
-    - track_count (unique ids)
-    """
-    boxes_per_frame = []
-    all_boxes = []
-    track_ids = set()
-    for r in rows:
-        # tolerate multiple naming styles
-        boxes = safe_get(r, "boxes") or safe_get(r, "detections") or safe_get(r, "players") or []
-        boxes = robust_player_filter(boxes)
-        boxes_per_frame.append(len(boxes))
-        all_boxes.extend(boxes)
-        tid = safe_get(r, "track_id")
-        if tid is not None:
-            track_ids.add(tid)
-        # Some trackers store per-frame track lists
-        for tr in safe_get(r, "tracks", []):
-            tid2 = safe_get(tr, "id")
-            if tid2 is not None:
-                track_ids.add(tid2)
+        start = (safe_get(seg, "start_frame", None)
+                 if "start_frame" in seg else
+                 safe_get(seg, "f0", None) if "f0" in seg else
+                 safe_get(seg, "start_idx", None))
+        end   = (safe_get(seg, "end_frame", None)
+                 if "end_frame" in seg else
+                 safe_get(seg, "f1", None) if "f1" in seg else
+                 safe_get(seg, "end_idx", None))
+        start = int(start) if isinstance(start, (int,float)) else None
+        end   = int(end)   if isinstance(end,   (int,float)) else None
+        seg_ranges[sid] = (start, end)
+    return ordered_ids, seg_ranges
 
+def which_seg_for_frame(frame: int, seg_ranges: Dict[str, Tuple[Optional[int], Optional[int]]]) -> Optional[str]:
+    for sid,(s,e) in seg_ranges.items():
+        if s is not None and e is not None and s <= frame <= e:
+            return sid
+    return None
+
+def summarize_segment(frames_to_boxes: Dict[int, List[Tuple[float,float,float,float]]]) -> Dict[str, Any]:
+    counts = [len(bs) for _,bs in frames_to_boxes.items()]
     feats: Dict[str, Any] = {}
-    feats["frames"] = len(rows)
-    feats["player_count_mean"] = statistics.mean(boxes_per_frame) if boxes_per_frame else 0.0
-    feats["player_count_max"]  = max(boxes_per_frame) if boxes_per_frame else 0
-    feats["player_count_p50"]  = statistics.median(boxes_per_frame) if boxes_per_frame else 0.0
-    feats["track_count"]       = len(track_ids)
-
-    areas = [bbox_area(b) for b in all_boxes]
-    if areas:
-        feats["bbox_area_mean"] = statistics.mean(areas)
-        feats["bbox_area_p50"]  = statistics.median(areas)
-        feats["bbox_area_max"]  = max(areas)
-    else:
-        feats["bbox_area_mean"] = 0.0
-        feats["bbox_area_p50"]  = 0.0
-        feats["bbox_area_max"]  = 0.0
-
-    # derive crude motion from any available tracks
-    # collapse rows into pseudo-tracks if needed
-    pseudo_tracks = []
-    for r in rows:
-        for tr in safe_get(r, "tracks", []):
-            pseudo_tracks.append(tr)
-    m_mean, m_med = motion_stats(pseudo_tracks)
-    feats["motion_mean"] = m_mean
-    feats["motion_p50"]  = m_med
-
-    # “sufficient” heuristic: we want *some* signal, not 0 for everything
-    feats["_sufficient"] = (feats["player_count_p50"] >= 8 and feats["player_count_max"] <= 30) or feats["track_count"] >= 10
+    feats["frames"] = len(frames_to_boxes)
+    feats["player_count_mean"] = statistics.mean(counts) if counts else 0.0
+    feats["player_count_p50"]  = statistics.median(counts) if counts else 0.0
+    feats["player_count_max"]  = max(counts) if counts else 0
+    areas: List[float] = [bbox_area(bb) for bbs in frames_to_boxes.values() for bb in bbs]
+    feats["bbox_area_mean"] = (statistics.mean(areas) if areas else 0.0)
+    feats["bbox_area_p50"]  = (statistics.median(areas) if areas else 0.0)
+    feats["bbox_area_max"]  = (max(areas) if areas else 0.0)
+    feats["_sufficient"] = (feats["player_count_p50"] >= 8 and feats["player_count_max"] <= 30)
     return feats
 
-# --- Main --------------------------------------------------------------------
-
 def main():
-    ap = argparse.ArgumentParser(description="Build per-segment features from tracking.jsonl in a schema-agnostic way.")
-    ap.add_argument("--tracking", required=True, help="Path to tracking.jsonl")
-    ap.add_argument("--segments", required=False, help="Path to plays.jsonl (for seg ordering & ids)")
-    ap.add_argument("--out", required=True, help="Output features.jsonl path")
+    ap = argparse.ArgumentParser(description="Schema-agnostic feature builder.")
+    ap.add_argument("--tracking", required=True, help="tracking.jsonl path")
+    ap.add_argument("--segments", required=False, help="plays.jsonl (ordering / frame mapping)")
+    ap.add_argument("--out", required=True, help="features.jsonl output path")
     args = ap.parse_args()
 
     tracking_p = Path(args.tracking)
-    segments_p = Path(args.segments) if args.segments else None
     out_p = Path(args.out)
     out_p.parent.mkdir(parents=True, exist_ok=True)
 
-    # Load tracking rows and group by seg_id
-    seg_rows: Dict[str, List[Dict[str, Any]]] = {}
-    for row in read_jsonl(tracking_p):
-        seg_id = safe_get(row, "seg_id") or safe_get(row, "segment") or safe_get(row, "id")
-        if not seg_id:
-            # tolerate tracking rows without seg_id; drop into special bucket
-            seg_id = "__unknown__"
-        seg_rows.setdefault(seg_id, []).append(row)
-
-    # Determine ordered seg list
     ordered: List[str] = []
-    if segments_p and segments_p.exists():
-        for seg in read_jsonl(segments_p):
-            sid = safe_get(seg, "id") or safe_get(seg, "seg_id")
-            if sid:
-                ordered.append(sid)
-    else:
-        ordered = list(seg_rows.keys())
+    seg_ranges: Dict[str, Tuple[Optional[int], Optional[int]]] = {}
+    if args.segments:
+        segs_p = Path(args.segments)
+        if segs_p.exists():
+            ordered, seg_ranges = build_seg_index(segs_p)
+
+    # seg_id -> frame -> [bboxes]
+    buckets: DefaultDict[str, DefaultDict[int, List[Tuple[float,float,float,float]]]] = defaultdict(lambda: defaultdict(list))
+
+    for row in read_jsonl(tracking_p):
+        sid = safe_get(row, "seg_id") or safe_get(row, "segment") or None
+
+        bboxes: List[Tuple[float,float,float,float]] = []
+        confs: List[float] = []
+
+        # Per-frame list of boxes
+        if isinstance(safe_get(row, "boxes"), list):
+            for b in safe_get(row, "boxes"):
+                bb = bbox_from_any(b)
+                if bb:
+                    bboxes.append(bb)
+                    confs.append((safe_get(b,"conf") or safe_get(b,"score") or 1.0))
+        elif isinstance(safe_get(row, "detections"), list):
+            for b in safe_get(row, "detections"):
+                bb = bbox_from_any(b)
+                if bb:
+                    bboxes.append(bb)
+                    confs.append((safe_get(b,"conf") or safe_get(b,"score") or 1.0))
+        else:
+            # Per-player jersey rows with single bbox
+            bb = bbox_from_any(safe_get(row, "bbox"))
+            if bb:
+                bboxes.append(bb)
+                confs.append(1.0)
+
+        if not bboxes and "frame" not in row and not sid:
+            continue
+
+        bboxes = robust_player_filter(bboxes, confs if confs else None)
+
+        frame = safe_get(row, "frame", 0)
+        try:
+            frame = int(frame)
+        except Exception:
+            frame = 0
+
+        if not sid and seg_ranges:
+            sid = which_seg_for_frame(frame, seg_ranges)
+        if not sid:
+            sid = "__unknown__"
+
+        for bb in bboxes:
+            buckets[sid][frame].append(bb)
+
+    seg_ids = (ordered if ordered else list(buckets.keys()))
 
     wrote = 0
     with out_p.open("w") as f:
-        for sid in ordered:
-            rows = seg_rows.get(sid, [])
-            feats = summarize_segment(rows)
+        for sid in seg_ids:
+            feats = summarize_segment(buckets.get(sid, {}))
             rec = {"seg_id": sid, "features": feats}
-            f.write(json.dumps(rec) + "\n")
+            f.write(json.dumps(rec)+"\n")
             wrote += 1
             suff = "ok" if feats.get("_sufficient") else "weak"
-            print(f"[feat] {sid}: players p50={feats['player_count_p50']:.1f} max={feats['player_count_max']} tracks={feats['track_count']} -> {suff}")
+            print(f"[feat] {sid}: players p50={feats['player_count_p50']:.1f} max={feats['player_count_max']} frames={feats['frames']} -> {suff}")
 
     print(f"[ok] features -> {str(out_p)}")
     print(f"[ok] feature rows: {wrote}")
