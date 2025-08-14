@@ -4,10 +4,13 @@ import csv
 from pathlib import Path
 from typing import Dict, Sequence
 
+from collections import Counter
+
 from reporting.generate_report import (
     build_join,
     summarize,
     timeline_rows,
+    _load_jsonl,
 )
 
 from .io_utils import ensure_dir, write_json
@@ -29,6 +32,9 @@ def build(
     ensure_dir(dashboards)
 
     joined = build_join(out_dir)
+    preds = _load_jsonl(out_dir / "play_predictions.jsonl")
+    unk = [p for p in preds if p.get("predicted_play") == "UNKNOWN"]
+    reasons = Counter((p.get("why") or "unknown") for p in unk)
     (
         play_counts,
         avg_grade,
@@ -56,6 +62,14 @@ def build(
     md_lines = ["# Game Report", "", f"Total plays: {len(joined)}", ""]
     md_lines.append(f"Median confidence: {median_conf:.2f}")
     md_lines.append(f"Unknown predictions: {unknown_count}")
+    md_lines.append("")
+
+    md_lines.append("## Unknown Root Causes")
+    if unk:
+        for k, v in reasons.items():
+            md_lines.append(f"- {k}: {v}")
+    else:
+        md_lines.append("- none")
     md_lines.append("")
 
     md_lines.append("## Plays Detected")
