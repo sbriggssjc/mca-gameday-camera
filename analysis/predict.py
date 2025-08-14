@@ -20,31 +20,34 @@ def predict_all(
     rows: List[Dict[str, Any]] = []
     for f in feats:
         sid = f.get("segment_id") or f.get("seg_id")
-        if not f.get("ok"):
+        feat_dict = f.get("features", {})
+        if not feat_dict:
             rows.append({
                 "segment_id": sid,
+                "play": "UNKNOWN",
                 "predicted_play": "UNKNOWN",
                 "confidence": 0.0,
-                "why": f.get("why", "unknown"),
-                "n_players": f.get("n_players", 0),
+                "reason": "no_features",
+                "num_players": f.get("num_players", 0),
             })
             continue
         vec = [
-            f["n_players"],
-            f["mx"],
-            f["sx"],
-            f["my"],
-            f["sy"],
-            f["spread_x"],
-            f["spread_y"],
+            f.get("num_players", 0),
+            feat_dict.get("mx", 0.0),
+            feat_dict.get("sx", 0.0),
+            feat_dict.get("my", 0.0),
+            feat_dict.get("sy", 0.0),
+            feat_dict.get("spread_x", 0.0),
+            feat_dict.get("spread_y", 0.0),
         ]
         label, conf = model_predict(vec)
         rows.append({
             "segment_id": sid,
+            "play": label,
             "predicted_play": label,
             "confidence": float(conf),
-            "why": "ok",
-            "n_players": f.get("n_players", 0),
+            "reason": "ok",
+            "num_players": f.get("num_players", 0),
         })
     return rows
 
