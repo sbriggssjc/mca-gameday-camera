@@ -13,3 +13,21 @@ fix-logging:
 
 run:
 >./scripts/run_game.sh $(VIDEO)
+
+probe-detector:
+>PYTHONPATH=. python3 tools/probe_detector.py
+
+run-pipeline:
+>OUT=output/$$(basename -s .MP4 video/manual_uploads/IMG_4129)_$$(date +%Y%m%d_%H%M); \
+>mkdir -p $$OUT; \
+>python3 -m analysis.pipeline \
+>  --video video/manual_uploads/IMG_4129.MP4 \
+>  --team WHITE \
+>  --playbook mca_full_playbook_final.json \
+>  --out $$OUT \
+>  --make-overlay \
+>  --debug-summary \
+>  --debug-detections \
+>  --max-debug-frames 12 \
+>  --conf-thresh 0.22 \
+>  --nms-thresh 0.55

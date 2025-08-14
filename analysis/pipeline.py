@@ -5,6 +5,7 @@ import argparse
 import json
 import logging
 import os
+import os.path as osp
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -151,6 +152,11 @@ def run_pipeline(
     clip_highlights: bool = False,
     detect_model: str | None = None,
     args: argparse.Namespace | None = None,
+    conf_thresh: float = 0.25,
+    nms_thresh: float = 0.50,
+    debug_detections: bool = False,
+    max_debug_frames: int = 8,
+    force_cpu: bool = False,
 ) -> None:
     """Execute the toy analysis pipeline."""
 
@@ -160,6 +166,19 @@ def run_pipeline(
     video = _normalize_video_if_needed(video)
 
     logger = logging.getLogger("pipeline")
+
+    video_exists = os.path.exists(video)
+    if video_exists:
+        try:
+            from .detectors import player_detector
+            if not osp.exists(player_detector.WEIGHTS_PATH):
+                raise FileNotFoundError(
+                    f"Detector weights missing: {player_detector.WEIGHTS_PATH}"
+                )
+        except FileNotFoundError:
+            raise
+        except Exception:
+            pass
 
     # Open the video to gather metadata and detect FPS if not provided
     detected_fps = None
@@ -261,16 +280,40 @@ def run_pipeline(
         sid = _sid(s)
         r = rows_by_sid.get(sid)
         if not r:
-            r = {"segment_id": sid, "players": [], "meta": {"note": "empty_tracking"}}
+            r = {"segment_id": sid, "players": [], "reason": "no_detections", "meta": {"note": "empty_tracking"}}
         else:
             r["segment_id"] = r.get("segment_id") or r.get("seg_id") or sid
             r.pop("seg_id", None)
+            if not r.get("players"):
+                r.setdefault("reason", "no_detections")
         safe_rows.append(r)
 
     with open(Path(out_dir) / "tracking.jsonl", "w") as f:
         for r in safe_rows:
             f.write(json.dumps(r) + "\n")
     print(f"[tracking] wrote {len(safe_rows)} rows -> {Path(out_dir)/'tracking.jsonl'}")
+    detected_count = sum(1 for r in safe_rows if r.get("players"))
+    if len(safe_rows) and detected_count == 0:
+        print(
+            f"[feat] WARNING: 0/{len(safe_rows)} segments had detections. Check thresholds/weights/preprocessing."
+        )
+    if debug_detections and video_exists:
+        dbg_dir = Path(out_dir) / "debug" / "detector"
+        dbg_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            import cv2  # type: ignore
+
+            cap_dbg = cv2.VideoCapture(video)
+            saved = 0
+            while saved < min(max_debug_frames, len(safe_rows)):
+                ok, fr = cap_dbg.read()
+                if not ok:
+                    break
+                cv2.imwrite(str(dbg_dir / f"frame_{saved:04d}.jpg"), fr)
+                saved += 1
+            cap_dbg.release()
+        except Exception:
+            pass
 
     identity_map: Dict[str, str] = {}
 
@@ -456,6 +499,11 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--ocr", default="tesseract")
     parser.add_argument("--min-grade-good", type=float, default=2.5)
     parser.add_argument("--max-grade-needs", type=float, default=1.5)
+    parser.add_argument("--conf-thresh", type=float, default=0.25)
+    parser.add_argument("--nms-thresh", type=float, default=0.50)
+    parser.add_argument("--debug-detections", action="store_true")
+    parser.add_argument("--max-debug-frames", type=int, default=8)
+    parser.add_argument("--force-cpu", action="store_true")
     parser.add_argument("--generate-report", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--generate-clips", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--generate-highlights", action=argparse.BooleanOptionalAction, default=True)
@@ -555,6 +603,11 @@ def main(argv: List[str] | None = None) -> None:
         clip_highlights=args.clip_highlights,
         detect_model=args.detect_model,
         args=args,
+        conf_thresh=args.conf_thresh,
+        nms_thresh=args.nms_thresh,
+        debug_detections=args.debug_detections,
+        max_debug_frames=args.max_debug_frames,
+        force_cpu=args.force_cpu,
     )
 
     # ---- Strict checks & overlays & summary ----
