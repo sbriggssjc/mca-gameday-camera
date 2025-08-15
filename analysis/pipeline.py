@@ -12,7 +12,7 @@ import shutil
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 try:
@@ -74,6 +74,30 @@ except Exception:
         }
     }
 
+# ----- run configuration container -----
+@dataclass
+class RunConfig:
+    video: str
+    team: str
+    out_dir: str
+    playbook_path: Optional[str] = None
+    opponent: Optional[str] = None
+    fps: Optional[int] = None
+
+    # thresholds
+    min_play_gap: float = DEFAULT_MIN_PLAY_GAP
+    min_play_length: float = DEFAULT_MIN_PLAY_LEN
+
+    # outputs/toggles
+    generate_report: bool = True
+    generate_clips: bool = True
+    generate_highlights: bool = True
+    make_overlay: bool = False
+
+    # misc/profile/debug
+    profile: str = "game"
+    debug_vid: bool = False
+
 # ---- canonical output helpers (self-contained; no other modules needed) ----
 def _video_fingerprint(video_path: str) -> str:
     p = Path(video_path)
@@ -102,15 +126,6 @@ def _write_metadata(outdir: Path, meta: dict):
         (outdir / "metadata.json").write_text(json.dumps(meta, indent=2))
     except Exception:
         pass
-
-
-@dataclass
-class RunConfig:
-    min_play_length: float
-    min_play_gap: float
-    strict: bool
-    make_overlay: bool
-    debug_summary: bool
 
 
 # ---------------------------------------------------------------------------
@@ -791,18 +806,42 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--preclean", action="store_true", help="Run output cleanup before analysis")
     args = parser.parse_args(argv)
 
-
-    # Resolve profile defaults, then apply CLI overrides
+    # ----- resolve profile defaults and CLI overrides -----
     prof = PROFILE_DEFAULTS.get(args.profile, PROFILE_DEFAULTS["game"])
 
-    min_play_gap = args.min_play_gap if getattr(args, "min_play_gap", None) else prof["min_play_gap"]
-    min_play_length = args.min_play_length if getattr(args, "min_play_length", None) else prof["min_play_length"]
+    min_play_gap = args.min_play_gap if args.min_play_gap is not None else prof["min_play_gap"]
+    min_play_length = (
+        args.min_play_length if args.min_play_length is not None else prof["min_play_length"]
+    )
 
-    generate_report = getattr(args, "generate_report", prof["generate_report"])
-    generate_clips = getattr(args, "generate_clips", prof["generate_clips"])
-    generate_highlights = getattr(args, "generate_highlights", prof["generate_highlights"])
-    make_overlay = getattr(args, "make_overlay", prof["make_overlay"])
+    generate_report = prof["generate_report"] if args.generate_report is None else args.generate_report
+    generate_clips = prof["generate_clips"] if args.generate_clips is None else args.generate_clips
+    generate_highlights = (
+        prof["generate_highlights"]
+        if args.generate_highlights is None
+        else args.generate_highlights
+    )
+    make_overlay = prof["make_overlay"] if args.make_overlay is None else args.make_overlay
 
+    # ----- build RunConfig for downstream calls -----
+    run_cfg = RunConfig(
+        video=args.video,
+        team=args.team,
+        out_dir=args.out,
+        playbook_path=args.playbook,
+        opponent=getattr(args, "opponent", None),
+        fps=args.fps,
+        min_play_gap=min_play_gap,
+        min_play_length=min_play_length,
+        generate_report=generate_report,
+        generate_clips=generate_clips,
+        generate_highlights=generate_highlights,
+        make_overlay=make_overlay,
+        profile=args.profile,
+        debug_vid=getattr(args, "debug_vid", False),
+    )
+
+    # If downstream functions expect to read from args, mirror back the resolved values:
     args.min_play_gap = min_play_gap
     args.min_play_length = min_play_length
     args.generate_report = generate_report
@@ -853,31 +892,24 @@ def main(argv: List[str] | None = None) -> None:
     out_dir = Path(args.out)
     (out_dir / "run_id.txt").write_text(datetime.utcnow().isoformat())
 
-    # --- Build RunConfig with layered precedence ---
-    run_cfg = RunConfig(
-        min_play_length=float(args.min_play_length),
-        min_play_gap=float(args.min_play_gap),
-        strict=bool(args.strict),
-        make_overlay=bool(args.make_overlay),
-        debug_summary=bool(getattr(args, "debug_summary", False)),
-    )
+    run_cfg.out_dir = args.out
 
     print(
         f"[config] profile={profile_key} min_play_length={run_cfg.min_play_length:.2f}s "
-        f"min_play_gap={run_cfg.min_play_gap:.2f}s strict={run_cfg.strict} "
-        f"overlay={run_cfg.make_overlay} summary={run_cfg.debug_summary}"
+        f"min_play_gap={run_cfg.min_play_gap:.2f}s strict={bool(args.strict)} "
+        f"overlay={run_cfg.make_overlay} summary={bool(getattr(args, 'debug_summary', False))}"
     )
 
     run_pipeline(
-        video=args.video,
-        team=args.team,
-        opponent=args.opponent,
-        playbook_path=args.playbook,
+        video=run_cfg.video,
+        team=run_cfg.team,
+        opponent=run_cfg.opponent,
+        playbook_path=run_cfg.playbook_path,
         out_dir=str(out_dir),
-        fps=args.fps,
-        generate_report=args.generate_report,
-        generate_clips=args.generate_clips,
-        generate_highlights=args.generate_highlights,
+        fps=run_cfg.fps,
+        generate_report=run_cfg.generate_report,
+        generate_clips=run_cfg.generate_clips,
+        generate_highlights=run_cfg.generate_highlights,
         min_play_gap=run_cfg.min_play_gap,
         min_play_length=run_cfg.min_play_length,
         clip_pre=args.clip_pre,
@@ -939,7 +971,7 @@ def main(argv: List[str] | None = None) -> None:
             video_len_s = 0.0
 
     # STRICT: basic sanity checks
-    if run_cfg.strict:
+    if args.strict:
         # if the clip is long but we got almost no segments, something is wrong with the segmenter thresholds
         if video_len_s >= 45.0 and len(plays) < 3:
             raise SystemExit(
@@ -967,7 +999,7 @@ def main(argv: List[str] | None = None) -> None:
                 print(f"[WARN] Overlay rendering failed: {e}")
 
     # Debug summary
-    if run_cfg.debug_summary:
+    if getattr(args, "debug_summary", False):
         if print_debug_summary is None:
             print(
                 "[WARN] --debug-summary requested but reporting.debug_summary not importable; skipping summary."
@@ -980,7 +1012,7 @@ def main(argv: List[str] | None = None) -> None:
                     plays,
                     predictions,
                     grades,
-                    profile=args.profile,
+                    profile=run_cfg.profile,
                     min_len=run_cfg.min_play_length,
                     min_gap=run_cfg.min_play_gap,
                 )
