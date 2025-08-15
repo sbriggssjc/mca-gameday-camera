@@ -1,160 +1,90 @@
 from __future__ import annotations
-
-import logging
-from dataclasses import dataclass
-from typing import Any, List, Sequence
-
-import numpy as np
-
-
-@dataclass
-class Segment:
-    """Represents a play segment in the source video."""
-
-    start_ts: float
-    end_ts: float
-
-    @property
-    def duration(self) -> float:
-        return self.end_ts - self.start_ts
-
+from typing import List, Dict
+import cv2, numpy as np
 
 def segment_video(
-    frames: Sequence[Any],
-    fps: float,
-    min_play_gap: float = 7.0,
-    min_play_length: float = 4.0,
-    logger: logging.Logger | None = None,
-) -> List[Segment]:
-    """Segment ``frames`` into plays.
-
-    Runs the primary segmentation logic first and, if that yields too few
-    segments, falls back to a simple windowizer that slices the entire video
-    into fixed-length windows.  This keeps the downstream pipeline moving even
-    when the sophisticated logic fails to find enough plays.
+    path: str,
+    min_play_gap: float = 1.5,
+    min_play_length: float = 6.0,
+    warmup: float = 0.5,
+    tail_margin: float = 1.5,
+    downscale: int = 2,
+    motion_thresh: float = 8.0,   # tune if needed (higher = fewer, tighter segments)
+) -> List[Dict]:
     """
-
-    segments = _primary_segmentation(frames, fps, min_play_gap, min_play_length, logger)
-
-    MIN_PLAYS = 5
-    if len(segments) < MIN_PLAYS:
-        if logger:
-            logger.warning(
-                f"Segmentation fallback: only {len(segments)} plays found; windowizing video"
-            )
-        segments = windowize_segments(
-            total_frames=len(frames),
-            fps=fps,
-            window_sec=12.0,
-            gap_sec=2.0,
-        )
-
-    return segments
-
-
-def _primary_segmentation(
-    frames: Sequence[Any],
-    fps: float,
-    min_play_gap: float,
-    min_play_length: float,
-    logger: logging.Logger | None = None,
-) -> List[Segment]:
-    """Improved segmentation using adaptive motion thresholds.
-
-    A basic motion energy approach is used to detect periods of activity.
-    The temporal median of frame-to-frame absolute differences determines an
-    adaptive threshold.  Detected segments are separated by a short "dead"
-    time to avoid rapid re-triggering and sub-4s micro segments are merged
-    into their neighbours.
+    Returns: [{"id": "PLAY_001", "t0": start_sec, "t1": end_sec}, ...]
+    Uses simple frame-diff motion; tolerant if tracking is sparse.
     """
+    cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        raise FileNotFoundError(f"Cannot open video: {path}")
 
-    segments: List[Segment] = []
-    total_frames = len(frames)
-    if total_frames <= 1:
-        return segments
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
 
-    # ------------------------------------------------------------------
-    # Motion energy & adaptive thresholding
-    # ------------------------------------------------------------------
-    energies: List[float] = []
-    for i in range(1, total_frames):
-        prev, cur = frames[i - 1], frames[i]
-        if prev is None or cur is None:
-            energies.append(0.0)
-            continue
-        diff = np.abs(cur.astype("float32") - prev.astype("float32"))
-        energies.append(float(diff.mean()))
+    def read_gray():
+        ok, frame = cap.read()
+        if not ok:
+            return None
+        if downscale > 1 and W > 0 and H > 0:
+            frame = cv2.resize(frame, (max(1, W // downscale), max(1, H // downscale)))
+        g = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        g = cv2.GaussianBlur(g, (5,5), 0)
+        return g
 
-    if not energies:
-        return segments
+    prev = read_gray()
+    if prev is None:
+        cap.release()
+        return []
 
-    median_energy = float(np.median(energies))
-    threshold = max(median_energy * 2.0, 1e-6)
+    motion = []
+    while True:
+        g = read_gray()
+        if g is None:
+            break
+        e = float(np.mean(cv2.absdiff(g, prev)))
+        motion.append(e)
+        prev = g
+    cap.release()
+    if not motion:
+        return []
 
-    # ------------------------------------------------------------------
-    # Scan for segments with dead-time protection
-    # ------------------------------------------------------------------
-    dead_frames = int(2.0 * fps)
-    start_idx: int | None = None
-    last_end = -dead_frames
+    # Smooth motion energy (~0.25s window)
+    k = max(3, int(0.25 * fps))
+    kernel = np.ones(k, dtype=np.float32) / k
+    sm = np.convolve(np.array(motion, dtype=np.float32), kernel, mode="same")
 
-    def _commit(start: int, end: int) -> None:
-        seg = Segment(start / fps, end / fps)
-        if seg.duration >= min_play_length:
-            segments.append(seg)
-        elif segments and seg.duration > 0:
-            # merge micro segments into previous if close enough
-            prev = segments[-1]
-            if seg.start_ts - prev.end_ts <= min_play_gap:
-                prev.end_ts = seg.end_ts
+    active = sm > motion_thresh
+    segs: List[Dict] = []
+    i = 0
+    t = lambda fi: max(0.0, fi / fps)
+    play_idx = 1
+
+    while i < len(active):
+        if active[i]:
+            j = i
+            while j < len(active) and active[j]:
+                j += 1
+            t0 = max(0.0, t(i) - warmup)
+            t1 = t(j) + tail_margin
+
+            if segs and (t0 - segs[-1]["t1"]) < min_play_gap:
+                segs[-1]["t1"] = t1
             else:
-                segments.append(seg)
-
-    for idx, energy in enumerate(energies):
-        active = energy > threshold
-        if start_idx is None:
-            if active and idx - last_end > dead_frames:
-                start_idx = idx
+                segs.append({"id": f"PLAY_{play_idx:03d}", "t0": t0, "t1": t1})
+                play_idx += 1
+            i = j
         else:
-            if not active:
-                _commit(start_idx, idx)
-                last_end = idx
-                start_idx = None
+            i += 1
 
-    if start_idx is not None:
-        _commit(start_idx, total_frames - 1)
+    # enforce minimum duration
+    segs = [s for s in segs if (s["t1"] - s["t0"]) >= min_play_length]
 
-    if logger:
-        for i, seg in enumerate(segments, 1):
-            logger.info(
-                "Segment %d: start=%.2f end=%.2f duration=%.2f",
-                i,
-                seg.start_ts,
-                seg.end_ts,
-                seg.duration,
-            )
+    if total:
+        dur = total / fps
+        for s in segs:
+            s["t1"] = min(s["t1"], dur)
 
-    return segments
-
-
-def windowize_segments(
-    total_frames: int,
-    fps: float,
-    window_sec: float = 12.0,
-    gap_sec: float = 2.0,
-) -> List[Segment]:
-    """Generate fixed-length segments across the video as a simple fallback."""
-
-    segments: List[Segment] = []
-    win = int(window_sec * fps)
-    gap = int(gap_sec * fps)
-    min_len = int(3.0 * fps)
-
-    start = 0
-    while start + min_len < total_frames:
-        end = min(start + win, total_frames - 1)
-        seg = Segment(start / fps, end / fps)
-        segments.append(seg)
-        start = end + gap
-
-    return segments
+    return segs

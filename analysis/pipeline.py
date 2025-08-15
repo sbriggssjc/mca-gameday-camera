@@ -1,5 +1,6 @@
 """End-to-end orchestration for automated film analysis."""
 from __future__ import annotations
+from analysis.segmentation import segment_video
 # ----- injected RunConfig (do not remove) -----
 from typing import Optional, Any, Dict
 
