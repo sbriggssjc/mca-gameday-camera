@@ -13,9 +13,9 @@ class RunConfig:
     opponent: Optional[str] = None
     fps: Optional[int] = None
 
-    # thresholds
-    min_play_gap: float = DEFAULT_MIN_PLAY_GAP
-    min_play_length: float = DEFAULT_MIN_PLAY_LEN
+    # thresholds (literal defaults; CLI/profile will override)
+    min_play_gap: float = 1.5
+    min_play_length: float = 6.0
 
     # outputs/toggles
     generate_report: bool = True
@@ -26,6 +26,7 @@ class RunConfig:
     # misc/profile/debug
     profile: str = "game"
     debug_vid: bool = False
+
 # ----- end injected RunConfig -----
 
 # === injected shared config (do not remove) ===
