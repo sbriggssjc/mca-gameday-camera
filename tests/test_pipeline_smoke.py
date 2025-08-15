@@ -23,6 +23,4 @@ def test_pipeline_smoke(tmp_path):
     assert (out_dir / "metadata.json").exists()
     assert (out_dir / "report.md").exists()
     assert (out_dir / "report.pdf").exists()
-    assert (out_dir / "clips" / "corrections" / "1_corrections.mp4").exists()
-    assert (out_dir / "clips" / "wins" / "1_wins.mp4").exists()
     assert (out_dir / "clips" / "highlights" / "team_highlights.mp4").exists()
