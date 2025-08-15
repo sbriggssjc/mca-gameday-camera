@@ -701,7 +701,20 @@ def main(argv: List[str] | None = None) -> None:
         action="store_true",
         help="Print counts of plays, formations, matches, and average grades at the end",
     )
+    parser.add_argument("--preclean", action="store_true", help="Run output cleanup before analysis")
     args = parser.parse_args(argv)
+    if args.preclean:
+        import subprocess, sys
+        cleanup_cmd = [
+            sys.executable, "tools/cleanup_outputs.py",
+            "--out", args.out,
+            "--archive", "--prune",
+        ]
+        try:
+            print("[PRECLEAN] Running:", " ".join(cleanup_cmd))
+            subprocess.run(cleanup_cmd, check=False)
+        except Exception as e:
+            print("[PRECLEAN] Warning:", e)
     out_dir = canonical_outdir(args.out, args.video)
     if args.single_run and args.overwrite:
         ensure_clean_dir(out_dir, overwrite=True)
