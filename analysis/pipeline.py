@@ -52,6 +52,7 @@ except Exception:  # pragma: no cover - optional dependency
     yaml = None  # type: ignore
 
 
+# --- shared defaults/profiles ---
 try:
     from analysis.config import (
         DEFAULT_MIN_PLAY_GAP,
@@ -59,6 +60,7 @@ try:
         PROFILE_DEFAULTS,
     )
 except Exception:
+    # Fallback if config import fails for any reason
     DEFAULT_MIN_PLAY_GAP = 1.5
     DEFAULT_MIN_PLAY_LEN = 6.0
     PROFILE_DEFAULTS = {
@@ -731,16 +733,30 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--debug-detections", action="store_true")
     parser.add_argument("--max-debug-frames", type=int, default=8)
     parser.add_argument("--force-cpu", action="store_true")
-    parser.add_argument("--generate-report", action=argparse.BooleanOptionalAction, default=None)
-    parser.add_argument("--generate-clips", action=argparse.BooleanOptionalAction, default=None)
-    parser.add_argument("--generate-highlights", action=argparse.BooleanOptionalAction, default=None)
-    parser.add_argument("--min-play-gap", type=float, default=0.0)
-    parser.add_argument("--min-play-length", type=float, default=0.0)
+
+    parser.add_argument("--min-play-gap", type=float, default=None, help="Seconds between plays to split.")
+    parser.add_argument("--min-play-length", type=float, default=None, help="Minimum seconds for a play window.")
+    parser.add_argument("--generate-report", dest="generate_report", action="store_true", help="Emit per-game and per-play reports.")
+    parser.add_argument("--no-generate-report", dest="generate_report", action="store_false")
+    parser.set_defaults(generate_report=None)
+
+    parser.add_argument("--generate-clips", dest="generate_clips", action="store_true", help="Export per-play video clips.")
+    parser.add_argument("--no-generate-clips", dest="generate_clips", action="store_false")
+    parser.set_defaults(generate_clips=None)
+
+    parser.add_argument("--generate-highlights", dest="generate_highlights", action="store_true", help="Export highlight reels.")
+    parser.add_argument("--no-generate-highlights", dest="generate_highlights", action="store_false")
+    parser.set_defaults(generate_highlights=None)
+
+    parser.add_argument("--make-overlay", dest="make_overlay", action="store_true", help="Render analysis overlay videos.")
+    parser.add_argument("--no-make-overlay", dest="make_overlay", action="store_false")
+    parser.set_defaults(make_overlay=None)
+
     parser.add_argument(
         "--profile",
-        choices=["game", "practice", "clinic"],
+        choices=list(PROFILE_DEFAULTS.keys()),
         default="game",
-        help="Preset tuning for segmentation thresholds (affects min-play-length/gap). Default: game",
+        help="Preset of default thresholds/outputs (overridden by explicit flags).",
     )
     parser.add_argument(
         "--max-per-seg",
@@ -760,8 +776,6 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--clip-corrections", action="store_true")
     parser.add_argument("--clip-wins", action="store_true")
     parser.add_argument("--clip-highlights", action="store_true")
-    parser.add_argument("--make-overlay", action=argparse.BooleanOptionalAction, default=None,
-        help="Generate debug overlay videos per play (and optionally a stitched full overlay)")
     parser.add_argument(
         "--strict",
         action="store_true",
@@ -778,22 +792,25 @@ def main(argv: List[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
 
-    profile_key = getattr(args, "profile", "game") or "game"
-    prof = PROFILE_DEFAULTS.get(profile_key, PROFILE_DEFAULTS["game"])
+    # Resolve profile defaults, then apply CLI overrides
+    prof = PROFILE_DEFAULTS.get(args.profile, PROFILE_DEFAULTS["game"])
 
-    if not getattr(args, "min_play_gap", None):
-        args.min_play_gap = prof["min_play_gap"]
-    if not getattr(args, "min_play_length", None):
-        args.min_play_length = prof["min_play_length"]
+    min_play_gap = args.min_play_gap if getattr(args, "min_play_gap", None) else prof["min_play_gap"]
+    min_play_length = args.min_play_length if getattr(args, "min_play_length", None) else prof["min_play_length"]
 
-    if hasattr(args, "generate_report") and args.generate_report is None:
-        args.generate_report = prof.get("generate_report", True)
-    if hasattr(args, "generate_clips") and args.generate_clips is None:
-        args.generate_clips = prof.get("generate_clips", True)
-    if hasattr(args, "generate_highlights") and args.generate_highlights is None:
-        args.generate_highlights = prof.get("generate_highlights", True)
-    if hasattr(args, "make_overlay") and args.make_overlay is None:
-        args.make_overlay = prof.get("make_overlay", False)
+    generate_report = getattr(args, "generate_report", prof["generate_report"])
+    generate_clips = getattr(args, "generate_clips", prof["generate_clips"])
+    generate_highlights = getattr(args, "generate_highlights", prof["generate_highlights"])
+    make_overlay = getattr(args, "make_overlay", prof["make_overlay"])
+
+    args.min_play_gap = min_play_gap
+    args.min_play_length = min_play_length
+    args.generate_report = generate_report
+    args.generate_clips = generate_clips
+    args.generate_highlights = generate_highlights
+    args.make_overlay = make_overlay
+
+    profile_key = args.profile
 
     # ----- optional pre-clean of output root -----
     if getattr(args, "preclean", False):
