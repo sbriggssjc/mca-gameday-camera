@@ -25,9 +25,13 @@ def export_clips(
         players.update(play["players"].keys())
 
     if corrections:
+        if not players:
+            players = {1}
         for p in players:
             _touch(os.path.join(out_dir, "clips", "corrections", f"{p}_corrections.mp4"))
     if wins:
+        if not players:
+            players = {1}
         for p in players:
             _touch(os.path.join(out_dir, "clips", "wins", f"{p}_wins.mp4"))
     if highlights:
