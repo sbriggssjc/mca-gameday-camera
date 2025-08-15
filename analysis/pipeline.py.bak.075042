@@ -9,6 +9,86 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 
+try:
+    from overlays.debug_overlay import render_overlays_for_out_dir
+except Exception as _e:  # pragma: no cover - optional dependency
+    render_overlays_for_out_dir = None
+plays_path = out_dir / "plays.jsonl"
+    # === Run detector over segmented windows to produce per-frame tracking ===
+    try:
+        print(f"[detect] running tools/detect_to_tracking.py -> {tracking_path}")
+        det_args = [
+            sys.executable, "tools/detect_to_tracking.py",
+            "--video", args.video,
+            "--plays", str(plays_path),
+            "--out", str(tracking_path),
+            "--model", (args.detect_model if hasattr(args, "detect_model") and args.detect_model else "player_detector"),
+            "--stride", "1",
+        ]
+        subprocess.run(det_args, check=False)
+    except Exception as e:
+        print(f"[detect] skipped due to error: {e}")
+
+tracking_path = out_dir / "tracking.jsonl"
+features_path = out_dir / "features.jsonl"
+    # === Build features from tracking + plays ===
+    print(f"[feat] running tools/build_features.py -> {features_path}")
+    rc = subprocess.run([
+        sys.executable, "tools/build_features.py",
+        "--tracking", str(tracking_path),
+        "--segments", str(plays_path),
+        "--out", str(features_path),
+    ], check=False)
+    if rc.returncode != 0:
+        print("[feat] build_features.py failed; writing empty file")
+        features_path.write_text("")
+
+
+try:
+    from reporting.debug_summary import print_debug_summary
+except Exception as _e:  # pragma: no cover - optional dependency
+    print_debug_summary = None
+
+from . import (
+    detect_track,
+    assignments,
+    player_identity,
+    grading,
+    clipping,
+    formation_classifier,
+    report_builder,
+    play_matcher,
+    classifier,
+    grader,
+    playbook_map,
+    features,
+)
+from .segmentation import Segment
+from segment.play_segmenter import segment_video
+
+
+DEFAULT_MIN_PLAY_LEN = 6.0
+DEFAULT_MIN_PLAY_GAP = 1.5
+
+PROFILE_DEFAULTS = {
+    "game": {"min_play_length": 6.0, "min_play_gap": 1.5},
+    "practice": {"min_play_length": 5.0, "min_play_gap": 1.0},
+    "clinic": {"min_play_length": 4.0, "min_play_gap": 0.8},
+}
+
+
+@dataclass
+class RunConfig:
+    min_play_length: float
+    min_play_gap: float
+    strict: bool
+    make_overlay: bool
+    debug_summary: bool
+
+
+# ---------------------------------------------------------------------------
+# Pipeline helpers
+# ---------------------------------------------------------------------------
 
 
 def _write_jsonl(rows: List[Dict[str, Any]], path: str) -> None:
