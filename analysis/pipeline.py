@@ -40,10 +40,7 @@ from . import (
     features,
     predict,
 )
-from .segmentation import Segment
-from .video_reader import VideoReader
-from .snap_whistle_seg import SegParams, SnapWhistleFinder, PlayWindow
-from segment.play_segmenter import segment_video
+from analysis.segmentation import Segment, segment_video
 from .io_utils import write_metadata
 
 # playbook integration and grading helpers
@@ -133,6 +130,15 @@ def _write_metadata(outdir: Path, meta: dict):
         (outdir / "metadata.json").write_text(json.dumps(meta, indent=2))
     except Exception:
         pass
+
+
+def _game_dir(out_dir: str, video_path: str) -> Path:
+    p = Path(video_path)
+    stem = p.stem  # e.g., IMG_4129
+    h = hashlib.sha1(str(p.resolve()).encode("utf8")).hexdigest()[:12]
+    g = Path(out_dir) / "games" / f"{stem}__{h}"
+    g.mkdir(parents=True, exist_ok=True)
+    return g
 
 
 # ---------------------------------------------------------------------------
@@ -239,8 +245,14 @@ def run_pipeline(
 ) -> None:
     """Execute the toy analysis pipeline."""
 
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = Path(out_dir)
+    game_dir = _game_dir(out_dir, video)
+    plays_dir = game_dir / "plays"
+    summ_dir = game_dir / "summaries"
+    plays_dir.mkdir(parents=True, exist_ok=True)
+    summ_dir.mkdir(parents=True, exist_ok=True)
+
+    out_dir = str(game_dir)
+    out_path = game_dir
     tracking_path = out_path / "tracking.jsonl"
     plays_path = out_path / "plays.jsonl"
     features_path = out_path / "features.jsonl"
@@ -331,7 +343,7 @@ def run_pipeline(
             "grade": grade,
         },
     }
-    meta_path = Path(out_dir) / "metadata.json"
+    meta_path = out_path / "metadata.json"
     meta_path.write_text(json.dumps(meta, indent=2))
 
     # Load playbook index and grading weights once
@@ -341,68 +353,44 @@ def run_pipeline(
     plays_index_rows: List[Dict[str, Any]] = []
     player_grade_rows: List[Dict[str, Any]] = []
 
-    plays_windows: List[PlayWindow] = []
-    if video_exists:
-        try:
-            vr = VideoReader(video)
-            params = SegParams(
-                fps_video=vr.fps,
-                fps_audio=None,
-                pre_s=clip_pre,
-                post_s=clip_post,
-                max_play_s=12.0,
-                min_idle_s=min_play_gap or 1.5,
-            )
-            finder = SnapWhistleFinder(params)
-            plays_windows = finder.find_plays(vr, None)
-            if not plays_windows:
-                params.audio_thr_mult *= 0.75
-                params.motion_thr_mult *= 0.75
-                params.min_idle_s = 1.0
-                finder = SnapWhistleFinder(params)
-                plays_windows = finder.find_plays(vr, None)
-            vr.release()
-        except Exception as exc:  # pragma: no cover - best effort
-            err_path = Path(out_dir) / "errors.log"
-            with open(err_path, "a", encoding="utf8") as ef:
-                ef.write(f"segmentation failed: {exc}\n")
-            end_f = frame_count - 1 if frame_count > 0 else 0
-            plays_windows = [PlayWindow(1, 0, 0, end_f, end_f)]
-    else:
-        end_f = frame_count - 1 if frame_count > 0 else 0
-        plays_windows = [PlayWindow(1, 0, 0, end_f, end_f)]
+    plays: List[Dict[str, Any]] = []
+    try:
+        segs = segment_video(
+            video,
+            min_play_gap=min_play_gap,
+            min_play_length=min_play_length,
+        )
+        print(f"[pipeline] Segments in memory: {len(segs)}")
+    except Exception as exc:  # pragma: no cover - best effort
+        err_path = out_path / "errors.log"
+        with open(err_path, "a", encoding="utf8") as ef:
+            ef.write(f"segmentation failed: {exc}\n")
+        segs = []
 
-    plays_dicts: List[Dict[str, Any]] = []
-    plays_dir = Path(out_dir) / "plays"
-    for pw in plays_windows:
+    for i, s in enumerate(segs, 1):
+        seg_id = s.get("id") or f"PLAY_{i:03d}"
+        t0 = float(s.get("t0", 0.0))
+        t1 = float(s.get("t1", 0.0))
         d = {
-            "play_id": pw.idx,
-            "segment_id": f"seg_{pw.idx:04d}",
-            "start_f": pw.start_f,
-            "snap_f": pw.snap_f,
-            "whistle_f": pw.whistle_f,
-            "end_f": pw.end_f,
-            "start_s": pw.start_f / fps if fps else 0.0,
-            "snap_s": pw.snap_f / fps if fps else 0.0,
-            "whistle_s": pw.whistle_f / fps if fps else 0.0,
-            "end_s": pw.end_f / fps if fps else 0.0,
+            "play_id": i,
+            "segment_id": seg_id,
+            "start_s": t0,
+            "end_s": t1,
         }
-        plays_dicts.append(d)
+        plays.append(d)
 
-        play_dir = plays_dir / f"PLAY_{pw.idx:03d}"
+        play_dir = plays_dir / seg_id
         play_dir.mkdir(parents=True, exist_ok=True)
         clip_path = play_dir / "clip.mp4"
-        start_s = d["start_s"]
-        end_s = d["end_s"]
         try:  # pragma: no cover - best effort
             subprocess.run(
                 [
                     "ffmpeg",
                     "-y",
                     "-ss",
-                    f"{start_s:.3f}",
+                    f"{t0:.3f}",
                     "-to",
-                    f"{end_s:.3f}",
+                    f"{t1:.3f}",
                     "-i",
                     video,
                     "-c",
@@ -418,31 +406,10 @@ def run_pipeline(
                 _f.write(b"")
         (play_dir / "clip.json").write_text(json.dumps(d, indent=2))
 
-    print(f"[pipeline] Segments in memory: {len(plays_dicts)}")
-    _write_jsonl(plays_dicts, str(plays_path))
-    plays: List[Dict[str, Any]] = plays_dicts
-
-    write_metadata(Path(out_dir), meta)
-    try:
-        segs = segment_video(
-            video,
-            fps,
-            cfg={"min_play_length": min_play_length, "min_play_gap": min_play_gap},
-            ctx={"video_length_sec": duration_sec},
-            max_per_seg=max_per_seg,
-        )
-        print(f"[pipeline] Segments in memory: {len(segs)}")
-    except Exception:
-        segs = plays_dicts
-        print(f"[pipeline] Segments in memory: {len(segs)}")
-
-    # Normalize segments with stable IDs
-    plays = []
-    for i, s in enumerate(segs):
-        p = dict(s)
-        p.setdefault("segment_id", f"seg_{i:04d}")
-        plays.append(p)
+    print(f"[pipeline] Segments in memory: {len(plays)}")
     _write_jsonl(plays, str(plays_path))
+
+    write_metadata(out_path, meta)
 
     fallback = any(str(p.get("source", "")).startswith("fallback") for p in plays)
     msg_tail = f" max_per_seg={max_per_seg}" if max_per_seg else ""
@@ -496,7 +463,7 @@ def run_pipeline(
             f"[feat] WARNING: 0/{len(safe_rows)} segments had detections. Check thresholds/weights/preprocessing."
         )
     if debug_detections and video_exists:
-        dbg_dir = Path(out_dir) / "debug" / "detector"
+        dbg_dir = out_path / "debug" / "detector"
         dbg_dir.mkdir(parents=True, exist_ok=True)
         try:
             import cv2  # type: ignore
@@ -583,7 +550,7 @@ def run_pipeline(
     play_lookup = {p["segment_id"]: p for p in plays}
     for r in pred_rows:
         r["play_id"] = play_lookup.get(r["segment_id"], {}).get("play_id")
-    _write_jsonl(pred_rows, os.path.join(out_dir, "play_predictions.jsonl"))
+    _write_jsonl(pred_rows, str(out_path / "play_predictions.jsonl"))
 
     # Audit distribution and confidence
     from collections import Counter
@@ -653,7 +620,7 @@ def run_pipeline(
             "penalty": bool(per_play_feats.get("penalty", False)),
         }
 
-        play_dir = Path(out_dir) / "plays" / (
+        play_dir = plays_dir / (
             f"PLAY_{int(play_id):03d}" if play_id is not None else str(seg_id)
         )
         play_dir.mkdir(parents=True, exist_ok=True)
@@ -703,7 +670,7 @@ def run_pipeline(
                 }
             )
 
-    _write_jsonl(grade_rows, os.path.join(out_dir, "grades.jsonl"))
+    _write_jsonl(grade_rows, str(out_path / "grades.jsonl"))
 
     # Integrity checks
     grade_by_segment = {g["segment_id"]: g for g in grade_rows}
@@ -720,7 +687,7 @@ def run_pipeline(
             + (f" ... (+{len(missing_grade)-5} more)" if len(missing_grade) > 5 else "")
         )
 
-    summary_dir = Path(out_dir) / "summaries"
+    summary_dir = summ_dir
     summary_dir.mkdir(parents=True, exist_ok=True)
     if plays_index_rows:
         with open(summary_dir / "plays_index.csv", "w", newline="", encoding="utf8") as f:
@@ -753,12 +720,12 @@ def run_pipeline(
 
     if generate_report:
         report_builder.build(
-            out_dir=Path(out_dir),
+            out_dir=out_path,
             metadata_path=meta_path,
             segments=segments,
             formations=formations,
             play_matches=play_matches,
-            grades_path=Path(out_dir) / "grades.jsonl",
+            grades_path=out_path / "grades.jsonl",
         )
 
     if args and getattr(args, "debug_vid", False):
@@ -770,12 +737,12 @@ def run_pipeline(
         ]
         debug_overlay.build_debug_video(
             video_path=Path(video),
-            out_dir=Path(out_dir),
+            out_dir=out_path,
             segments=seg_dicts,
             fps=fps,
             formations=formations,
             play_matches=play_matches,
-            grades_path=Path(out_dir) / "grades.jsonl",
+            grades_path=out_path / "grades.jsonl",
         )
 
     if generate_report and not (clip_corrections or clip_wins or clip_highlights):
@@ -798,7 +765,7 @@ def run_pipeline(
         from .highlights import build_highlight
 
         try:
-            build_highlight(Path(out_dir) / "clips", Path(out_dir) / "highlights")
+            build_highlight(out_path / "clips", out_path / "highlights")
         except Exception as exc:  # pragma: no cover - best effort only
             if logger:
                 logger.warning("Highlight build failed: %s", exc)
@@ -807,7 +774,7 @@ def run_pipeline(
         from .report_emergency import build_emergency_report
 
         try:
-            build_emergency_report(Path(out_dir))
+            build_emergency_report(out_path)
         except Exception as exc:  # pragma: no cover - best effort only
             if logger:
                 logger.warning("Emergency report build failed: %s", exc)
@@ -1061,11 +1028,12 @@ def main(argv: List[str] | None = None) -> None:
       )
 
     # ---- Strict checks & overlays & summary ----
-    plays_fp = out_dir / "plays.jsonl"
-    predictions_fp = out_dir / "play_predictions.jsonl"
-    grades_fp = out_dir / "grades.jsonl"
-    tracking_fp = out_dir / "tracking.jsonl"
-    metadata_fp = out_dir / "metadata.json"
+    game_dir = _game_dir(str(out_dir), run_cfg.video)
+    plays_fp = game_dir / "plays.jsonl"
+    predictions_fp = game_dir / "play_predictions.jsonl"
+    grades_fp = game_dir / "grades.jsonl"
+    tracking_fp = game_dir / "tracking.jsonl"
+    metadata_fp = game_dir / "metadata.json"
 
     def _safe_load_jsonl(fp: Path) -> List[Dict[str, Any]]:
         if not fp.exists():
@@ -1120,7 +1088,7 @@ def main(argv: List[str] | None = None) -> None:
             )
         else:
             try:
-                render_overlays_for_out_dir(out_dir)
+                render_overlays_for_out_dir(game_dir)
             except Exception as e:  # pragma: no cover - best effort
                 print(f"[WARN] Overlay rendering failed: {e}")
 
@@ -1134,7 +1102,7 @@ def main(argv: List[str] | None = None) -> None:
         else:
             try:
                 print_debug_summary(
-                    out_dir,
+                    game_dir,
                     plays,
                     predictions,
                     grades,
@@ -1144,9 +1112,6 @@ def main(argv: List[str] | None = None) -> None:
                 )
             except Exception as e:  # pragma: no cover - best effort
                 print(f"[WARN] Debug summary failed: {e}")
-    print(f"[ok] tracking -> {tracking_path}  exists={tracking_path.exists()}")
-    print(f"[ok] features -> {features_path}  exists={features_path.exists()}")
-    print(f"[ok] feature rows: {len(feats)}")
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry
