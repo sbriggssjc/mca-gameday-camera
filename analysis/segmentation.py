@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import List, Dict, Any
-import cv2, numpy as np
+import cv2
+import numpy as np
 
 def segment_video(
     path: str,
@@ -30,9 +31,13 @@ def segment_video(
         if not ok:
             return None
         if downscale > 1 and W > 0 and H > 0:
-            frame = cv2.resize(frame, (max(1, W // downscale), max(1, H // downscale)))
+            frame = cv2.resize(
+                frame,
+                (max(1, W // downscale), max(1, H // downscale)),
+                interpolation=cv2.INTER_AREA,
+            )
         g = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        g = cv2.GaussianBlur(g, (5,5), 0)
+        g = cv2.GaussianBlur(g, (5, 5), 0)
         return g
 
     prev = read_gray()
@@ -40,14 +45,16 @@ def segment_video(
         cap.release()
         return []
 
-    motion = []
+    motion: List[float] = []
     while True:
         g = read_gray()
         if g is None:
             break
-        motion.append(float(np.mean(cv2.absdiff(g, prev))))
+        diff = cv2.absdiff(g, prev)
+        motion.append(float(np.mean(diff)))
         prev = g
     cap.release()
+
     if not motion:
         return []
 
@@ -80,7 +87,7 @@ def segment_video(
             i += 1
 
     # Enforce minimum duration and clamp to video duration
-    segs = [s for s in segs if (s["t1"] - s["t0"]) >= min_play_length]
+    segs = [s for s in segs if (s["t1"] - s["t0"]) >= float(min_play_length)]
     if total:
         dur = total / fps
         for s in segs:
