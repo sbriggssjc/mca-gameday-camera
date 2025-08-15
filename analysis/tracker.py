@@ -1,6 +1,13 @@
 # Placeholder tracker with motion-blob fallback
 from __future__ import annotations
 
+try:
+    import cv2  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    cv2 = None
+import numpy as np  # type: ignore
+from typing import List, Dict, Any
+
 import statistics
 from typing import List, Dict, Any
 
@@ -136,11 +143,14 @@ def _frames_to_tracking_row(seg_id: str, frames: list, used_fallback: bool) -> d
 
 def track(video_path: str, segments: List[Dict[str, Any]], team: str | None = None, team_color: str | None = None) -> List[Dict[str, Any]]:
     if cv2 is None:
+        return []
+
         rows: List[Dict[str, Any]] = []
         for seg in segments:
             seg_id = seg.get("segment_id") or seg.get("id")
             rows.append(_frames_to_tracking_row(seg_id, [], used_fallback=True))
         return rows
+
 
     vcap = cv2.VideoCapture(video_path)
     rows: List[Dict[str, Any]] = []
