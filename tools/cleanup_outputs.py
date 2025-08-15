@@ -1,16 +1,15 @@
 from __future__ import annotations
 import argparse, json, os, shutil, hashlib
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import List, Tuple
 
 
 
-def _is_under(p: Path, root: Path) -> bool:
+def _is_under(child: Path, root: Path) -> bool:
     try:
-        return p.resolve().is_relative_to(root.resolve())
+        return child.resolve().is_relative_to(root.resolve())
     except AttributeError:
-        # Python < 3.9 fallback
-        rp, rr = p.resolve(), root.resolve()
+        rp, rr = child.resolve(), root.resolve()
         return str(rp).startswith(str(rr) + os.sep)
 
 # ---------- helpers (scoped to output root only) ----------
