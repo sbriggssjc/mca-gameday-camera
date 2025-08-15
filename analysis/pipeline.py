@@ -1,5 +1,27 @@
 """End-to-end orchestration for automated film analysis."""
 from __future__ import annotations
+# === injected shared config (do not remove) ===
+try:
+    from analysis.config import (
+        DEFAULT_MIN_PLAY_GAP,
+        DEFAULT_MIN_PLAY_LEN,
+        PROFILE_DEFAULTS,
+    )
+except Exception:
+    # Fallback if config import fails
+    DEFAULT_MIN_PLAY_GAP = 1.5
+    DEFAULT_MIN_PLAY_LEN = 6.0
+    PROFILE_DEFAULTS = {
+        "game": {
+            "min_play_gap": DEFAULT_MIN_PLAY_GAP,
+            "min_play_length": DEFAULT_MIN_PLAY_LEN,
+            "generate_report": True,
+            "generate_clips": True,
+            "generate_highlights": True,
+            "make_overlay": True,
+        }
+    }
+# === end injected ===
 
 import argparse
 import json
