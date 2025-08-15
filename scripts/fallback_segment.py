@@ -53,15 +53,8 @@ def segments_from_scores(scores, times, threshold, min_seg, merge_gap=0.8):
             i = j
         else:
             i += 1
-    # merge close
-    merged = []
-    for s,e in segs:
-        if not merged: merged.append([s,e]); continue
-        ps,pe = merged[-1]
-        if s - pe < merge_gap:
-            merged[-1][1] = max(pe, e)
-        else:
-            merged.append([s,e])
+    # Snap→Whistle is the single segmentation pass; no merges or re-windowizing allowed.
+    merged = segs
     return merged
 
 def main():
