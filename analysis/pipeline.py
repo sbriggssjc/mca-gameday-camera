@@ -434,75 +434,80 @@ def main(argv: List[str] | None = None) -> None:
     env_len = os.getenv("MCA_MIN_PLAY_LEN")
     env_gap = os.getenv("MCA_MIN_PLAY_GAP")
 
-    min_play_length = (
+    # resolve thresholds (env > profile) if CLI not set
+    args.min_play_length = (
         args.min_play_length
         if getattr(args, "min_play_length", None) not in (None, 0)
-        else float(env_len)
-        if env_len
-        else float(prof["min_play_length"]) if prof else DEFAULT_MIN_PLAY_LEN
+        else float(env_len) if env_len else float(prof.get("min_play_length", DEFAULT_MIN_PLAY_LEN))
     )
-
-    min_play_gap = (
+    args.min_play_gap = (
         args.min_play_gap
         if getattr(args, "min_play_gap", None) not in (None, 0)
-        else float(env_gap)
-        if env_gap
-        else float(prof["min_play_gap"]) if prof else DEFAULT_MIN_PLAY_GAP
+        else float(env_gap) if env_gap else float(prof.get("min_play_gap", DEFAULT_MIN_PLAY_GAP))
     )
 
+    # resolve toggles from profile if user didn't set them
+    if getattr(args, "generate_report", None) is None:
+        args.generate_report = bool(prof.get("generate_report", True))
+    if getattr(args, "generate_clips", None) is None:
+        args.generate_clips = bool(prof.get("generate_clips", True))
+    if getattr(args, "generate_highlights", None) is None:
+        args.generate_highlights = bool(prof.get("generate_highlights", True))
+    if getattr(args, "make_overlay", None) is None:
+        args.make_overlay = bool(prof.get("make_overlay", False))
+
     run_cfg = RunConfig(
-    video=args.video,
-    team=args.team,
-    out_dir=args.out,
-    playbook_path=args.playbook,
-    opponent=getattr(args, "opponent", None),
-    fps=args.fps,
-    # thresholds resolved earlier or direct from args
-    min_play_gap=args.min_play_gap,
-    min_play_length=args.min_play_length,
-    # toggles (profile-defaulted earlier; args hold final values)
-    generate_report=args.generate_report,
-    generate_clips=args.generate_clips,
-    generate_highlights=getattr(args, "generate_highlights", True),
-    make_overlay=getattr(args, "make_overlay", False),
-    # misc
-    profile=getattr(args, "profile", "game"),
-    debug_vid=getattr(args, "debug_vid", False),
-    strict=getattr(args, "strict", False),
-),
-        make_overlay=bool(args.make_overlay),
+        video=args.video,
+        team=args.team,
+        out_dir=args.out,
+        playbook_path=args.playbook,
+        opponent=getattr(args, "opponent", None),
+        fps=args.fps,
+        # thresholds
+        min_play_gap=args.min_play_gap,
+        min_play_length=args.min_play_length,
+        # outputs
+        generate_report=args.generate_report,
+        generate_clips=args.generate_clips,
+        generate_highlights=args.generate_highlights,
+        make_overlay=args.make_overlay,
+        # misc
+        profile=getattr(args, "profile", "game"),
+        debug_vid=getattr(args, "debug_vid", False),
+        strict=getattr(args, "strict", False),
         debug_summary=bool(getattr(args, "debug_summary", False)),
     )
 
     print(
         f"[config] profile={args.profile} min_play_length={run_cfg.min_play_length:.2f}s "
         f"min_play_gap={run_cfg.min_play_gap:.2f}s strict={run_cfg.strict} "
-        f"overlay={run_cfg.make_overlay} summary={run_cfg.debug_summary}"
+        f"overlay={run_cfg.make_overlay}"
     )
 
     run_pipeline(
-        video=args.video,
-        team=args.team,
-        opponent=args.opponent,
-        playbook_path=args.playbook,
-        out_dir=args.out,
-        fps=args.fps,
-        generate_report=args.generate_report,
-        generate_clips=args.generate_clips,
-        generate_highlights=args.generate_highlights,
+        video=run_cfg.video,
+        team=run_cfg.team,
+        opponent=run_cfg.opponent,
+        playbook_path=run_cfg.playbook_path,
+        out_dir=run_cfg.out_dir,
+        fps=run_cfg.fps,
+        generate_report=run_cfg.generate_report,
+        generate_clips=run_cfg.generate_clips,
+        generate_highlights=run_cfg.generate_highlights,
         min_play_gap=run_cfg.min_play_gap,
         min_play_length=run_cfg.min_play_length,
-        player_ids=args.player_ids,
-        id_overrides=args.id_overrides,
-        team_color=args.team_color,
-        grading_weights=args.grading_weights,
-        clip_corrections=args.clip_corrections,
-        clip_wins=args.clip_wins,
-        clip_highlights=args.clip_highlights,
+        player_ids=getattr(args, "player_ids", None),
+        id_overrides=getattr(args, "id_overrides", None),
+        team_color=getattr(args, "team_color", None),
+        grading_weights=getattr(args, "grading_weights", None),
+        clip_corrections=getattr(args, "clip_corrections", False),
+        clip_wins=getattr(args, "clip_wins", False),
+        clip_highlights=getattr(args, "clip_highlights", False),
+        make_overlay=run_cfg.make_overlay,
+        strict=run_cfg.strict,
         args=args,
     )
-
-    # ---- Strict checks & overlays & summary ----
+# ---- Strict checks & overlays & summary ----
     out_dir = Path(args.out) if args.out else Path("output")
     plays_fp = out_dir / "plays.jsonl"
     predictions_fp = out_dir / "play_predictions.jsonl"
