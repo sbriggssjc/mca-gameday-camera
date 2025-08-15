@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import logging
 import os
@@ -44,6 +45,12 @@ from .video_reader import VideoReader
 from .snap_whistle_seg import SegParams, SnapWhistleFinder, PlayWindow
 from segment.play_segmenter import segment_video
 from .io_utils import write_metadata
+
+# playbook integration and grading helpers
+from analysis.playbook.loader import load_playbook
+from analysis.match.formation_matcher import match_formation
+from analysis.match.play_matcher import match_play
+from analysis.grading.grader import load_weights, grade_players
 
 
 try:  # pragma: no cover - optional dependency
@@ -327,6 +334,13 @@ def run_pipeline(
     meta_path = Path(out_dir) / "metadata.json"
     meta_path.write_text(json.dumps(meta, indent=2))
 
+    # Load playbook index and grading weights once
+    pb_index = load_playbook(playbook_path) if playbook_path else None
+    weights = load_weights(grading_weights)
+
+    plays_index_rows: List[Dict[str, Any]] = []
+    player_grade_rows: List[Dict[str, Any]] = []
+
     plays_windows: List[PlayWindow] = []
     if video_exists:
         try:
@@ -409,17 +423,21 @@ def run_pipeline(
     plays: List[Dict[str, Any]] = plays_dicts
 
     write_metadata(Path(out_dir), meta)
-    segs = segment_video(
-        video,
-        fps,
-        cfg={"min_play_length": min_play_length, "min_play_gap": min_play_gap},
-        ctx={"video_length_sec": duration_sec},
-        max_per_seg=max_per_seg,
-    )
-    print(f"[pipeline] Segments in memory: {len(segs)}")
+    try:
+        segs = segment_video(
+            video,
+            fps,
+            cfg={"min_play_length": min_play_length, "min_play_gap": min_play_gap},
+            ctx={"video_length_sec": duration_sec},
+            max_per_seg=max_per_seg,
+        )
+        print(f"[pipeline] Segments in memory: {len(segs)}")
+    except Exception:
+        segs = plays_dicts
+        print(f"[pipeline] Segments in memory: {len(segs)}")
 
     # Normalize segments with stable IDs
-    plays: List[Dict[str, Any]] = []
+    plays = []
     for i, s in enumerate(segs):
         p = dict(s)
         p.setdefault("segment_id", f"seg_{i:04d}")
@@ -600,11 +618,90 @@ def run_pipeline(
     grade_rows: List[Dict[str, Any]] = []
     for p in plays:
         seg_id = p["segment_id"]
+        play_id = p.get("play_id")
         pred = pred_by_segment.get(seg_id, {})
         tracking = tracking_by_segment.get(seg_id)
         g = grader.grade_defense(p, pred, tracking, play_index)
-        g.update({"segment_id": seg_id, "play_id": p.get("play_id")})
+        g.update({"segment_id": seg_id, "play_id": play_id})
         grade_rows.append(g)
+
+        presnap = (tracking or {}).get("presnap", {})
+        cues = pred.get("cues", {})
+        per_play_feats = tracking or {}
+
+        formation_candidates = match_formation(pb_index, presnap, topk=3) if pb_index else []
+        formation_name, formation_conf = (
+            formation_candidates[0] if formation_candidates else (None, 0.0)
+        )
+
+        play_candidates = (
+            match_play(pb_index, formation_name, cues, topk=3)
+            if pb_index and formation_name
+            else []
+        )
+        play_name, play_conf = (
+            play_candidates[0] if play_candidates else (None, 0.0)
+        )
+
+        player_grade_list = grade_players(per_play_feats, weights)
+
+        outcome = {
+            "yards": per_play_feats.get("yards", 0),
+            "success": bool(per_play_feats.get("success", False)),
+            "explosive": bool(per_play_feats.get("explosive", False)),
+            "turnover": bool(per_play_feats.get("turnover", False)),
+            "penalty": bool(per_play_feats.get("penalty", False)),
+        }
+
+        play_dir = Path(out_dir) / "plays" / (
+            f"PLAY_{int(play_id):03d}" if play_id is not None else str(seg_id)
+        )
+        play_dir.mkdir(parents=True, exist_ok=True)
+
+        json.dump(
+            {
+                "play_id": play_id,
+                "formation": {
+                    "name": formation_name,
+                    "confidence": round(float(formation_conf), 3),
+                    "candidates": formation_candidates,
+                },
+                "playcall": {
+                    "name": play_name,
+                    "confidence": round(float(play_conf), 3),
+                    "candidates": play_candidates,
+                },
+                "outcome": outcome,
+                "cues": cues,
+            },
+            open(play_dir / "play.json", "w"),
+            indent=2,
+        )
+        json.dump(player_grade_list, open(play_dir / "grades.json", "w"), indent=2)
+
+        plays_index_rows.append(
+            {
+                "play_id": play_id,
+                "formation": formation_name,
+                "formation_conf": round(float(formation_conf), 3),
+                "playcall": play_name,
+                "play_conf": round(float(play_conf), 3),
+                "yards": outcome["yards"],
+                "success": outcome["success"],
+                "explosive": outcome["explosive"],
+                "turnover": outcome["turnover"],
+                "penalty": outcome["penalty"],
+            }
+        )
+        for pg in player_grade_list:
+            player_grade_rows.append(
+                {
+                    "play_id": play_id,
+                    "player_id": pg.get("player_id"),
+                    "pos": pg.get("pos"),
+                    "grade": pg.get("grade"),
+                }
+            )
 
     _write_jsonl(grade_rows, os.path.join(out_dir, "grades.jsonl"))
 
@@ -622,6 +719,35 @@ def run_pipeline(
             f"[WARN] grades missing for segments: {missing_grade[:5]}"
             + (f" ... (+{len(missing_grade)-5} more)" if len(missing_grade) > 5 else "")
         )
+
+    summary_dir = Path(out_dir) / "summaries"
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    if plays_index_rows:
+        with open(summary_dir / "plays_index.csv", "w", newline="", encoding="utf8") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "play_id",
+                    "formation",
+                    "formation_conf",
+                    "playcall",
+                    "play_conf",
+                    "yards",
+                    "success",
+                    "explosive",
+                    "turnover",
+                    "penalty",
+                ],
+            )
+            writer.writeheader()
+            writer.writerows(plays_index_rows)
+    if player_grade_rows:
+        with open(summary_dir / "player_grades.csv", "w", newline="", encoding="utf8") as f:
+            writer = csv.DictWriter(
+                f, fieldnames=["play_id", "player_id", "pos", "grade"]
+            )
+            writer.writeheader()
+            writer.writerows(player_grade_rows)
 
     player_grades = grading.grade(pred_rows, [], identity_map, playbook, grading_weights)
 
