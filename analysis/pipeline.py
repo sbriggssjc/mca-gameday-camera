@@ -451,9 +451,25 @@ def main(argv: List[str] | None = None) -> None:
     )
 
     run_cfg = RunConfig(
-        min_play_length=min_play_length,
-        min_play_gap=min_play_gap,
-        strict=bool(args.strict),
+    video=args.video,
+    team=args.team,
+    out_dir=args.out,
+    playbook_path=args.playbook,
+    opponent=getattr(args, "opponent", None),
+    fps=args.fps,
+    # thresholds resolved earlier or direct from args
+    min_play_gap=args.min_play_gap,
+    min_play_length=args.min_play_length,
+    # toggles (profile-defaulted earlier; args hold final values)
+    generate_report=args.generate_report,
+    generate_clips=args.generate_clips,
+    generate_highlights=getattr(args, "generate_highlights", True),
+    make_overlay=getattr(args, "make_overlay", False),
+    # misc
+    profile=getattr(args, "profile", "game"),
+    debug_vid=getattr(args, "debug_vid", False),
+    strict=getattr(args, "strict", False),
+),
         make_overlay=bool(args.make_overlay),
         debug_summary=bool(getattr(args, "debug_summary", False)),
     )
