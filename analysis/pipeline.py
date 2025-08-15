@@ -121,8 +121,7 @@ def run_pipeline(
     clip_corrections: bool = False,
     clip_wins: bool = False,
     clip_highlights: bool = False,
-    args: argparse.Namespace | None = None,
-) -> None:
+    args: argparse.Namespace | None = None) -> None:
     """Execute the toy analysis pipeline."""
 
     os.makedirs(out_dir, exist_ok=True)
@@ -503,10 +502,7 @@ def main(argv: List[str] | None = None) -> None:
         clip_corrections=getattr(args, "clip_corrections", False),
         clip_wins=getattr(args, "clip_wins", False),
         clip_highlights=getattr(args, "clip_highlights", False),
-        make_overlay=run_cfg.make_overlay,
-        strict=run_cfg.strict,
-        args=args,
-    )
+        args=args)
 # ---- Strict checks & overlays & summary ----
     out_dir = Path(args.out) if args.out else Path("output")
     plays_fp = out_dir / "plays.jsonl"
