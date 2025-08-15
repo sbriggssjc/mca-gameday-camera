@@ -51,16 +51,27 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover - optional dependency
     yaml = None  # type: ignore
 
-# ---- defaults used by older code paths (already added earlier) ----
-try:
-    DEFAULT_MIN_PLAY_GAP  # type: ignore[name-defined]
-except NameError:  # pragma: no cover - fallback
-    DEFAULT_MIN_PLAY_GAP = 1.5  # seconds
 
 try:
-    DEFAULT_MIN_PLAY_LEN  # type: ignore[name-defined]
-except NameError:  # pragma: no cover - fallback
-    DEFAULT_MIN_PLAY_LEN = 6.0  # seconds
+    from analysis.config import (
+        DEFAULT_MIN_PLAY_GAP,
+        DEFAULT_MIN_PLAY_LEN,
+        PROFILE_DEFAULTS,
+    )
+except Exception:
+    # Fallbacks so the script still runs if import fails
+    DEFAULT_MIN_PLAY_GAP = 1.5
+    DEFAULT_MIN_PLAY_LEN = 6.0
+    PROFILE_DEFAULTS = {
+        "game": {
+            "min_play_gap": DEFAULT_MIN_PLAY_GAP,
+            "min_play_length": DEFAULT_MIN_PLAY_LEN,
+            "generate_report": True,
+            "generate_clips": True,
+            "generate_highlights": True,
+            "make_overlay": True,
+        }
+    }
 
 # ---- canonical output helpers (self-contained; no other modules needed) ----
 def _video_fingerprint(video_path: str) -> str:
@@ -90,12 +101,6 @@ def _write_metadata(outdir: Path, meta: dict):
         (outdir / "metadata.json").write_text(json.dumps(meta, indent=2))
     except Exception:
         pass
-
-PROFILE_DEFAULTS = {
-    "game": {"min_play_length": 6.0, "min_play_gap": DEFAULT_MIN_PLAY_GAP},
-    "practice": {"min_play_length": 5.0, "min_play_gap": 1.0},
-    "clinic": {"min_play_length": 4.0, "min_play_gap": 0.8},
-}
 
 
 @dataclass
@@ -727,9 +732,9 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--debug-detections", action="store_true")
     parser.add_argument("--max-debug-frames", type=int, default=8)
     parser.add_argument("--force-cpu", action="store_true")
-    parser.add_argument("--generate-report", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--generate-clips", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--generate-highlights", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--generate-report", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--generate-clips", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument("--generate-highlights", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--min-play-gap", type=float, default=0.0)
     parser.add_argument("--min-play-length", type=float, default=0.0)
     parser.add_argument(
@@ -756,11 +761,8 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--clip-corrections", action="store_true")
     parser.add_argument("--clip-wins", action="store_true")
     parser.add_argument("--clip-highlights", action="store_true")
-    parser.add_argument(
-        "--make-overlay",
-        action="store_true",
-        help="Generate debug overlay videos per play (and optionally a stitched full overlay)",
-    )
+    parser.add_argument("--make-overlay", action=argparse.BooleanOptionalAction, default=None,
+        help="Generate debug overlay videos per play (and optionally a stitched full overlay)")
     parser.add_argument(
         "--strict",
         action="store_true",
@@ -775,6 +777,25 @@ def main(argv: List[str] | None = None) -> None:
     )
     parser.add_argument("--preclean", action="store_true", help="Run output cleanup before analysis")
     args = parser.parse_args(argv)
+
+
+    profile_key = getattr(args, "profile", "game") or "game"
+    prof = PROFILE_DEFAULTS.get(profile_key, PROFILE_DEFAULTS["game"])
+    args.profile = profile_key
+
+    if not getattr(args, "min_play_gap", None):
+        args.min_play_gap = prof["min_play_gap"]
+    if not getattr(args, "min_play_length", None):
+        args.min_play_length = prof["min_play_length"]
+
+    if hasattr(args, "generate_report") and args.generate_report is None:
+        args.generate_report = prof.get("generate_report", True)
+    if hasattr(args, "generate_clips") and args.generate_clips is None:
+        args.generate_clips = prof.get("generate_clips", True)
+    if hasattr(args, "generate_highlights") and args.generate_highlights is None:
+        args.generate_highlights = prof.get("generate_highlights", True)
+    if hasattr(args, "make_overlay") and args.make_overlay is None:
+        args.make_overlay = prof.get("make_overlay", False)
 
     # ----- optional pre-clean of output root -----
     if getattr(args, "preclean", False):
@@ -818,37 +839,16 @@ def main(argv: List[str] | None = None) -> None:
     (out_dir / "run_id.txt").write_text(datetime.utcnow().isoformat())
 
     # --- Build RunConfig with layered precedence ---
-    prof = PROFILE_DEFAULTS.get(args.profile, PROFILE_DEFAULTS["game"])
-
-    env_len = os.getenv("MCA_MIN_PLAY_LEN")
-    env_gap = os.getenv("MCA_MIN_PLAY_GAP")
-
-    min_play_length = (
-        args.min_play_length
-        if getattr(args, "min_play_length", None) not in (None, 0)
-        else float(env_len)
-        if env_len
-        else float(prof["min_play_length"]) if prof else DEFAULT_MIN_PLAY_LEN
-    )
-
-    min_play_gap = (
-        args.min_play_gap
-        if getattr(args, "min_play_gap", None) not in (None, 0)
-        else float(env_gap)
-        if env_gap
-        else float(prof["min_play_gap"]) if prof else DEFAULT_MIN_PLAY_GAP
-    )
-
     run_cfg = RunConfig(
-        min_play_length=min_play_length,
-        min_play_gap=min_play_gap,
+        min_play_length=float(args.min_play_length),
+        min_play_gap=float(args.min_play_gap),
         strict=bool(args.strict),
         make_overlay=bool(args.make_overlay),
         debug_summary=bool(getattr(args, "debug_summary", False)),
     )
 
     print(
-        f"[config] profile={args.profile} min_play_length={run_cfg.min_play_length:.2f}s "
+        f"[config] profile={profile_key} min_play_length={run_cfg.min_play_length:.2f}s "
         f"min_play_gap={run_cfg.min_play_gap:.2f}s strict={run_cfg.strict} "
         f"overlay={run_cfg.make_overlay} summary={run_cfg.debug_summary}"
     )
