@@ -143,15 +143,8 @@ def fallback_segments_from_motion(
         if end - start >= min_seg:
             segments.append((start, end))
 
-    merged: list[list[float]] = []
-    for s, e in segments:
-        if not merged:
-            merged.append([s, e])
-        else:
-            if s - merged[-1][1] < 0.8:
-                merged[-1][1] = e
-            else:
-                merged.append([s, e])
+    # Snap→Whistle is the single segmentation pass; no merges or re-windowizing allowed.
+    merged: list[list[float]] = [(s, e) for s, e in segments]
     return [(s, e) for s, e in merged]
 
 
