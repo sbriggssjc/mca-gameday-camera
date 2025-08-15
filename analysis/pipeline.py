@@ -59,7 +59,6 @@ try:
         PROFILE_DEFAULTS,
     )
 except Exception:
-    # Fallbacks so the script still runs if import fails
     DEFAULT_MIN_PLAY_GAP = 1.5
     DEFAULT_MIN_PLAY_LEN = 6.0
     PROFILE_DEFAULTS = {
@@ -781,7 +780,6 @@ def main(argv: List[str] | None = None) -> None:
 
     profile_key = getattr(args, "profile", "game") or "game"
     prof = PROFILE_DEFAULTS.get(profile_key, PROFILE_DEFAULTS["game"])
-    args.profile = profile_key
 
     if not getattr(args, "min_play_gap", None):
         args.min_play_gap = prof["min_play_gap"]

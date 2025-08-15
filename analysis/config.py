@@ -1,12 +1,6 @@
-# analysis/config.py
-# Central defaults shared across the pipeline
+DEFAULT_MIN_PLAY_GAP: float = 1.5
+DEFAULT_MIN_PLAY_LEN: float = 6.0
 
-# Segmentation defaults
-DEFAULT_MIN_PLAY_GAP: float = 1.5   # seconds between detected plays
-DEFAULT_MIN_PLAY_LEN: float = 6.0   # minimum duration of a play
-
-# Profile presets used by pipeline.py via --profile {game,practice,clinic}
-# Each profile can override min gaps/lengths or toggle outputs.
 PROFILE_DEFAULTS = {
     "game": {
         "min_play_gap": DEFAULT_MIN_PLAY_GAP,
@@ -33,3 +27,4 @@ PROFILE_DEFAULTS = {
         "make_overlay": False,
     },
 }
+
