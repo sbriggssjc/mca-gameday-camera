@@ -1,5 +1,33 @@
 """End-to-end orchestration for automated film analysis."""
 from __future__ import annotations
+# ----- injected RunConfig (do not remove) -----
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class RunConfig:
+    video: str
+    team: str
+    out_dir: str
+    playbook_path: Optional[str] = None
+    opponent: Optional[str] = None
+    fps: Optional[int] = None
+
+    # thresholds
+    min_play_gap: float = DEFAULT_MIN_PLAY_GAP
+    min_play_length: float = DEFAULT_MIN_PLAY_LEN
+
+    # outputs/toggles
+    generate_report: bool = True
+    generate_clips: bool = True
+    generate_highlights: bool = True
+    make_overlay: bool = False
+
+    # misc/profile/debug
+    profile: str = "game"
+    debug_vid: bool = False
+# ----- end injected RunConfig -----
+
 # === injected shared config (do not remove) ===
 try:
     from analysis.config import (
