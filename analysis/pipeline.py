@@ -8,6 +8,8 @@ import os
 import os.path as osp
 import subprocess
 import sys
+import shutil
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
@@ -41,8 +43,7 @@ from .segmentation import Segment
 from .video_reader import VideoReader
 from .snap_whistle_seg import SegParams, SnapWhistleFinder, PlayWindow
 from segment.play_segmenter import segment_video
-from .io_utils import canonical_outdir, ensure_clean_dir, write_metadata
-from analysis.config import DEFAULT_MIN_PLAY_GAP
+from .io_utils import write_metadata
 
 
 try:  # pragma: no cover - optional dependency
@@ -50,7 +51,45 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover - optional dependency
     yaml = None  # type: ignore
 
-DEFAULT_MIN_PLAY_LEN = 6.0
+# ---- defaults used by older code paths (already added earlier) ----
+try:
+    DEFAULT_MIN_PLAY_GAP  # type: ignore[name-defined]
+except NameError:  # pragma: no cover - fallback
+    DEFAULT_MIN_PLAY_GAP = 1.5  # seconds
+
+try:
+    DEFAULT_MIN_PLAY_LEN  # type: ignore[name-defined]
+except NameError:  # pragma: no cover - fallback
+    DEFAULT_MIN_PLAY_LEN = 6.0  # seconds
+
+# ---- canonical output helpers (self-contained; no other modules needed) ----
+def _video_fingerprint(video_path: str) -> str:
+    p = Path(video_path)
+    try:
+        st = p.stat()
+        raw = f"{p.name}|{st.st_size}|{int(st.st_mtime)}"
+    except Exception:
+        raw = p.name
+    return hashlib.sha1(raw.encode()).hexdigest()[:12]
+
+
+def _canonical_outdir(base_out: str, video_path: str) -> Path:
+    stem = Path(video_path).stem
+    fp = _video_fingerprint(video_path)
+    return Path(base_out) / "games" / f"{stem}__{fp}"
+
+
+def _ensure_clean_dir(d: Path, overwrite: bool):
+    if d.exists() and overwrite:
+        shutil.rmtree(d, ignore_errors=True)
+    d.mkdir(parents=True, exist_ok=True)
+
+
+def _write_metadata(outdir: Path, meta: dict):
+    try:
+        (outdir / "metadata.json").write_text(json.dumps(meta, indent=2))
+    except Exception:
+        pass
 
 PROFILE_DEFAULTS = {
     "game": {"min_play_length": 6.0, "min_play_gap": DEFAULT_MIN_PLAY_GAP},
@@ -166,11 +205,9 @@ def run_pipeline(
     debug_detections: bool = False,
     max_debug_frames: int = 8,
     force_cpu: bool = False,
-    clip_pre: float = 2.0,
-    clip_post: float = 2.5,
-    auto_zoom: bool = True,
-    orientation_auto: bool = True,
-    grade: bool = True,
+    auto_zoom: bool = False,
+    orientation_auto: bool = False,
+    grade: bool = False,
 ) -> None:
     """Execute the toy analysis pipeline."""
 
@@ -179,6 +216,13 @@ def run_pipeline(
     tracking_path = out_path / "tracking.jsonl"
     plays_path = out_path / "plays.jsonl"
     features_path = out_path / "features.jsonl"
+
+    # pass-through for optional feature flags
+    clip_pre = getattr(args, "clip_pre", clip_pre)
+    clip_post = getattr(args, "clip_post", clip_post)
+    auto_zoom = getattr(args, "auto_zoom", auto_zoom)
+    orientation_auto = getattr(args, "orientation_auto", orientation_auto)
+    grade = getattr(args, "grade", grade)
 
     # Normalize/rotate video when needed so detectors see a standard input
     video = _normalize_video_if_needed(video)
@@ -636,13 +680,43 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--opponent", type=str, default=None)
     parser.add_argument("--playbook", default=None)
     parser.add_argument("--out", default="output")
-    parser.add_argument("--single-run", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--overwrite", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--clip-pre", type=float, default=2.0)
-    parser.add_argument("--clip-post", type=float, default=2.5)
-    parser.add_argument("--auto-zoom", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--orientation-auto", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--grade", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--single-run",
+        action="store_true",
+        help="Use canonical per-film output folder under <out>/games/<film>__<hash>",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="If output exists for this film, delete and re-run",
+    )
+    parser.add_argument(
+        "--clip-pre",
+        type=float,
+        default=2.0,
+        help="Seconds before snap to include in each clip (if supported)",
+    )
+    parser.add_argument(
+        "--clip-post",
+        type=float,
+        default=2.5,
+        help="Seconds after whistle to include in each clip (if supported)",
+    )
+    parser.add_argument(
+        "--auto-zoom",
+        action="store_true",
+        help="Enable auto pan/zoom of ROI (if supported)",
+    )
+    parser.add_argument(
+        "--orientation-auto",
+        action="store_true",
+        help="Auto-normalize portrait/rotated footage (if supported)",
+    )
+    parser.add_argument(
+        "--grade",
+        action="store_true",
+        help="Enable grading pipeline (if supported)",
+    )
     parser.add_argument("--fps", type=int, default=0)
     parser.add_argument("--detect-model")
     parser.add_argument("--ocr", default="tesseract")
@@ -658,8 +732,6 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--generate-highlights", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--min-play-gap", type=float, default=0.0)
     parser.add_argument("--min-play-length", type=float, default=0.0)
-    parser.add_argument("--clip-pre", type=float, default=2.0, help="Seconds before snap")
-    parser.add_argument("--clip-post", type=float, default=2.5, help="Seconds after whistle")
     parser.add_argument(
         "--profile",
         choices=["game", "practice", "clinic"],
@@ -703,23 +775,46 @@ def main(argv: List[str] | None = None) -> None:
     )
     parser.add_argument("--preclean", action="store_true", help="Run output cleanup before analysis")
     args = parser.parse_args(argv)
-    if args.preclean:
-        import subprocess, sys
-        cleanup_cmd = [
-            sys.executable, "tools/cleanup_outputs.py",
-            "--out", args.out,
-            "--archive", "--prune",
-        ]
-        try:
-            print("[PRECLEAN] Running:", " ".join(cleanup_cmd))
-            subprocess.run(cleanup_cmd, check=False)
-        except Exception as e:
-            print("[PRECLEAN] Warning:", e)
-    out_dir = canonical_outdir(args.out, args.video)
-    if args.single_run and args.overwrite:
-        ensure_clean_dir(out_dir, overwrite=True)
+
+    # ----- optional pre-clean of output root -----
+    if getattr(args, "preclean", False):
+        cleaner = Path("tools/cleanup_outputs.py")
+        if cleaner.exists():
+            cmd = [sys.executable, str(cleaner), "--out", args.out, "--archive", "--prune"]
+            print("[PRECLEAN] Running:", " ".join(cmd))
+            try:
+                subprocess.run(cmd, check=False)
+            except Exception as e:  # pragma: no cover - best effort
+                print("[PRECLEAN] Warning:", e)
+        else:
+            print("[PRECLEAN] Skipped (tools/cleanup_outputs.py not found)")
+
+    # ----- canonical single-run folder routing -----
+    OUT_ROOT = Path(args.out) if hasattr(args, "out") and args.out else Path("output")
+    if getattr(args, "single_run", False) or getattr(args, "single-run", False):
+        canonical = _canonical_outdir(str(OUT_ROOT), args.video)
+        _ensure_clean_dir(canonical, overwrite=getattr(args, "overwrite", False))
+        args.out = str(canonical)
+        print(f"[OUT] Using canonical output: {args.out}")
+        _write_metadata(
+            Path(args.out),
+            {
+                "video_path": str(args.video),
+                "created": datetime.now().isoformat(timespec="seconds"),
+                "flags": {
+                    "clip_pre": getattr(args, "clip_pre", 2.0),
+                    "clip_post": getattr(args, "clip_post", 2.5),
+                    "auto_zoom": getattr(args, "auto_zoom", False),
+                    "orientation_auto": getattr(args, "orientation_auto", False),
+                    "grade": getattr(args, "grade", False),
+                    "overwrite": getattr(args, "overwrite", False),
+                },
+            },
+        )
     else:
-        out_dir.mkdir(parents=True, exist_ok=True)
+        Path(OUT_ROOT).mkdir(parents=True, exist_ok=True)
+
+    out_dir = Path(args.out)
     (out_dir / "run_id.txt").write_text(datetime.utcnow().isoformat())
 
     # --- Build RunConfig with layered precedence ---
@@ -787,12 +882,10 @@ def main(argv: List[str] | None = None) -> None:
         debug_detections=args.debug_detections,
         max_debug_frames=args.max_debug_frames,
         force_cpu=args.force_cpu,
-        clip_pre=args.clip_pre,
-        clip_post=args.clip_post,
         auto_zoom=args.auto_zoom,
         orientation_auto=args.orientation_auto,
         grade=args.grade,
-    )
+      )
 
     # ---- Strict checks & overlays & summary ----
     plays_fp = out_dir / "plays.jsonl"
