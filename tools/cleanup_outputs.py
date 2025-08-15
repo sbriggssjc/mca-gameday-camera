@@ -3,6 +3,16 @@ import argparse, json, os, shutil, hashlib
 from pathlib import Path
 from typing import List, Tuple
 
+
+
+def _is_under(p: Path, root: Path) -> bool:
+    try:
+        return p.resolve().is_relative_to(root.resolve())
+    except AttributeError:
+        # Python < 3.9 fallback
+        rp, rr = p.resolve(), root.resolve()
+        return str(rp).startswith(str(rr) + os.sep)
+
 # ---------- helpers (scoped to output root only) ----------
 def sha1_of_path(p: Path, chunk=1<<20) -> str:
     h = hashlib.sha1()
@@ -27,11 +37,14 @@ def load_json_if_exists(p: Path):
         return None
 
 def is_legacy_run_dir(d: Path) -> bool:
-    if not d.is_dir(): return False
-    # Heuristics: top-level in output/, often name contains datetime or IMG_
+    if not d.is_dir():
+        return False
     name = d.name.lower()
-    if name in ("games","latest","_archive"): return False
-    # Has content typical of runs
+    if name in ("games", "latest", "_archive"):
+        return False
+    parent_name = d.parent.name.lower()
+    if parent_name in ("games", "latest", "_archive"):
+        return False
     has_media = any(d.glob("*.mp4")) or any(d.glob("**/*.mp4"))
     has_json  = any(d.glob("*.json")) or any(d.glob("**/*.json"))
     return has_media or has_json
@@ -70,14 +83,31 @@ def set_latest_symlink(base_out: Path, film_stem: str, target: Path):
 # ---------- discovery / migration ----------
 def discover_legacy_runs(out_root: Path) -> List[Path]:
     runs = []
+    games_root = out_root / "games"
+    latest_root = out_root / "latest"
+    archive_root = out_root / "_archive"
+
+    # Only consider FIRST-LEVEL children of out_root as candidates,
+    # plus FIRST-LEVEL children of those that are NOT canonical roots.
     for d in out_root.glob("*"):
-        if d.is_dir() and is_legacy_run_dir(d):
+        if not d.is_dir():
+            continue
+        # never treat canonical roots as legacy
+        if d.name in ("games", "latest", "_archive"):
+            continue
+        if is_legacy_run_dir(d):
             runs.append(d)
-    # include one level deeper (some users nest by accident)
-    for d in out_root.glob("*/*"):
-        if d.is_dir() and is_legacy_run_dir(d):
-            runs.append(d)
-    # de-dupe while preserving order
+
+        # one level deeper, but skip scanning under canonical roots
+        for dd in d.glob("*"):
+            if not dd.is_dir():
+                continue
+            if _is_under(dd, games_root) or _is_under(dd, latest_root) or _is_under(dd, archive_root):
+                continue
+            if is_legacy_run_dir(dd):
+                runs.append(dd)
+
+    # de-dupe preserving order
     seen, uniq = set(), []
     for d in runs:
         if d not in seen:
