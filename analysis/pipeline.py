@@ -42,6 +42,7 @@ from .video_reader import VideoReader
 from .snap_whistle_seg import SegParams, SnapWhistleFinder, PlayWindow
 from segment.play_segmenter import segment_video
 from .io_utils import canonical_outdir, ensure_clean_dir, write_metadata
+from analysis.config import DEFAULT_MIN_PLAY_GAP
 
 
 try:  # pragma: no cover - optional dependency
@@ -50,10 +51,9 @@ except Exception:  # pragma: no cover - optional dependency
     yaml = None  # type: ignore
 
 DEFAULT_MIN_PLAY_LEN = 6.0
-DEFAULT_MIN_PLAY_GAP = 1.5
 
 PROFILE_DEFAULTS = {
-    "game": {"min_play_length": 6.0, "min_play_gap": 1.5},
+    "game": {"min_play_length": 6.0, "min_play_gap": DEFAULT_MIN_PLAY_GAP},
     "practice": {"min_play_length": 5.0, "min_play_gap": 1.0},
     "clinic": {"min_play_length": 4.0, "min_play_gap": 0.8},
 }
