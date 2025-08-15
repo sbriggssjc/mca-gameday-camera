@@ -13,3 +13,4 @@ video/uploaded/
 output.mp4
 livestream_logs/
 output/
+!output/.gitkeep
