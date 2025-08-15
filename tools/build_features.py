@@ -77,7 +77,7 @@ def summarize(frames_to_boxes):
     feats["bbox_area_mean"]=statistics.mean(areas) if areas else 0.0
     feats["bbox_area_p50"]=statistics.median(areas) if areas else 0.0
     feats["bbox_area_max"]=max(areas) if areas else 0.0
-    feats["_sufficient"]=(feats["player_count_p50"]>=8 and feats["player_count_max"]<=30)
+    feats["_sufficient"] = (feats["player_count_p50"] >= 7 and feats["player_count_max"]<=30)
     return feats
 
 def main():

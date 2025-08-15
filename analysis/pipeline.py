@@ -13,6 +13,36 @@ try:
     from overlays.debug_overlay import render_overlays_for_out_dir
 except Exception as _e:  # pragma: no cover - optional dependency
     render_overlays_for_out_dir = None
+plays_path = out_dir / "plays.jsonl"
+    # === Run detector over segmented windows to produce per-frame tracking ===
+    try:
+        print(f"[detect] running tools/detect_to_tracking.py -> {tracking_path}")
+        det_args = [
+            sys.executable, "tools/detect_to_tracking.py",
+            "--video", args.video,
+            "--plays", str(plays_path),
+            "--out", str(tracking_path),
+            "--model", (args.detect_model if hasattr(args, "detect_model") and args.detect_model else "player_detector"),
+            "--stride", "1",
+        ]
+        subprocess.run(det_args, check=False)
+    except Exception as e:
+        print(f"[detect] skipped due to error: {e}")
+
+tracking_path = out_dir / "tracking.jsonl"
+features_path = out_dir / "features.jsonl"
+    # === Build features from tracking + plays ===
+    print(f"[feat] running tools/build_features.py -> {features_path}")
+    rc = subprocess.run([
+        sys.executable, "tools/build_features.py",
+        "--tracking", str(tracking_path),
+        "--segments", str(plays_path),
+        "--out", str(features_path),
+    ], check=False)
+    if rc.returncode != 0:
+        print("[feat] build_features.py failed; writing empty file")
+        features_path.write_text("")
+
 
 try:
     from reporting.debug_summary import print_debug_summary
