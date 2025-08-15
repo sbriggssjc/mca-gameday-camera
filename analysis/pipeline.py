@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 
-
+DEFAULT_MIN_PLAY_GAP = 1.5
 
 def _write_jsonl(rows: List[Dict[str, Any]], path: str) -> None:
     with open(path, "w", encoding="utf8") as f:
