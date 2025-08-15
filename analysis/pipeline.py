@@ -26,6 +26,7 @@ class RunConfig:
     # misc/profile/debug
     profile: str = "game"
     debug_vid: bool = False
+    strict: bool = False
 
 # ----- end injected RunConfig -----
 
