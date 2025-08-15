@@ -11,6 +11,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
+from datetime import datetime
 
 try:
     from overlays.debug_overlay import render_overlays_for_out_dir
@@ -38,6 +39,7 @@ from . import (
 )
 from .segmentation import Segment
 from segment.play_segmenter import segment_video
+from .io_utils import canonical_outdir, ensure_clean_dir, write_metadata
 
 try:  # pragma: no cover - optional dependency
     import yaml
@@ -159,6 +161,11 @@ def run_pipeline(
     debug_detections: bool = False,
     max_debug_frames: int = 8,
     force_cpu: bool = False,
+    clip_pre: float = 2.0,
+    clip_post: float = 2.5,
+    auto_zoom: bool = True,
+    orientation_auto: bool = True,
+    grade: bool = True,
 ) -> None:
     """Execute the toy analysis pipeline."""
 
@@ -238,9 +245,17 @@ def run_pipeline(
         "width": width,
         "height": height,
         "video_length_sec": duration_sec,
+        "playbook_path": playbook_path,
+        "flags": {
+            "clip_pre": clip_pre,
+            "clip_post": clip_post,
+            "auto_zoom": auto_zoom,
+            "orientation_auto": orientation_auto,
+            "grade": grade,
+        },
     }
     meta_path = Path(out_dir) / "metadata.json"
-    meta_path.write_text(json.dumps(meta, indent=2))
+    write_metadata(Path(out_dir), meta)
     segs = segment_video(
         video,
         fps,
@@ -532,6 +547,13 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--opponent", type=str, default=None)
     parser.add_argument("--playbook", default=None)
     parser.add_argument("--out", default="output")
+    parser.add_argument("--single-run", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--overwrite", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--clip-pre", type=float, default=2.0)
+    parser.add_argument("--clip-post", type=float, default=2.5)
+    parser.add_argument("--auto-zoom", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--orientation-auto", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--grade", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--fps", type=int, default=0)
     parser.add_argument("--detect-model")
     parser.add_argument("--ocr", default="tesseract")
@@ -589,7 +611,12 @@ def main(argv: List[str] | None = None) -> None:
         help="Print counts of plays, formations, matches, and average grades at the end",
     )
     args = parser.parse_args(argv)
-    out_dir = Path(args.out).resolve()
+    out_dir = canonical_outdir(args.out, args.video)
+    if args.single_run and args.overwrite:
+        ensure_clean_dir(out_dir, overwrite=True)
+    else:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "run_id.txt").write_text(datetime.utcnow().isoformat())
 
     # --- Build RunConfig with layered precedence ---
     prof = PROFILE_DEFAULTS.get(args.profile, PROFILE_DEFAULTS["game"])
@@ -654,6 +681,11 @@ def main(argv: List[str] | None = None) -> None:
         debug_detections=args.debug_detections,
         max_debug_frames=args.max_debug_frames,
         force_cpu=args.force_cpu,
+        clip_pre=args.clip_pre,
+        clip_post=args.clip_post,
+        auto_zoom=args.auto_zoom,
+        orientation_auto=args.orientation_auto,
+        grade=args.grade,
     )
 
     # ---- Strict checks & overlays & summary ----
