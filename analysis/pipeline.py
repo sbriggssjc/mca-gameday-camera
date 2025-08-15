@@ -38,8 +38,11 @@ from . import (
     predict,
 )
 from .segmentation import Segment
+from .video_reader import VideoReader
+from .snap_whistle_seg import SegParams, SnapWhistleFinder, PlayWindow
 from segment.play_segmenter import segment_video
 from .io_utils import canonical_outdir, ensure_clean_dir, write_metadata
+
 
 try:  # pragma: no cover - optional dependency
     import yaml
@@ -146,6 +149,8 @@ def run_pipeline(
     generate_highlights: bool = True,
     min_play_gap: float = DEFAULT_MIN_PLAY_GAP,
     min_play_length: float = DEFAULT_MIN_PLAY_LEN,
+    clip_pre: float = 2.0,
+    clip_post: float = 2.5,
     max_per_seg: int | None = None,
     player_ids: str | None = None,
     id_overrides: str | None = None,
@@ -255,6 +260,89 @@ def run_pipeline(
         },
     }
     meta_path = Path(out_dir) / "metadata.json"
+    meta_path.write_text(json.dumps(meta, indent=2))
+
+    plays_windows: List[PlayWindow] = []
+    if video_exists:
+        try:
+            vr = VideoReader(video)
+            params = SegParams(
+                fps_video=vr.fps,
+                fps_audio=None,
+                pre_s=clip_pre,
+                post_s=clip_post,
+                max_play_s=12.0,
+                min_idle_s=min_play_gap or 1.5,
+            )
+            finder = SnapWhistleFinder(params)
+            plays_windows = finder.find_plays(vr, None)
+            if not plays_windows:
+                params.audio_thr_mult *= 0.75
+                params.motion_thr_mult *= 0.75
+                params.min_idle_s = 1.0
+                finder = SnapWhistleFinder(params)
+                plays_windows = finder.find_plays(vr, None)
+            vr.release()
+        except Exception as exc:  # pragma: no cover - best effort
+            err_path = Path(out_dir) / "errors.log"
+            with open(err_path, "a", encoding="utf8") as ef:
+                ef.write(f"segmentation failed: {exc}\n")
+            end_f = frame_count - 1 if frame_count > 0 else 0
+            plays_windows = [PlayWindow(1, 0, 0, end_f, end_f)]
+    else:
+        end_f = frame_count - 1 if frame_count > 0 else 0
+        plays_windows = [PlayWindow(1, 0, 0, end_f, end_f)]
+
+    plays_dicts: List[Dict[str, Any]] = []
+    plays_dir = Path(out_dir) / "plays"
+    for pw in plays_windows:
+        d = {
+            "play_id": pw.idx,
+            "segment_id": f"seg_{pw.idx:04d}",
+            "start_f": pw.start_f,
+            "snap_f": pw.snap_f,
+            "whistle_f": pw.whistle_f,
+            "end_f": pw.end_f,
+            "start_s": pw.start_f / fps if fps else 0.0,
+            "snap_s": pw.snap_f / fps if fps else 0.0,
+            "whistle_s": pw.whistle_f / fps if fps else 0.0,
+            "end_s": pw.end_f / fps if fps else 0.0,
+        }
+        plays_dicts.append(d)
+
+        play_dir = plays_dir / f"PLAY_{pw.idx:03d}"
+        play_dir.mkdir(parents=True, exist_ok=True)
+        clip_path = play_dir / "clip.mp4"
+        start_s = d["start_s"]
+        end_s = d["end_s"]
+        try:  # pragma: no cover - best effort
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-ss",
+                    f"{start_s:.3f}",
+                    "-to",
+                    f"{end_s:.3f}",
+                    "-i",
+                    video,
+                    "-c",
+                    "copy",
+                    str(clip_path),
+                ],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            with open(clip_path, "wb") as _f:
+                _f.write(b"")
+        (play_dir / "clip.json").write_text(json.dumps(d, indent=2))
+
+    print(f"[pipeline] Segments in memory: {len(plays_dicts)}")
+    _write_jsonl(plays_dicts, str(plays_path))
+    plays: List[Dict[str, Any]] = plays_dicts
+
     write_metadata(Path(out_dir), meta)
     segs = segment_video(
         video,
@@ -272,6 +360,7 @@ def run_pipeline(
         p.setdefault("segment_id", f"seg_{i:04d}")
         plays.append(p)
     _write_jsonl(plays, str(plays_path))
+
     fallback = any(str(p.get("source", "")).startswith("fallback") for p in plays)
     msg_tail = f" max_per_seg={max_per_seg}" if max_per_seg else ""
     print(
@@ -569,6 +658,8 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--generate-highlights", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--min-play-gap", type=float, default=0.0)
     parser.add_argument("--min-play-length", type=float, default=0.0)
+    parser.add_argument("--clip-pre", type=float, default=2.0, help="Seconds before snap")
+    parser.add_argument("--clip-post", type=float, default=2.5, help="Seconds after whistle")
     parser.add_argument(
         "--profile",
         choices=["game", "practice", "clinic"],
@@ -666,6 +757,8 @@ def main(argv: List[str] | None = None) -> None:
         generate_highlights=args.generate_highlights,
         min_play_gap=run_cfg.min_play_gap,
         min_play_length=run_cfg.min_play_length,
+        clip_pre=args.clip_pre,
+        clip_post=args.clip_post,
         max_per_seg=args.max_per_seg,
         player_ids=args.player_ids,
         id_overrides=args.id_overrides,

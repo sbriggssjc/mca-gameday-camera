@@ -1,3 +1,8 @@
+
+## Snap→Whistle Segmentation (no legacy merges)
+
+All play windows are detected deterministically from snap to whistle. Legacy windowizing and merge heuristics are disabled, so rerunning the same film yields identical PLAY_### folders.
+
 ### One-shot clean analysis for a film
 
 ```bash
@@ -20,3 +25,4 @@ python3 -m analysis.pipeline \
 Outputs will be under: output/games/IMG_4129__<hash>/...
 
 Re-running the same command refreshes the same folder (no clutter).
+
