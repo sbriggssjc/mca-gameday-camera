@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Dict, Iterable, List, Any
 
 from .playbook_map import norm
@@ -21,17 +22,8 @@ def grade_first_step(expected_angle: float, observed_angle: float, tolerance: fl
     return 3 if diff <= tolerance else 0
 
 
-def grade_play(play: Dict[str, str], assignments: Dict[str, Dict[str, float]]) -> Dict[str, Dict[str, object]]:
-    """Grade each player for a single play.
-
-    Parameters
-    ----------
-    play:
-        Prediction dictionary produced by :mod:`analysis.play_recognizer`.
-    assignments:
-        Mapping of role to expected metadata.  Only the ``expected_angle`` key
-        is honoured in this toy implementation.
-    """
+def grade_play_basic(play: Dict[str, str], assignments: Dict[str, Dict[str, float]]) -> Dict[str, Dict[str, object]]:
+    """Legacy grading of each player for a single play."""
 
     grades: Dict[str, Dict[str, object]] = {}
     for role, info in assignments.items():
@@ -39,6 +31,52 @@ def grade_play(play: Dict[str, str], assignments: Dict[str, Dict[str, float]]) -
         expected = info.get("expected_angle", 0)
         score = grade_first_step(expected, observed)
         grades[role] = {"score": score, "note": "ok" if score == 3 else "miss"}
+    return grades
+
+
+# ---------------------------------------------------------------------------
+# New per-player grading scaffolding
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PlayerGrade:
+    jersey: int
+    position: str | None
+    assignment: str | None
+    effort: float | None
+    technique: float | None
+    result: float | None
+    overall: float | None
+    notes: str | None = None
+
+
+def default_grade_from_tracks(track):
+    # Stub: if player flows toward ball and maintains lane -> higher score
+    # Use distance-to-ball delta and participation
+    return 0.75
+
+
+def grade_play(
+    players_tracks: Dict[int, Any],
+    recognized_play: Dict[str, Any] | None,
+    assignments_map: Dict[int, Dict[str, Any]],
+) -> List[PlayerGrade]:
+    grades: List[PlayerGrade] = []
+    for pid, tr in players_tracks.items():
+        pos = assignments_map.get(pid, {}).get("pos") if assignments_map else None
+        g = default_grade_from_tracks(tr)
+        grades.append(
+            PlayerGrade(
+                jersey=pid,
+                position=pos,
+                assignment=assignments_map.get(pid, {}).get("assignment") if assignments_map else None,
+                effort=g,
+                technique=g,
+                result=g,
+                overall=g,
+            )
+        )
     return grades
 
 
