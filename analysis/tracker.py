@@ -7,7 +7,16 @@ except Exception:  # pragma: no cover - optional dependency
     cv2 = None
 import numpy as np  # type: ignore
 from typing import List, Dict, Any
+
 import statistics
+from typing import List, Dict, Any
+
+import numpy as np  # type: ignore
+
+try:  # pragma: no cover
+    import cv2  # type: ignore
+except Exception:  # pragma: no cover - allow import without cv2
+    cv2 = None
 
 # --- Motion-blob fallback helpers ---
 ENABLE_MOTION_BLOB_FALLBACK = True
@@ -29,6 +38,8 @@ def _fallback_motion_blobs(
     Returns per-frame dicts: {"ts": float, "boxes": [[x1,y1,x2,y2,conf], ...]}
     """
 
+    if cv2 is None:
+        return []
     vcap.set(cv2.CAP_PROP_POS_MSEC, max(0.0, t0_s) * 1000.0)
     H = int(vcap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
     W = int(vcap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
@@ -133,6 +144,14 @@ def _frames_to_tracking_row(seg_id: str, frames: list, used_fallback: bool) -> d
 def track(video_path: str, segments: List[Dict[str, Any]], team: str | None = None, team_color: str | None = None) -> List[Dict[str, Any]]:
     if cv2 is None:
         return []
+
+        rows: List[Dict[str, Any]] = []
+        for seg in segments:
+            seg_id = seg.get("segment_id") or seg.get("id")
+            rows.append(_frames_to_tracking_row(seg_id, [], used_fallback=True))
+        return rows
+
+
     vcap = cv2.VideoCapture(video_path)
     rows: List[Dict[str, Any]] = []
     for seg in segments:
