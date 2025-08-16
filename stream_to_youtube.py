@@ -1,6 +1,6 @@
 import cv2
 import subprocess
-import time
+import time, signal
 import numpy as np
 import os
 import glob
@@ -11,7 +11,6 @@ import socket
 from collections import deque
 from urllib.parse import urlparse
 import argparse
-import signal
 import logging
 import shlex
 from env_loader import load_env, require
@@ -266,6 +265,27 @@ def _ffmpeg_started_ok(proc, timeout_s=5):
     return False
 
 
+def _stop_proc(proc, name="ffmpeg", timeout=2.0):
+    """Terminate a subprocess.Popen, then kill if needed, and reap it."""
+    if not proc:
+        return
+    try:
+        if proc.poll() is None:
+            proc.terminate()              # SIGTERM
+            t0 = time.time()
+            while proc.poll() is None and (time.time() - t0) < timeout:
+                time.sleep(0.05)
+        if proc.poll() is None:
+            proc.kill()                   # SIGKILL
+        # Make sure we reap to release OS handles
+        try:
+            proc.wait(timeout=1.0)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 def run_with_retries(
     rtmp_url: str,
     dev: str = "/dev/video0",
@@ -283,6 +303,7 @@ def run_with_retries(
         {"encoder": "libx264", "input_format": "yuyv422", "use_ts": False},
     ]
     fallback_tried = False
+    proc = None
 
     for i, cfg in enumerate(attempts, 1):
         cmd = build_ffmpeg_cmd(
@@ -302,54 +323,58 @@ def run_with_retries(
             f"[DEBUG] Attempt {i}/{len(attempts)} using encoder={cfg['encoder']} format={cfg['input_format']} wallclock_ts={cfg['use_ts']}"
         )
         logging.info("FFmpeg command: %s", " ".join(shlex.quote(c) for c in cmd))
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        if not _ffmpeg_started_ok(proc, timeout_s=6):
-            logging.warning("FFmpeg didn't announce output quickly; considering v4l2 fallback...")
-            try:
-                proc.terminate()
-            except Exception:
-                pass
-            if not fallback_tried:
-                fallback_tried = True
-                logging.info("Retrying with V4L2 input_format=yuyv422")
-                try:
-                    v4l2_index = cmd.index("-input_format") + 1
-                    cmd[v4l2_index] = "yuyv422"
-                except Exception:
-                    pass
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
-                if not _ffmpeg_started_ok(proc, timeout_s=6):
-                    logging.error("FFmpeg still didn't start after yuyv422 fallback.")
 
-        import fcntl, os
-        try:
-            fd = proc.stderr.fileno()
-            flags = fcntl.fcntl(fd, fcntl.F_GETFL)
-            fcntl.fcntl(fd, fcntl.F_SETFL, flags & ~os.O_NONBLOCK)
-        except Exception:
-            pass
-
+        if proc is not None:
+            _stop_proc(proc)
+        proc = None
+        rc = None
         saw_v4l2_corrupt = False
         saw_pts_drop = False
-        rc = None
         try:
-            for line in proc.stderr:
-                text = line.decode(errors="replace")
-                sys.stdout.write(text)
-                if "Dequeued v4l2 buffer contains corrupted data (0 bytes)" in text:
-                    saw_v4l2_corrupt = True
-                if "invalid dropping" in text and "PTS" in text:
-                    saw_pts_drop = True
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            if not _ffmpeg_started_ok(proc, timeout_s=6):
+                logging.warning("FFmpeg didn't announce output quickly; considering v4l2 fallback...")
+                _stop_proc(proc)
+                if not fallback_tried:
+                    fallback_tried = True
+                    logging.info("Retrying with V4L2 input_format=yuyv422")
+                    try:
+                        v4l2_index = cmd.index("-input_format") + 1
+                        cmd[v4l2_index] = "yuyv422"
+                    except Exception:
+                        pass
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    if not _ffmpeg_started_ok(proc, timeout_s=6):
+                        logging.error("FFmpeg still didn't start after yuyv422 fallback.")
+
+            import fcntl, os
+            try:
+                fd = proc.stderr.fileno()
+                flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+                fcntl.fcntl(fd, fcntl.F_SETFL, flags & ~os.O_NONBLOCK)
+            except Exception:
+                pass
+
+            try:
+                for line in proc.stderr:
+                    text = line.decode(errors="replace")
+                    sys.stdout.write(text)
+                    if "Dequeued v4l2 buffer contains corrupted data (0 bytes)" in text:
+                        saw_v4l2_corrupt = True
+                    if "invalid dropping" in text and "PTS" in text:
+                        saw_pts_drop = True
+            finally:
+                rc = proc.wait()
         finally:
-            rc = proc.wait()
+            _stop_proc(proc)
 
         if rc == 0 and not (saw_v4l2_corrupt or saw_pts_drop):
             logging.info("[INFO] Stream ended cleanly.")
