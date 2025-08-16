@@ -136,9 +136,11 @@ export AUDIO_HIGHPASS=150
 export AUDIO_GAIN_DB=6  # or set AUDIO_MODE=off
 ```
 ```bash
-# Encoder preferences / overrides
+# Encoder preferences (comma-separated)
 PREFERRED_ENCODERS=h264_v4l2m2m,libx264
-USE_SW_ENC=0         # set to 1 to force libx264
+
+# Force software (emergency switch)
+USE_SW_ENC=0     # set to 1 to force libx264
 
 # Bitrate tuning
 VIDEO_BITRATE=3500k
