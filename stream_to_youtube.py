@@ -210,6 +210,26 @@ def build_ffmpeg_cmd(
     ] + video_in + audio_in + ["-vf", vf] + v_opts + a_opts + common + [rtmp_url]
 
 
+
+def _ffmpeg_started_ok(proc, timeout_s=5):
+    """Return True if ffmpeg prints 'Output #0' within timeout."""
+    import time, select, os, fcntl
+    fd = proc.stderr.fileno()
+    fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+    fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+    buf = ""
+    t0 = time.time()
+    while time.time() - t0 < timeout_s:
+        r,_,_ = select.select([fd], [], [], 0.1)
+        if r:
+            try:
+                chunk = proc.stderr.read().decode("utf-8", "ignore")
+            except Exception:
+                chunk = ""
+            buf += chunk
+            if "Output #0" in buf:
+                return True
+    return False
 def run_with_retries(
     rtmp_url: str,
     dev: str = "/dev/video0",
@@ -220,6 +240,7 @@ def run_with_retries(
     video_bitrate: str = "5000k",
     audio_bitrate: str = "160k",
 ):
+    fallback_tried = False
     attempts = [
         {"encoder": pick_h264_encoder(), "input_format": "mjpeg", "use_ts": True},
         {"encoder": "libx264", "input_format": "mjpeg", "use_ts": True},
