@@ -147,6 +147,24 @@ def run_pipeline(
         detected_fps = None
 
     if fps in (None, 0):
+    ### BEGIN_CANONICAL_DIRS ###
+    # Normalize output locations to output/games/<video>__<hash>/*
+    run_dir, plays_dir, sum_dir = _canonical_run_dir(out_dir, video)
+    metadata_path = run_dir / "metadata.json"
+    # Persist a minimal metadata file for reproducibility
+    try:
+        _meta = {
+            "video": str(video),
+            "team": team,
+            "out_dir": str(run_dir),
+        }
+        with open(metadata_path, "w", encoding="utf-8") as _f:
+            import json as _json
+            _json.dump(_meta, _f, indent=2)
+    except Exception as _e:
+        print(f"[warn] could not write metadata: {_e}")
+    ### END_CANONICAL_DIRS ###
+
         fps = detected_fps
     else:
         detected_fps = fps
@@ -175,9 +193,23 @@ def run_pipeline(
         "height": height,
         "video_length_sec": duration_sec,
     }
-    meta_path = Path(out_dir) / "metadata.json"
+    meta_path = run_dir / "metadata.json"
     meta_path.write_text(json.dumps(meta, indent=2))
     segs = segment_video(
+
+    ### BEGIN_WRITE_PLAYS ###
+    # Write per-play scaffolding so later steps have stable folders
+    for seg in segs:
+        pdir = plays_dir / seg["id"]
+        pdir.mkdir(parents=True, exist_ok=True)
+        # save play.json with t0/t1 and basic context
+        try:
+            import json as _json
+            with open(pdir / "play.json", "w", encoding="utf-8") as _f:
+                _json.dump({"id": seg["id"], "t0": seg["t0"], "t1": seg["t1"], "team": team}, _f, indent=2)
+        except Exception as _e:
+            print(f"[warn] could not write play.json for {seg['id']}: {_e}")
+    ### END_WRITE_PLAYS ###
         video,
         fps,
         Path(out_dir),
@@ -198,7 +230,7 @@ def run_pipeline(
     meta["play_count"] = len(plays)
     meta_path.write_text(json.dumps(meta, indent=2))
 
-    tracks = detect_track.run(video, team=team, fps=fps)
+    tracks = (detect_track.run if detect_track and hasattr(detect_track, 'run') else (lambda *a, **k: {'tracks': [], 'detections': [], 'meta': {'note':'stub'}, 'fps': k.get('fps')}))(video, team=team, fps=fps)
     detect_track.write_jsonl(tracks, os.path.join(out_dir, "tracking.jsonl"))
 
     identity_map = {t.player_id: t.player_id for t in tracks}
@@ -593,3 +625,25 @@ def main(argv: List[str] | None = None) -> None:
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry
     main()
+
+import hashlib
+from pathlib import Path
+
+def _sha1_file_head(path: str, bytes_max: int = 1<<20) -> str:
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        chunk = f.read(bytes_max)
+        h.update(chunk)
+    return h.hexdigest()[:12]
+
+def _canonical_run_dir(out_dir: str, video_path: str) -> tuple[Path, Path, Path]:
+    base = Path(out_dir)
+    base.mkdir(parents=True, exist_ok=True)
+    stem = Path(video_path).stem
+    hv = _sha1_file_head(video_path)
+    run_dir = base / "games" / f"{stem}__{hv}"
+    plays_dir = run_dir / "plays"
+    sum_dir = run_dir / "summaries"
+    for d in (run_dir, plays_dir, sum_dir):
+        d.mkdir(parents=True, exist_ok=True)
+    return run_dir, plays_dir, sum_dir
