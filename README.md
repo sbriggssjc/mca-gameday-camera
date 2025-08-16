@@ -135,6 +135,20 @@ export AUDIO_HIGHPASS=150
 # If things sound over-compressed
 export AUDIO_GAIN_DB=6  # or set AUDIO_MODE=off
 ```
+```bash
+# Encoder preferences / overrides
+PREFERRED_ENCODERS=h264_v4l2m2m,libx264
+USE_SW_ENC=0         # set to 1 to force libx264
+
+# Bitrate tuning
+VIDEO_BITRATE=3500k
+VIDEO_MAXRATE=4000k
+VIDEO_BUFSIZE=6000k
+
+# Local recording of stream
+RECORD_MP4=1
+```
+
 
 ## Requirements
 
