@@ -49,16 +49,13 @@ YOUTUBE_URL = (
 )
 
 
-def pick_encoder():
-    preferred = os.environ.get("PREFERRED_ENCODERS")  # e.g. "h264_v4l2m2m,h264_nvenc,libx264"
-    try:
-        enc_flag = subprocess.check_output(
-            ["tools/encoder_detect.py", preferred] if preferred else ["tools/encoder_detect.py"],
-            text=True
-        ).strip()
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Encoder detection failed: {e}")
-    return enc_flag
+def _pick_encoder():
+    preferred = os.environ.get("PREFERRED_ENCODERS")
+    if os.environ.get("USE_SW_ENC","0") == "1":
+        preferred = "libx264"
+    cmd = ["tools/encoder_detect.py"] + ([preferred] if preferred else [])
+    enc_flag = subprocess.check_output(cmd, text=True).strip()
+    return shlex.split(enc_flag)
 
 
 def choose_free_video_device(preferred=("0", "1", "2", "3")):
@@ -131,10 +128,8 @@ def build_audio_filter():
 
 
 def build_ffmpeg_cmd(video_dev, mic_dev, rtmp_url, out_path, width=1280, height=720, fps=30):
-    enc_flag = pick_encoder()
+    enc = _pick_encoder()
 
-    # For MJPEG USB cams, force input format and convert to yuv420p; ensure low-latency flags.
-    # We also normalize pixel format (yuv420p) to appease streaming platforms.
     v_in = [
         "-f", "v4l2",
         "-input_format", "mjpeg",
@@ -143,59 +138,38 @@ def build_ffmpeg_cmd(video_dev, mic_dev, rtmp_url, out_path, width=1280, height=
         "-video_size", f"{width}x{height}",
         "-i", video_dev,
     ]
-
     a_in = [
         "-f", "alsa",
         "-thread_queue_size", "512",
         "-ar", "48000",
-        "-ac", "1",           # keep mono; YT accepts mono AAC
+        "-ac", "1",
         "-i", mic_dev,
     ]
 
-    v_out_common = [
-        *shlex.split(enc_flag),
+    v_out = [
+        *enc,
         "-pix_fmt", "yuv420p",
         "-vf", f"scale={width}:{height},format=yuv420p",
-        "-g", str(fps*2),               # GOP ~2s
-        "-bf", "0",                     # B-frames off for latency
+        "-g", str(fps*2),
+        "-bf", "0",
         "-b:v", os.environ.get("VIDEO_BITRATE","3500k"),
         "-maxrate", os.environ.get("VIDEO_MAXRATE","4000k"),
         "-bufsize", os.environ.get("VIDEO_BUFSIZE","6000k"),
         "-preset", os.environ.get("X264_PRESET","veryfast"),
         "-tune", os.environ.get("X264_TUNE","zerolatency"),
     ]
+    a_out = ["-c:a", "aac", "-b:a", "128k", "-flags", "+global_header"]
 
-    a_out = [
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-flags", "+global_header",
-    ]
+    tee = os.environ.get("RECORD_MP4","1") == "1"
+    if tee:
+        mp4 = str(Path(out_path).with_suffix(".mp4"))
+        out = ["-f", "tee", f"[f=flv]{rtmp_url}|[f=mp4]{mp4}"]
+    else:
+        out = ["-f", "flv", rtmp_url]
 
-    out_stream = [
-        "-f", "flv", rtmp_url
-    ]
-
-    # Optional simultaneous local recording of the raw (post-encode) stream:
-    record_mp4 = os.environ.get("RECORD_MP4","1") == "1"
-    record_args = []
-    if record_mp4:
-        record_path = str(Path(out_path).with_suffix(".mp4"))
-        record_args = [
-            "-f", "tee",
-            f"[f=flv]{rtmp_url}|[f=mp4]{record_path}"
-        ]
-        out_stream = record_args  # replace single output
-
-    return [
-        "ffmpeg", "-hide_banner",
-        "-nostdin", "-reconnect", "1",
-        *v_in, *a_in,
-        "-map", "0:v:0", "-map", "1:a:0",
-        *v_out_common,
-        *a_out,
-        "-shortest",
-        *out_stream
-    ]
+    return ["ffmpeg", "-hide_banner", "-nostdin",
+            *v_in, *a_in, "-map", "0:v:0", "-map", "1:a:0",
+            *v_out, *a_out, "-shortest", *out]
 
 
 
@@ -1217,8 +1191,6 @@ def main() -> None:
 
     logging.info(f"📡 Streaming to: {mask_stream_url(RTMP_URL)}")
     logging.info("🎥 Using video device: %s", VIDEO_DEV)
-    if os.environ.get("USE_SW_ENC","0") == "1":
-        os.environ["PREFERRED_ENCODERS"] = "libx264"
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     log_dir = Path("livestream_logs")
@@ -1239,9 +1211,9 @@ def main() -> None:
         hint = (
             "FFmpeg exited non-zero.\n"
             "Hints:\n"
-            " • Hardware encoder not available -> set USE_SW_ENC=1 or set PREFERRED_ENCODERS='libx264'\n"
-            " • Verify devices: v4l2-ctl --list-devices; arecord -l\n"
-            " • See livestream_logs/*.log for the exact FFmpeg error.\n"
+            " • Hardware encoder failed; set USE_SW_ENC=1 or PREFERRED_ENCODERS=libx264\n"
+            " • Check devices: v4l2-ctl --list-devices; arecord -l\n"
+            f" • See {base_path.with_suffix('.log')} for details.\n"
         )
         logging.error(hint)
         sys.exit(ret)
