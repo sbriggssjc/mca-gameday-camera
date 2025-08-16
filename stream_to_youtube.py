@@ -41,6 +41,12 @@ from config import StreamConfig, load_config
 load_env()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
+
+def _log_cmd(prefix: str, cmd: list[str]) -> None:
+    import shlex
+    cmd_str = " ".join(shlex.quote(c) for c in cmd)
+    logging.info("%s %s", prefix, cmd_str)
+
 # Try both the old and new env var names
 YOUTUBE_URL = (
     os.environ.get("YT_RTMP_URL")
@@ -249,7 +255,7 @@ def run_with_retries(
         logging.info(
             f"[DEBUG] Attempt {i}/{len(attempts)} using encoder={cfg['encoder']} format={cfg['input_format']} wallclock_ts={cfg['use_ts']}"
         )
-        logging.info("FFmpeg command:", " ".join(shlex.quote(c) for c in cmd))
+        _log_cmd("FFmpeg command:", cmd)
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -637,7 +643,7 @@ def monitor_audio_level(
                     f"⚠️ Microphone silence detected ({AUDIO_LEVEL_DB:.1f} dBFS)"
                 )
                 logging.warning(msg)
-                logging.info(msg, flush=True)
+                logging.info(msg)
                 with log_path.open("a") as fp:
                     fp.write(f"{datetime.now().isoformat()} {msg}\n")
         except Exception as e:
@@ -664,7 +670,7 @@ def system_monitor(stop_event: threading.Event) -> None:
                     msg += f" | GPU Temp: {gpu_t[0].current:.1f}C"
         except Exception:
             pass
-        logging.info(msg, flush=True)
+        logging.info(msg)
         stop_event.wait(5)
 
 
@@ -965,7 +971,7 @@ def launch_ffmpeg(
     except RuntimeError as e:
         logging.info(e)
         return None
-    logging.info("[INFO] Streaming raw BGR → FFmpeg rawvideo → RTMP using", video_encoder)
+    logging.info("[INFO] Streaming raw BGR → FFmpeg rawvideo → RTMP using %s", video_encoder)
     log_dir = Path("livestream_logs")
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / f"ffmpeg_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -1002,7 +1008,7 @@ def launch_ffmpeg(
         diagnose_only=diagnose_only,
     )
 
-    logging.info("[FFMPEG COMMAND]", " ".join(ffmpeg_command))
+    _log_cmd("[FFMPEG COMMAND]", ffmpeg_command)
     log_fp.write("FFMPEG COMMAND: " + " ".join(ffmpeg_command) + "\n")
     log_fp.flush()
 
@@ -1339,7 +1345,7 @@ def main() -> None:
     global VIDEO_OK, LAST_FRAME_TIME
     VIDEO_OK = True
     LAST_FRAME_TIME = time.time()
-    logging.info("✅ Successfully captured initial frame:", test_frame.shape)
+    logging.info("✅ Successfully captured initial frame: %s", test_frame.shape)
     # Apply requested resolution/FPS; rotate later if camera delivers portrait frames
     if test_frame.shape[0] > test_frame.shape[1]:
         logging.info("🔄 Rotating input frames for landscape orientation")
@@ -1687,7 +1693,7 @@ def main() -> None:
                     no_frame_secs = 0
                 if no_frame_secs >= 5:
                     logging.info("[\u26A0\uFE0F ALERT] No frames received for 5 seconds. Stream may have stalled.")
-                    logging.info("\a", end="")
+                    logging.info("\a")
                     no_frame_secs = 5
             if frame.shape[0] > frame.shape[1] or frame.shape[:2] != (HEIGHT, WIDTH):
                 if frame.shape[:2] != (HEIGHT, WIDTH) and not warned_shape:
@@ -1860,8 +1866,7 @@ def main() -> None:
                     except Exception:
                         usage_str = ""
                 logging.info(
-                    f"[STREAM STATUS] \u23F1\ufe0f {hours:02d}:{minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Capture FPS: {capture_fps:.2f} | Frame Drop: {drop_rate:.2f}%{usage_str}",
-                    flush=True,
+                    f"[STREAM STATUS] \u23F1\ufe0f {hours:02d}:{minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Capture FPS: {capture_fps:.2f} | Frame Drop: {drop_rate:.2f}%{usage_str}"
                 )
                 last_log = now
 
