@@ -2,6 +2,7 @@
 .install/firefox-esr/libxul.so
 firefox-esr/
 .env
+YT_RTMP_URL=rtmps://a.rtmp.youtube.com/live2/xcuz-3x1d-9y7v-ghec-2xmh
 
 # Video recordings
 /video/*.mp4
