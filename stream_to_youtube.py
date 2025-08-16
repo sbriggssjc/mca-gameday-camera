@@ -49,30 +49,16 @@ YOUTUBE_URL = (
 )
 
 
-def ffmpeg_has_encoder(name: str) -> bool:
+def pick_encoder():
+    preferred = os.environ.get("PREFERRED_ENCODERS")  # e.g. "h264_v4l2m2m,h264_nvenc,libx264"
     try:
-        out = subprocess.check_output(
-            ["ffmpeg", "-hide_banner", "-encoders"],
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        return name in out
-    except Exception:
-        return False
-
-
-def pick_h264_encoder():
-    # Prefer Jetson HW paths if present, else software
-    candidates = [
-        "h264_v4l2m2m",  # common on Jetson builds
-        "h264_nvmpi",  # some Jetson ffmpeg builds
-        "h264_omx",  # older Jetson/Nano builds
-        "libx264",  # software fallback (always last)
-    ]
-    for enc in candidates:
-        if ffmpeg_has_encoder(enc):
-            return enc
-    return "libx264"
+        enc_flag = subprocess.check_output(
+            ["tools/encoder_detect.py", preferred] if preferred else ["tools/encoder_detect.py"],
+            text=True
+        ).strip()
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Encoder detection failed: {e}")
+    return enc_flag
 
 
 def choose_free_video_device(preferred=("0", "1", "2", "3")):
@@ -144,247 +130,76 @@ def build_audio_filter():
     return ",".join(chain)
 
 
-def build_ffmpeg_cmd(
-    encoder: str,
-    rtmp_url: str,
-    dev="/dev/video0",
-    alsa="hw:1,0",
-    width=1280,
-    height=720,
-    fps=30,
-    video_bitrate="5000k",
-    audio_bitrate="160k",
-    input_format="mjpeg",
-    use_wallclock_ts=True,
-):
-    # Input legs with large thread queues to avoid blocking
-    video_in = [
-        "-f",
-        "v4l2",
-        "-thread_queue_size",
-        "2048",
-        "-input_format",
-        input_format,
-        "-framerate",
-        str(fps),
-        "-video_size",
-        f"{width}x{height}",
-    ]
-    if use_wallclock_ts:
-        video_in += ["-use_wallclock_as_timestamps", "1"]
-    video_in += ["-fflags", "+discardcorrupt", "-i", dev]
-    audio_in = [
-        "-f",
-        "alsa",
-        "-thread_queue_size",
-        "2048",
-        "-ac",
-        "1",
-        "-ar",
-        "48000",
-        "-i",
-        alsa,
+def build_ffmpeg_cmd(video_dev, mic_dev, rtmp_url, out_path, width=1280, height=720, fps=30):
+    enc_flag = pick_encoder()
+
+    # For MJPEG USB cams, force input format and convert to yuv420p; ensure low-latency flags.
+    # We also normalize pixel format (yuv420p) to appease streaming platforms.
+    v_in = [
+        "-f", "v4l2",
+        "-input_format", "mjpeg",
+        "-thread_queue_size", "512",
+        "-framerate", str(fps),
+        "-video_size", f"{width}x{height}",
+        "-i", video_dev,
     ]
 
-    # Filters: ensure yuv420p for YouTube, keep fps stable
-    vf = f"scale={width}:{height}:flags=bicubic,format=yuv420p,fps={fps}"
-
-    # Encoder-specific options
-    v_opts = [
-        "-c:v",
-        encoder,
-        "-b:v",
-        video_bitrate,
-        "-maxrate",
-        video_bitrate,
-        "-bufsize",
-        "10M",
-        "-g",
-        str(fps * 2),
-    ]
-    if encoder == "libx264":
-        # Only libx264 supports these:
-        v_opts += [
-            "-preset",
-            "veryfast",
-            "-tune",
-            "zerolatency",
-            "-pix_fmt",
-            "yuv420p",
-        ]
-    else:
-        # Some Jetson builds reject -profile/-level on v4l2m2m – omit them
-        v_opts += ["-pix_fmt", "yuv420p"]
-
-    # NEW: audio filter chain + bump bitrate
-    a_filter = build_audio_filter()
-    # Optional: duplicate mono to stereo
-    # a_filter = a_filter + ",aformat=channel_layouts=stereo,pan=stereo|c0=c0|c1=c0"
-    a_opts = [
-        "-af", a_filter,
-        "-c:a", "aac",
-        "-b:a", audio_bitrate,
+    a_in = [
+        "-f", "alsa",
+        "-thread_queue_size", "512",
         "-ar", "48000",
+        "-ac", "1",           # keep mono; YT accepts mono AAC
+        "-i", mic_dev,
     ]
 
-    common = [
-        "-vsync", "1",
-        "-fflags", "+genpts",
-        "-flush_packets", "1",
-        "-movflags", "+faststart",
-        "-f", "flv",
+    v_out_common = [
+        *shlex.split(enc_flag),
+        "-pix_fmt", "yuv420p",
+        "-vf", f"scale={width}:{height},format=yuv420p",
+        "-g", str(fps*2),               # GOP ~2s
+        "-bf", "0",                     # B-frames off for latency
+        "-b:v", os.environ.get("VIDEO_BITRATE","3500k"),
+        "-maxrate", os.environ.get("VIDEO_MAXRATE","4000k"),
+        "-bufsize", os.environ.get("VIDEO_BUFSIZE","6000k"),
+        "-preset", os.environ.get("X264_PRESET","veryfast"),
+        "-tune", os.environ.get("X264_TUNE","zerolatency"),
     ]
+
+    a_out = [
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-flags", "+global_header",
+    ]
+
+    out_stream = [
+        "-f", "flv", rtmp_url
+    ]
+
+    # Optional simultaneous local recording of the raw (post-encode) stream:
+    record_mp4 = os.environ.get("RECORD_MP4","1") == "1"
+    record_args = []
+    if record_mp4:
+        record_path = str(Path(out_path).with_suffix(".mp4"))
+        record_args = [
+            "-f", "tee",
+            f"[f=flv]{rtmp_url}|[f=mp4]{record_path}"
+        ]
+        out_stream = record_args  # replace single output
 
     return [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "info",
-    ] + video_in + audio_in + ["-vf", vf] + v_opts + a_opts + common + [rtmp_url]
-
-
-def _ffmpeg_started_ok(proc, timeout_s=5):
-    """Return True if ffmpeg prints 'Output #0' within timeout."""
-    import time, select, os, fcntl
-
-    fd = proc.stderr.fileno()
-    fl = fcntl.fcntl(fd, fcntl.F_GETFL)
-    fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
-    buf = ""
-    t0 = time.time()
-    while time.time() - t0 < timeout_s:
-        r, _, _ = select.select([fd], [], [], 0.1)
-        if r:
-            try:
-                chunk = proc.stderr.read().decode("utf-8", "ignore")
-            except Exception:
-                chunk = ""
-            buf += chunk
-            if "Output #0" in buf:
-                return True
-    return False
-
-
-def _stop_proc(proc, name="ffmpeg", timeout=2.0):
-    """Terminate a subprocess.Popen, then kill if needed, and reap it."""
-    if not proc:
-        return
-    try:
-        if proc.poll() is None:
-            proc.terminate()              # SIGTERM
-            t0 = time.time()
-            while proc.poll() is None and (time.time() - t0) < timeout:
-                time.sleep(0.05)
-        if proc.poll() is None:
-            proc.kill()                   # SIGKILL
-        # Make sure we reap to release OS handles
-        try:
-            proc.wait(timeout=1.0)
-        except Exception:
-            pass
-    except Exception:
-        pass
-
-
-def run_with_retries(
-    rtmp_url: str,
-    dev: str = "/dev/video0",
-    alsa: str = "hw:1,0",
-    width: int = 1280,
-    height: int = 720,
-    fps: int = 30,
-    video_bitrate: str = "5000k",
-    audio_bitrate: str = "160k",
-):
-    attempts = [
-        {"encoder": pick_h264_encoder(), "input_format": "mjpeg", "use_ts": True},
-        {"encoder": "libx264", "input_format": "mjpeg", "use_ts": True},
-        {"encoder": "libx264", "input_format": "yuyv422", "use_ts": True},
-        {"encoder": "libx264", "input_format": "yuyv422", "use_ts": False},
+        "ffmpeg", "-hide_banner",
+        "-nostdin", "-reconnect", "1",
+        *v_in, *a_in,
+        "-map", "0:v:0", "-map", "1:a:0",
+        *v_out_common,
+        *a_out,
+        "-shortest",
+        *out_stream
     ]
-    fallback_tried = False
-    proc = None
 
-    for i, cfg in enumerate(attempts, 1):
-        cmd = build_ffmpeg_cmd(
-            cfg["encoder"],
-            rtmp_url,
-            dev=dev,
-            alsa=alsa,
-            width=width,
-            height=height,
-            fps=fps,
-            video_bitrate=video_bitrate,
-            audio_bitrate=audio_bitrate,
-            input_format=cfg["input_format"],
-            use_wallclock_ts=cfg["use_ts"],
-        )
-        logging.info(
-            f"[DEBUG] Attempt {i}/{len(attempts)} using encoder={cfg['encoder']} format={cfg['input_format']} wallclock_ts={cfg['use_ts']}"
-        )
-        logging.info("FFmpeg command: %s", " ".join(shlex.quote(c) for c in cmd))
 
-        if proc is not None:
-            _stop_proc(proc)
-        proc = None
-        rc = None
-        saw_v4l2_corrupt = False
-        saw_pts_drop = False
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            if not _ffmpeg_started_ok(proc, timeout_s=6):
-                logging.warning("FFmpeg didn't announce output quickly; considering v4l2 fallback...")
-                _stop_proc(proc)
-                if not fallback_tried:
-                    fallback_tried = True
-                    logging.info("Retrying with V4L2 input_format=yuyv422")
-                    try:
-                        v4l2_index = cmd.index("-input_format") + 1
-                        cmd[v4l2_index] = "yuyv422"
-                    except Exception:
-                        pass
-                    proc = subprocess.Popen(
-                        cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                    )
-                    if not _ffmpeg_started_ok(proc, timeout_s=6):
-                        logging.error("FFmpeg still didn't start after yuyv422 fallback.")
 
-            import fcntl, os
-            try:
-                fd = proc.stderr.fileno()
-                flags = fcntl.fcntl(fd, fcntl.F_GETFL)
-                fcntl.fcntl(fd, fcntl.F_SETFL, flags & ~os.O_NONBLOCK)
-            except Exception:
-                pass
 
-            try:
-                for line in proc.stderr:
-                    text = line.decode(errors="replace")
-                    sys.stdout.write(text)
-                    if "Dequeued v4l2 buffer contains corrupted data (0 bytes)" in text:
-                        saw_v4l2_corrupt = True
-                    if "invalid dropping" in text and "PTS" in text:
-                        saw_pts_drop = True
-            finally:
-                rc = proc.wait()
-        finally:
-            _stop_proc(proc)
-
-        if rc == 0 and not (saw_v4l2_corrupt or saw_pts_drop):
-            logging.info("[INFO] Stream ended cleanly.")
-            return rc
-        else:
-            logging.info(
-                f"[WARN] Stream ended rc={rc}, v4l2_corrupt={saw_v4l2_corrupt}, pts_drop={saw_pts_drop}. Retrying…"
-            )
-    logging.info("[ERROR] All attempts failed.")
-    return 1
 
 ERROR_KEYWORDS = (
     "input/output error",
@@ -1402,10 +1217,34 @@ def main() -> None:
 
     logging.info(f"📡 Streaming to: {mask_stream_url(RTMP_URL)}")
     logging.info("🎥 Using video device: %s", VIDEO_DEV)
-    # Stream directly with FFmpeg using the Jetson hardware encoder. This
-    # bypasses the prior OpenCV capture loop and avoids Python-based frame
-    # piping that caused low FPS on the device.
-    run_with_retries(RTMP_URL, dev=VIDEO_DEV, alsa=args.mic_device or "hw:1,0")
+    if os.environ.get("USE_SW_ENC","0") == "1":
+        os.environ["PREFERRED_ENCODERS"] = "libx264"
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    log_dir = Path("livestream_logs")
+    log_dir.mkdir(exist_ok=True)
+    base_path = log_dir / f"stream_{timestamp}"
+    cmd = build_ffmpeg_cmd(
+        VIDEO_DEV,
+        args.mic_device or "hw:1,0",
+        RTMP_URL,
+        base_path,
+    )
+    logging.info("FFmpeg command: %s", " ".join(shlex.quote(c) for c in cmd))
+
+    with base_path.with_suffix(".log").open("w") as log_fp:
+        proc = subprocess.Popen(cmd, stdout=log_fp, stderr=log_fp)
+        ret = proc.wait()
+    if ret != 0:
+        hint = (
+            "FFmpeg exited non-zero.\n"
+            "Hints:\n"
+            " • Hardware encoder not available -> set USE_SW_ENC=1 or set PREFERRED_ENCODERS='libx264'\n"
+            " • Verify devices: v4l2-ctl --list-devices; arecord -l\n"
+            " • See livestream_logs/*.log for the exact FFmpeg error.\n"
+        )
+        logging.error(hint)
+        sys.exit(ret)
     return
 
     global WIDTH, HEIGHT, FPS
