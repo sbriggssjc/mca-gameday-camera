@@ -244,7 +244,8 @@ def run_with_retries(
         logging.info(
             f"[DEBUG] Attempt {i}/{len(attempts)} using encoder={cfg['encoder']} format={cfg['input_format']} wallclock_ts={cfg['use_ts']}"
         )
-        logging.info("FFmpeg command:", " ".join(shlex.quote(c) for c in cmd))
+        cmd_str = " ".join(shlex.quote(c) for c in cmd)
+    logging.info("FFmpeg command: %s", cmd_str)
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -997,7 +998,7 @@ def launch_ffmpeg(
         diagnose_only=diagnose_only,
     )
 
-    logging.info("[FFMPEG COMMAND]", " ".join(ffmpeg_command))
+    logging.info("[FFMPEG COMMAND] %s", " ".join(ffmpeg_command))
     log_fp.write("FFMPEG COMMAND: " + " ".join(ffmpeg_command) + "\n")
     log_fp.flush()
 
