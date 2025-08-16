@@ -1,80 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# --- load .env files if present (bash-compatible syntax required) ---
-load_env() {
-  for f in ".env" ".env.local" ".env.production"; do
-    if [[ -f "$f" ]]; then
-      # shellcheck disable=SC1090
-      set -a; source "$f"; set +a
-    fi
-  done
-}
-load_env
+# --- load .env if present ---
+for f in ".env" ".env.local" ".env.production"; do
+  [[ -f "$f" ]] && { set -a; source "$f"; set +a; }
+done
 
-# --- helpers ---
-mask() {
-  local s="${1:-}"
-  # show first 8 chars then ****
-  if [[ -n "$s" ]]; then
-    echo "${s:0:8}****"
-  else
-    echo ""
-  fi
-}
+mask(){ local s="${1:-}"; [[ -n "$s" ]] && echo "${s:0:8}****" || echo ""; }
 
-if [[ "${1-}" == "--check-env" ]]; then
-  echo "YT_RTMP_URL present? $([[ -n "${YT_RTMP_URL:-}" ]] && echo yes || echo no)"
-  echo "YOUTUBE_RTMP_URL present? $([[ -n "${YOUTUBE_RTMP_URL:-}" ]] && echo yes || echo no)"
-  echo "YOUTUBE_URL present? $([[ -n "${YOUTUBE_URL:-}" ]] && echo yes || echo no)"
-  echo "RTMP_URL present? $([[ -n "${RTMP_URL:-}" ]] && echo yes || echo no)"
-  exit 0
-fi
+# --- flags ---
+CONSOLE=0
+if [[ "${1-}" == "--console" ]]; then CONSOLE=1; shift || true; fi
 
-# --- resolve RTMP URL from multiple possible variable names ---
-# Preferred: YT_RTMP_URL; fallbacks: YOUTUBE_RTMP_URL, YOUTUBE_URL, RTMP_URL
+# --- resolve RTMP URL from multiple names or STREAM_KEY ---
+RTMP_SCHEME="${RTMP_SCHEME:-rtmps}"   # set to "rtmp" to test non-TLS
 : "${YT_RTMP_URL:=${YOUTUBE_RTMP_URL:-${YOUTUBE_URL:-${RTMP_URL:-}}}}"
+if [[ -z "${YT_RTMP_URL:-}" && -n "${STREAM_KEY:-}" ]]; then
+  YT_RTMP_URL="${RTMP_SCHEME}://a.rtmp.youtube.com/live2/${STREAM_KEY}"
+fi
 RTMP_URL="${YT_RTMP_URL:-}"
 
-if [[ -z "${RTMP_URL}" ]]; then
-  echo "❌ YT_RTMP_URL not set. Put it in .env (e.g., YT_RTMP_URL=rtmps://a.rtmp.youtube.com/live2/XXXX-XXXX-XXXX-XXXX)"
-  echo "   Tip: run './gameday --check-env' to verify variables are loading."
-  exit 1
-fi
-
-# --- Config / defaults ---
-WIDTH="${WIDTH:-1280}"
-HEIGHT="${HEIGHT:-720}"
-FPS="${FPS:-30}"
-
+# --- config ---
+WIDTH="${WIDTH:-1280}"; HEIGHT="${HEIGHT:-720}"; FPS="${FPS:-30}"
 VIDEO_DEV="${VIDEO_DEV:-/dev/video0}"
 AUDIO_DEV="${AUDIO_DEV:-hw:1,0}"
-
 VIDEO_BITRATE="${VIDEO_BITRATE:-3500k}"
 VIDEO_MAXRATE="${VIDEO_MAXRATE:-4000k}"
 VIDEO_BUFSIZE="${VIDEO_BUFSIZE:-6000k}"
+LOGLEVEL="${LOGLEVEL:-info}"
+TEE_MODE="${TEE_MODE:-both}"  # both | file | rtmp
 
 RECORD_DIR="${RECORD_DIR:-recordings}"
 LOG_DIR="${LOG_DIR:-livestream_logs}"
 mkdir -p "$RECORD_DIR" "$LOG_DIR"
-
 TS="$(date +%Y%m%d_%H%M%S)"
 REC_PATH="${RECORD_DIR}/${TS}_raw.mkv"
 LOG_PATH="${LOG_DIR}/${TS}.log"
 
-# --- Encoder auto-pick ---
-# Force software if requested, or allow user to skip HW encoders entirely.
-DET_ARGS=( "--silent" )
-if [[ "${USE_SW_ENC:-0}" == "1" || "${SKIP_HW_ENC:-0}" == "1" ]]; then
-  DET_ARGS+=( "--skip-hw" )
-fi
-if [[ -n "${PREFERRED_ENCODERS-}" ]]; then
-  DET_ARGS+=( "--preferred" "${PREFERRED_ENCODERS}" )
-fi
-ENC_FLAG="$(tools/encoder_detect.py "${DET_ARGS[@]}" || true)"
-if [[ -z "$ENC_FLAG" ]]; then
-  echo "❌ No working H.264 encoder found."
-  exit 1
+# --- encoder selection ---
+if [[ "${USE_SW_ENC:-0}" == "1" || "${SKIP_HW_ENC:-0}" == "1" || "${LEGACY_MODE:-0}" == "1" ]]; then
+  ENC_FLAG="-c:v libx264"
+else
+  DET_ARGS=( --silent )
+  [[ -n "${PREFERRED_ENCODERS-}" ]] && DET_ARGS+=( --preferred "${PREFERRED_ENCODERS}" )
+  ENC_FLAG="$(tools/encoder_detect.py "${DET_ARGS[@]}")"
 fi
 
 echo "📡 Streaming to: $(mask "$RTMP_URL")"
@@ -82,24 +51,58 @@ echo "🎥 Using video device: ${VIDEO_DEV}"
 echo "🎤 Using mic: ${AUDIO_DEV}"
 echo "🗂  Recording file: ${REC_PATH}"
 echo "📜 Log: ${LOG_PATH}"
+echo "⚙️  Encoder: ${ENC_FLAG}"
 
-# --- FFmpeg ---
+# --- common ffmpeg args ---
+FFMPEG_COMMON=(
+  -hide_banner -nostdin -loglevel "$LOGLEVEL" -fflags +genpts
+  -f v4l2 -input_format mjpeg -framerate "$FPS" -video_size "${WIDTH}x${HEIGHT}" -thread_queue_size 512 -i "$VIDEO_DEV"
+  -f alsa -ar 48000 -ac 1 -thread_queue_size 512 -i "$AUDIO_DEV"
+  -map 0:v:0 -map 1:a:0
+)
+FFMPEG_VIDEO=(
+  $ENC_FLAG -pix_fmt yuv420p -vf "scale=${WIDTH}:${HEIGHT},format=yuv420p"
+  -g "$((FPS*2))" -bf 0
+  -b:v "$VIDEO_BITRATE" -maxrate "$VIDEO_MAXRATE" -bufsize "$VIDEO_BUFSIZE"
+  -preset "${X264_PRESET:-veryfast}" -tune "${X264_TUNE:-zerolatency}"
+)
+FFMPEG_AUDIO=( -c:a aac -b:a 128k -flags +global_header )
+
+# --- outputs (resilient tee) ---
+case "$TEE_MODE" in
+  both)
+    if [[ -z "$RTMP_URL" ]]; then
+      echo "ℹ️  No RTMP URL; falling back to file-only."
+      FFMPEG_OUT=( -f matroska "$REC_PATH" )
+    else
+      # onfail=ignore keeps recording even if RTMP fails; use_fifo avoids blocking
+      FFMPEG_OUT=( -f tee "[onfail=ignore:use_fifo=1:f=flv]${RTMP_URL}|[f=matroska]${REC_PATH}" )
+    fi
+    ;;
+  file)
+    FFMPEG_OUT=( -f matroska "$REC_PATH" )
+    ;;
+  rtmp)
+    if [[ -z "$RTMP_URL" ]]; then echo "❌ YT_RTMP_URL/STREAM_KEY missing"; exit 1; fi
+    FFMPEG_OUT=( -f flv "$RTMP_URL" )
+    ;;
+  *) echo "Invalid TEE_MODE: $TEE_MODE"; exit 1;;
+esac
+
+# --- run ffmpeg, mirror logs if --console, print tail on failure ---
 set -x
-ffmpeg -hide_banner -nostdin -fflags +genpts \
-  -f v4l2 -input_format mjpeg -framerate "${FPS}" -video_size "${WIDTH}x${HEIGHT}" -thread_queue_size 512 -i "${VIDEO_DEV}" \
-  -f alsa -ar 48000 -ac 1 -thread_queue_size 512 -i "${AUDIO_DEV}" \
-  -map 0:v:0 -map 1:a:0 \
-  ${ENC_FLAG} -pix_fmt yuv420p -vf "scale=${WIDTH}:${HEIGHT},format=yuv420p" \
-  -g "$((FPS*2))" -bf 0 -b:v "${VIDEO_BITRATE}" -maxrate "${VIDEO_MAXRATE}" -bufsize "${VIDEO_BUFSIZE}" \
-  -preset "${X264_PRESET:-veryfast}" -tune "${X264_TUNE:-zerolatency}" \
-  -c:a aac -b:a 128k -flags +global_header \
-  -f tee "[f=flv]${RTMP_URL}|[f=matroska]${REC_PATH}" \
-  2> "${LOG_PATH}" || {
+if [[ "$CONSOLE" == "1" ]]; then
+  if ! ffmpeg "${FFMPEG_COMMON[@]}" "${FFMPEG_VIDEO[@]}" "${FFMPEG_AUDIO[@]}" "${FFMPEG_OUT[@]}" 2> >(tee "$LOG_PATH" >&2); then
     set +x
-    echo
-    echo "⚠️  FFmpeg exited non-zero. Hints:" | tee -a "${LOG_PATH}"
-    echo " • HW encoder failed? Try: USE_SW_ENC=1 ./gameday" | tee -a "${LOG_PATH}"
-    echo " • Check devices: v4l2-ctl --list-devices ; arecord -l" | tee -a "${LOG_PATH}"
-    echo " • See log: ${LOG_PATH}" | tee -a "${LOG_PATH}"
+    echo -e "\n⚠️  FFmpeg exited non-zero. Last 60 log lines:\n"
+    tail -n 60 "$LOG_PATH" || true
     exit 1
-  }
+  fi
+else
+  if ! ffmpeg "${FFMPEG_COMMON[@]}" "${FFMPEG_VIDEO[@]}" "${FFMPEG_AUDIO[@]}" "${FFMPEG_OUT[@]}" 2> "$LOG_PATH"; then
+    set +x
+    echo -e "\n⚠️  FFmpeg exited non-zero. See log: $LOG_PATH"
+    tail -n 60 "$LOG_PATH" || true
+    exit 1
+  fi
+fi
