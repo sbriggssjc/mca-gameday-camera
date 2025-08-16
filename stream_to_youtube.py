@@ -41,12 +41,6 @@ from config import StreamConfig, load_config
 load_env()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-
-def _log_cmd(prefix: str, cmd: list[str]) -> None:
-    import shlex
-    cmd_str = " ".join(shlex.quote(c) for c in cmd)
-    logging.info("%s %s", prefix, cmd_str)
-
 # Try both the old and new env var names
 YOUTUBE_URL = (
     os.environ.get("YT_RTMP_URL")
@@ -255,7 +249,7 @@ def run_with_retries(
         logging.info(
             f"[DEBUG] Attempt {i}/{len(attempts)} using encoder={cfg['encoder']} format={cfg['input_format']} wallclock_ts={cfg['use_ts']}"
         )
-        _log_cmd("FFmpeg command:", cmd)
+        logging.info("FFmpeg command: %s", " ".join(shlex.quote(c) for c in cmd))
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -1008,7 +1002,7 @@ def launch_ffmpeg(
         diagnose_only=diagnose_only,
     )
 
-    _log_cmd("[FFMPEG COMMAND]", ffmpeg_command)
+    logging.info("FFmpeg command: %s", " ".join(shlex.quote(c) for c in ffmpeg_command))
     log_fp.write("FFMPEG COMMAND: " + " ".join(ffmpeg_command) + "\n")
     log_fp.flush()
 
