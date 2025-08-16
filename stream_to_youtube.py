@@ -1,8 +1,7 @@
 import cv2
-import subprocess
+import os, subprocess, shlex
 import time, signal
 import numpy as np
-import os
 import glob
 import re
 import threading
@@ -12,7 +11,6 @@ from collections import deque
 from urllib.parse import urlparse
 import argparse
 import logging
-import shlex
 from env_loader import load_env, require
 
 import roster
@@ -167,9 +165,23 @@ def build_ffmpeg_cmd(video_dev, mic_dev, rtmp_url, out_path, width=1280, height=
     else:
         out = ["-f", "flv", rtmp_url]
 
-    return ["ffmpeg", "-hide_banner", "-nostdin",
-            *v_in, *a_in, "-map", "0:v:0", "-map", "1:a:0",
-            *v_out, *a_out, "-shortest", *out]
+    return [
+        "ffmpeg",
+        "-hide_banner",
+        "-nostdin",
+        "-fflags",
+        "+genpts",
+        *v_in,
+        *a_in,
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        *v_out,
+        *a_out,
+        "-shortest",
+        *out,
+    ]
 
 
 
