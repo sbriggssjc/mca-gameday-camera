@@ -3,3 +3,4 @@ deep_sort_realtime
 easyocr
 opencv-python
 torch
+schedule>=1.2.0
