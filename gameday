@@ -1,6 +1,47 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# --- load .env files if present (bash-compatible syntax required) ---
+load_env() {
+  for f in ".env" ".env.local" ".env.production"; do
+    if [[ -f "$f" ]]; then
+      # shellcheck disable=SC1090
+      set -a; source "$f"; set +a
+    fi
+  done
+}
+load_env
+
+# --- helpers ---
+mask() {
+  local s="${1:-}"
+  # show first 8 chars then ****
+  if [[ -n "$s" ]]; then
+    echo "${s:0:8}****"
+  else
+    echo ""
+  fi
+}
+
+if [[ "${1-}" == "--check-env" ]]; then
+  echo "YT_RTMP_URL present? $([[ -n "${YT_RTMP_URL:-}" ]] && echo yes || echo no)"
+  echo "YOUTUBE_RTMP_URL present? $([[ -n "${YOUTUBE_RTMP_URL:-}" ]] && echo yes || echo no)"
+  echo "YOUTUBE_URL present? $([[ -n "${YOUTUBE_URL:-}" ]] && echo yes || echo no)"
+  echo "RTMP_URL present? $([[ -n "${RTMP_URL:-}" ]] && echo yes || echo no)"
+  exit 0
+fi
+
+# --- resolve RTMP URL from multiple possible variable names ---
+# Preferred: YT_RTMP_URL; fallbacks: YOUTUBE_RTMP_URL, YOUTUBE_URL, RTMP_URL
+: "${YT_RTMP_URL:=${YOUTUBE_RTMP_URL:-${YOUTUBE_URL:-${RTMP_URL:-}}}}"
+RTMP_URL="${YT_RTMP_URL:-}"
+
+if [[ -z "${RTMP_URL}" ]]; then
+  echo "❌ YT_RTMP_URL not set. Put it in .env (e.g., YT_RTMP_URL=rtmps://a.rtmp.youtube.com/live2/XXXX-XXXX-XXXX-XXXX)"
+  echo "   Tip: run './gameday --check-env' to verify variables are loading."
+  exit 1
+fi
+
 # --- Config / defaults ---
 WIDTH="${WIDTH:-1280}"
 HEIGHT="${HEIGHT:-720}"
@@ -21,13 +62,7 @@ TS="$(date +%Y%m%d_%H%M%S)"
 REC_PATH="${RECORD_DIR}/${TS}_raw.mkv"
 LOG_PATH="${LOG_DIR}/${TS}.log"
 
-RTMP_URL="${YT_RTMP_URL:-}"
-if [[ -z "${RTMP_URL}" ]]; then
-  echo "❌ YT_RTMP_URL not set. Export it or put it in .env"
-  exit 1
-fi
-
-# --- Encoder auto-pick ---
+# --- Encoder auto-pick (force SW if USE_SW_ENC=1) ---
 if [[ "${USE_SW_ENC:-0}" == "1" ]]; then
   PREFERRED_ENCODERS="libx264"
 fi
@@ -37,17 +72,13 @@ if [[ -z "$ENC_FLAG" ]]; then
   exit 1
 fi
 
-echo "📡 Streaming to: ${RTMP_URL}"
+echo "📡 Streaming to: $(mask "$RTMP_URL")"
 echo "🎥 Using video device: ${VIDEO_DEV}"
 echo "🎤 Using mic: ${AUDIO_DEV}"
 echo "🗂  Recording file: ${REC_PATH}"
 echo "📜 Log: ${LOG_PATH}"
 
-# --- Build FFmpeg command ---
-# Notes:
-# - Force MJPEG input for USB cams, then normalize to yuv420p
-# - Add -fflags +genpts to smooth DTS/PTS during warmup
-# - Use tee to stream to YT and record locally
+# --- FFmpeg ---
 set -x
 ffmpeg -hide_banner -nostdin -fflags +genpts \
   -f v4l2 -input_format mjpeg -framerate "${FPS}" -video_size "${WIDTH}x${HEIGHT}" -thread_queue_size 512 -i "${VIDEO_DEV}" \
@@ -67,4 +98,3 @@ ffmpeg -hide_banner -nostdin -fflags +genpts \
     echo " • See log: ${LOG_PATH}" | tee -a "${LOG_PATH}"
     exit 1
   }
-
