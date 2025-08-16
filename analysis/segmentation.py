@@ -1,22 +1,53 @@
 from __future__ import annotations
 from typing import List, Dict, Any
+from pathlib import Path
+import numbers
 import cv2
 import numpy as np
 
+def _to_float(val, fallback: float) -> float:
+    if isinstance(val, numbers.Number):
+        return float(val)
+    try:
+        return float(val)  # handles numeric strings
+    except Exception:
+        return float(fallback)
+
 def segment_video(
     path: str,
+    *args: Any,                   # tolerate stray positional args from caller
     min_play_gap: float = 1.5,
     min_play_length: float = 6.0,
     warmup: float = 0.5,
     tail_margin: float = 1.5,
     downscale: int = 2,
     motion_thresh: float = 8.0,   # higher -> fewer/tighter segments
-    **kwargs: Any,                # tolerate extra args (e.g., cfg)
+    **kwargs: Any,                # tolerate extra kwargs (e.g., cfg, dirs)
 ) -> List[Dict]:
     """
     Returns: [{"id": "PLAY_001", "t0": start_sec, "t1": end_sec}, ...]
-    Simple frame-diff motion segmentation; robust to sparse tracking.
+    Simple frame-diff motion segmentation; robust to sparse tracking and
+    robust to unexpected extra args from the pipeline.
     """
+
+    # If the pipeline passed extra positionals (e.g., a Path to a directory),
+    # try to extract numeric overrides in order: [min_play_gap, min_play_length]
+    # and ignore non-numeric extras.
+    _nums = [a for a in args if isinstance(a, numbers.Number) or (isinstance(a, str) and a.replace('.','',1).isdigit())]
+    if _nums:
+        if len(_nums) >= 1:
+            min_play_gap = _to_float(_nums[0], min_play_gap)
+        if len(_nums) >= 2:
+            min_play_length = _to_float(_nums[1], min_play_length)
+
+    # Final type safety in case kwargs or args injected weird types
+    min_play_gap = _to_float(min_play_gap, 1.5)
+    min_play_length = _to_float(min_play_length, 6.0)
+    warmup = _to_float(warmup, 0.5)
+    tail_margin = _to_float(tail_margin, 1.5)
+    motion_thresh = _to_float(motion_thresh, 8.0)
+    downscale = int(_to_float(downscale, 2))
+
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         raise FileNotFoundError(f"Cannot open video: {path}")
