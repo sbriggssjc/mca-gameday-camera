@@ -3,6 +3,7 @@ import subprocess
 import time
 import numpy as np
 import os
+import glob
 import re
 import threading
 import queue
@@ -73,6 +74,34 @@ def pick_h264_encoder():
         if ffmpeg_has_encoder(enc):
             return enc
     return "libx264"
+
+
+def choose_free_video_device(preferred=("0", "1", "2", "3")):
+    """
+    Return the first /dev/videoN that is not in use.
+    Falls back to /dev/video0 if uncertain or none found.
+    """
+    import os, glob, subprocess
+    # Candidate list: preferred order, then any other /dev/video*
+    candidates = [f"/dev/video{n}" for n in preferred]
+    others = sorted(glob.glob("/dev/video*"))
+    seen = set()
+    devices = [d for d in candidates + others if (d not in seen and not seen.add(d))]
+
+    for dev in devices:
+        if not os.path.exists(dev):
+            continue
+        in_use = False
+        try:
+            # fuser -s returns 0 when IN USE
+            in_use = subprocess.run(["fuser", "-s", dev]).returncode == 0
+        except FileNotFoundError:
+            # If fuser is missing, assume free (best effort)
+            in_use = False
+        if not in_use:
+            return dev
+
+    return devices[0] if devices else "/dev/video0"
 
 
 def build_audio_filter():
@@ -1266,6 +1295,7 @@ def main() -> None:
     parser.add_argument("--resolution", default=None, help="Capture resolution WxH")
     parser.add_argument("--fps", type=int, default=None, help="Capture FPS")
     parser.add_argument("--camera", type=int, default=None, help="Camera index")
+    parser.add_argument("--video-device", dest="video_device", default=None, help="V4L2 video device path")
     parser.add_argument("--bitrate", default=None, help="Target video bitrate")
     parser.add_argument("--maxrate", default=None, help="Max video bitrate")
     parser.add_argument("--bufsize", default=None, help="Encoder buffer size")
@@ -1294,6 +1324,13 @@ def main() -> None:
         help="Always append -rtmp_flags prefer_ipv4",
     )
     args = parser.parse_args()
+
+    # CLI has highest priority, then env, then auto-pick
+    VIDEO_DEV = (
+        getattr(args, "video_device", None)
+        or os.environ.get("VIDEO_DEVICE")
+        or choose_free_video_device()
+    )
 
     cfg: StreamConfig = load_config(args.config, args)
 
@@ -1339,10 +1376,11 @@ def main() -> None:
         return
 
     logging.info(f"📡 Streaming to: {mask_stream_url(RTMP_URL)}")
+    logging.info("🎥 Using video device: %s", VIDEO_DEV)
     # Stream directly with FFmpeg using the Jetson hardware encoder. This
     # bypasses the prior OpenCV capture loop and avoids Python-based frame
     # piping that caused low FPS on the device.
-    run_with_retries(RTMP_URL, alsa=args.mic_device or "hw:1,0")
+    run_with_retries(RTMP_URL, dev=VIDEO_DEV, alsa=args.mic_device or "hw:1,0")
     return
 
     global WIDTH, HEIGHT, FPS
