@@ -2,9 +2,13 @@
 set -euo pipefail
 
 if [[ "${1-}" == "--self-test" ]]; then
-  echo "🔎 Probing encoder availability..."
-  tools/encoder_detect.py "${PREFERRED_ENCODERS-}" || { echo "❌ No encoder works"; exit 1; }
-  echo "✅ Encoder probe passed: $(tools/encoder_detect.py "${PREFERRED_ENCODERS-}")"
+  echo "🔎 Probing encoder..."
+  pref="${PREFERRED_ENCODERS-}"
+  if [[ "${USE_SW_ENC-0}" == "1" ]]; then
+    pref="libx264"
+  fi
+  tools/encoder_detect.py "${pref}" || { echo "❌ No encoder works"; exit 1; }
+  echo "✅ $(tools/encoder_detect.py "${pref}")"
   exit 0
 fi
 
