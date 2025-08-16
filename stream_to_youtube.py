@@ -245,7 +245,7 @@ def run_with_retries(
             f"[DEBUG] Attempt {i}/{len(attempts)} using encoder={cfg['encoder']} format={cfg['input_format']} wallclock_ts={cfg['use_ts']}"
         )
         cmd_str = " ".join(shlex.quote(c) for c in cmd)
-    logging.info("FFmpeg command: %s", cmd_str)
+        logging.info("FFmpeg command: %s", " ".join(shlex.quote(c) for c in cmd))
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
