@@ -1,3 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+if [[ "${1-}" == "--self-test" ]]; then
+  echo "🔎 Probing encoder availability..."
+  tools/encoder_detect.py "${PREFERRED_ENCODERS-}" || { echo "❌ No encoder works"; exit 1; }
+  echo "✅ Encoder probe passed: $(tools/encoder_detect.py "${PREFERRED_ENCODERS-}")"
+  exit 0
+fi
+
 exec "$(dirname "$0")/scripts/gameday_launcher.sh"
