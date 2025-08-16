@@ -41,7 +41,12 @@ from config import StreamConfig, load_config
 load_env()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-YOUTUBE_URL = os.environ.get("YT_RTMP_URL") or require("YT_RTMP_URL")
+# Try both the old and new env var names
+YOUTUBE_URL = (
+    os.environ.get("YT_RTMP_URL")
+    or os.environ.get("YOUTUBE_RTMP_URL")
+    or require(["YT_RTMP_URL", "YOUTUBE_RTMP_URL"])
+)
 
 
 def ffmpeg_has_encoder(name: str) -> bool:
