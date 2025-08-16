@@ -62,11 +62,16 @@ TS="$(date +%Y%m%d_%H%M%S)"
 REC_PATH="${RECORD_DIR}/${TS}_raw.mkv"
 LOG_PATH="${LOG_DIR}/${TS}.log"
 
-# --- Encoder auto-pick (force SW if USE_SW_ENC=1) ---
-if [[ "${USE_SW_ENC:-0}" == "1" ]]; then
-  PREFERRED_ENCODERS="libx264"
+# --- Encoder auto-pick ---
+# Force software if requested, or allow user to skip HW encoders entirely.
+DET_ARGS=( "--silent" )
+if [[ "${USE_SW_ENC:-0}" == "1" || "${SKIP_HW_ENC:-0}" == "1" ]]; then
+  DET_ARGS+=( "--skip-hw" )
 fi
-ENC_FLAG="$(tools/encoder_detect.py "${PREFERRED_ENCODERS-}" || true)"
+if [[ -n "${PREFERRED_ENCODERS-}" ]]; then
+  DET_ARGS+=( "--preferred" "${PREFERRED_ENCODERS}" )
+fi
+ENC_FLAG="$(tools/encoder_detect.py "${DET_ARGS[@]}" || true)"
 if [[ -z "$ENC_FLAG" ]]; then
   echo "❌ No working H.264 encoder found."
   exit 1
