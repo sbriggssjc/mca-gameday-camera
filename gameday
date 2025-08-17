@@ -8,26 +8,31 @@ done
 
 mask(){ local s="${1:-}"; [[ -n "$s" ]] && echo "${s:0:8}****" || echo ""; }
 
-# ---- helper: discover video device ----
-find_video_dev() {
-  local want="${VIDEO_DEV:-}"
-  # 1) If provided and exists, use it
-  if [[ -n "$want" && -e "$want" ]]; then echo "$want"; return 0; fi
-  # 2) Prefer stable by-id links (index0 = capture)
-  if [[ -d /dev/v4l/by-id ]]; then
-    local link
-    link="$(ls -1 /dev/v4l/by-id/*video-index0* 2>/dev/null | head -n1 || true)"
-    if [[ -n "$link" ]]; then
-      readlink -f "$link"; return 0
-    fi
+# ---- helper: is a video device free? ----
+is_video_free() {
+  local dev="$1"
+  # Try a 0.5s open-and-close. If it succeeds, device is usable.
+  ffmpeg -v error -f v4l2 -framerate 1 -video_size 320x240 -i "$dev" -t 0.5 -f null - >/dev/null 2>&1
+}
+
+# ---- helper: pick a free video device ----
+pick_free_video() {
+  # 1) user-provided and free?
+  if [[ -n "${VIDEO_DEV:-}" && -e "${VIDEO_DEV}" ]] && is_video_free "${VIDEO_DEV}"; then
+    echo "${VIDEO_DEV}"; return 0
   fi
-  # 3) Fallback: first /dev/video* node that responds
+  # 2) by-id (stable)
+  if [[ -d /dev/v4l/by-id ]]; then
+    for link in /dev/v4l/by-id/*video-index0*; do
+      [[ -e "$link" ]] || continue
+      dev="$(readlink -f "$link")"
+      if is_video_free "$dev"; then echo "$dev"; return 0; fi
+    done
+  fi
+  # 3) generic /dev/video*
   for dev in /dev/video*; do
     [[ -e "$dev" ]] || continue
-    # quick probe: attempt to read caps (non-fatal)
-    if v4l2-ctl --device="$dev" --all >/dev/null 2>&1; then
-      echo "$dev"; return 0
-    fi
+    if is_video_free "$dev"; then echo "$dev"; return 0; fi
   done
   return 1
 }
@@ -61,6 +66,14 @@ if [[ "${1-}" == "--devices" ]]; then
   exit 0
 fi
 
+# --- free video helper ---
+if [[ "${1-}" == "--free-video" ]]; then
+  shift || true
+  echo "🔧 Releasing holders of /dev/video* ..."
+  sudo fuser -k /dev/video* || true
+  exit 0
+fi
+
 # --- resolve RTMP URL from multiple names or STREAM_KEY ---
 RTMP_SCHEME="${RTMP_SCHEME:-rtmps}"   # set to "rtmp" to test non-TLS
 : "${YT_RTMP_URL:=${YOUTUBE_RTMP_URL:-${YOUTUBE_URL:-${RTMP_URL:-}}}}"
@@ -71,7 +84,6 @@ RTMP_URL="${YT_RTMP_URL:-}"
 
 # --- config ---
 WIDTH="${WIDTH:-1280}"; HEIGHT="${HEIGHT:-720}"; FPS="${FPS:-30}"
-VIDEO_DEV="${VIDEO_DEV:-/dev/video0}"
 AUDIO_DEV="${AUDIO_DEV:-hw:1,0}"
 VIDEO_BITRATE="${VIDEO_BITRATE:-3500k}"
 VIDEO_MAXRATE="${VIDEO_MAXRATE:-4000k}"
@@ -98,10 +110,10 @@ fi
 echo "📡 Streaming to: $(mask "$RTMP_URL")"
 
 # --- resolve devices (auto) ---
-VIDEO_DEV="$(find_video_dev || true)"
+VIDEO_DEV="$(pick_free_video || true)"
 AUDIO_DEV="$(find_audio_dev || true)"
-if [[ -z "$VIDEO_DEV" || ! -e "$VIDEO_DEV" ]]; then
-  echo "❌ No camera found. Try: ./gameday --devices  (plug camera, check /dev/v4l/by-id, then set VIDEO_DEV=/dev/videoX)"
+if [[ -z "$VIDEO_DEV" ]]; then
+  echo "❌ No free camera found. Try: ./gameday --devices or ./gameday --free-video"
   exit 1
 fi
 if ! arecord -l >/dev/null 2>&1; then
