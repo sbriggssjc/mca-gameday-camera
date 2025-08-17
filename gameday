@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# --- capture user overrides passed on the command-line (so .env doesn't clobber them)
+USER_VIDEO_DEV="${VIDEO_DEV-}"
+USER_AUDIO_DEV="${AUDIO_DEV-}"
+USER_RTMP_URL="${YT_RTMP_URL-}${YOUTUBE_RTMP_URL-}${YOUTUBE_URL-}${RTMP_URL-}"
+USER_STREAM_KEY="${STREAM_KEY-}"
+
 # --- load .env if present (ignore malformed lines) ---
 load_env_file() {
   local file="$1"
@@ -20,6 +26,24 @@ load_env_file() {
 for f in ".env" ".env.local" ".env.production"; do
   [[ -f "$f" ]] && load_env_file "$f"
 done
+
+# --- restore user overrides if they were provided
+[[ -n "${USER_VIDEO_DEV-}" ]] && VIDEO_DEV="$USER_VIDEO_DEV"
+[[ -n "${USER_AUDIO_DEV-}" ]] && AUDIO_DEV="$USER_AUDIO_DEV"
+[[ -n "${USER_RTMP_URL-}" ]] && YT_RTMP_URL="$USER_RTMP_URL"
+[[ -n "${USER_STREAM_KEY-}" ]] && STREAM_KEY="$USER_STREAM_KEY"
+
+# --- sanitize vars: drop trailing comments and trim whitespace
+_trim_var() {
+  local name="$1" val
+  eval "val=\${$name:-}"
+  val="${val%%\#*}"
+  val="$(echo "$val" | xargs)"
+  printf -v "$name" '%s' "$val"
+}
+_trim_var VIDEO_DEV
+_trim_var AUDIO_DEV
+[[ -z "${AUDIO_DEV:-}" ]] && AUDIO_DEV=default
 
 mask(){ local s="${1:-}"; [[ -n "$s" ]] && echo "${s:0:8}****" || echo ""; }
 
@@ -156,13 +180,39 @@ echo "🗂  Recording file: ${REC_PATH}"
 echo "📜 Log: ${LOG_PATH}"
 echo "⚙️  Encoder: ${ENC_FLAG}"
 
+# --- audio probe with optional fallback
+probe_audio() {
+  ffmpeg -hide_banner -loglevel error -f alsa -ar 48000 -ac 1 -i "$AUDIO_DEV" -t 0.2 -f null - >/dev/null 2>&1
+}
+
+USE_ANULLSRC="${USE_ANULLSRC:-1}"   # set to 0 to disable fallback
+if ! probe_audio; then
+  if [[ "$USE_ANULLSRC" == "1" ]]; then
+    echo "🔇 ALSA '$AUDIO_DEV' failed to open; using silent audio (anullsrc) so stream can start."
+    AUDIO_INPUT_KIND="anullsrc"
+  else
+    echo "❌ ALSA '$AUDIO_DEV' failed to open; set AUDIO_DEV=hw:CARD,DEV (see: arecord -l)"
+    exit 1
+  fi
+else
+  AUDIO_INPUT_KIND="alsa"
+fi
+
 # --- common ffmpeg args ---
 FFMPEG_COMMON=(
   -hide_banner -nostdin -loglevel "$LOGLEVEL" -fflags +genpts
   -f v4l2 -input_format mjpeg -framerate "$FPS" -video_size "${WIDTH}x${HEIGHT}" -thread_queue_size 512 -i "$VIDEO_DEV"
-  -f alsa -ar 48000 -ac 1 -thread_queue_size 512 -i "$AUDIO_DEV"
-  -map 0:v:0 -map 1:a:0
 )
+
+if [[ "$AUDIO_INPUT_KIND" == "alsa" ]]; then
+  FFMPEG_COMMON+=( -f alsa -ar 48000 -ac 1 -thread_queue_size 512 -i "$AUDIO_DEV" )
+else
+  # silent mono 48k
+  FFMPEG_COMMON+=( -f lavfi -i anullsrc=channel_layout=mono:sample_rate=48000 )
+fi
+
+# map stays the same (0:v is cam, 1:a is either alsa or anullsrc)
+FFMPEG_COMMON+=( -map 0:v:0 -map 1:a:0 )
 FFMPEG_VIDEO=(
   $ENC_FLAG -pix_fmt yuv420p -vf "scale=${WIDTH}:${HEIGHT},format=yuv420p"
   -g "$((FPS*2))" -bf 0
