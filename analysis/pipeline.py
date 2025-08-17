@@ -1028,6 +1028,21 @@ def main(argv: List[str] | None = None) -> None:
         grade=args.grade,
       )
 
+    if args.review_rank or args.review_topk or args.auto_draw:
+        from analysis.playbook_loader import load_playbook
+        pb = load_playbook(args.playbook)
+        print(f"[pipeline] Playbook loaded: {args.playbook}")
+    if args.review_rank:
+        from analysis.review_ranker import rank_all
+        rank_all(args.out, pb)
+        print("[pipeline] Review rankings complete. Next:")
+        print(f"  python3 tools/review_batch.py --in \"{args.out}\" --playbook {args.playbook} --top-k 10 --auto-draw")
+    if args.review_topk and args.auto_draw:
+        from analysis.review_draw import draw_topk
+        draw_topk(args.out, pb, top_k=args.review_topk)
+        print("[pipeline] Auto-draw complete. Next:")
+        print(f"  python3 tools/review_record.py --in \"{args.out}/review/auto_annotated\"")
+
     # ---- Strict checks & overlays & summary ----
     game_dir = _game_dir(str(out_dir), run_cfg.video)
     plays_fp = game_dir / "plays.jsonl"
