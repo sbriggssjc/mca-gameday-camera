@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
-# --- capture user overrides passed on the command-line (so .env doesn't clobber them)
+# Preserve user overrides before loading .env
 USER_VIDEO_DEV="${VIDEO_DEV-}"
 USER_AUDIO_DEV="${AUDIO_DEV-}"
-USER_RTMP_URL="${YT_RTMP_URL-}${YOUTUBE_RTMP_URL-}${YOUTUBE_URL-}${RTMP_URL-}"
+USER_STREAM_URL="${STREAM_URL-}"
 USER_STREAM_KEY="${STREAM_KEY-}"
+USER_YT_RTMP_URL="${YT_RTMP_URL-}"
 
-# --- load .env if present (ignore malformed lines) ---
+# Load .env style files (ignore malformed lines)
 load_env_file() {
   local file="$1"
   local line key value
   while IFS= read -r line || [[ -n "$line" ]]; do
-    # skip blanks and comments
     [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
     if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
       key="${line%%=*}"
@@ -27,91 +26,14 @@ for f in ".env" ".env.local" ".env.production"; do
   [[ -f "$f" ]] && load_env_file "$f"
 done
 
-# --- restore user overrides if they were provided
+# Restore user overrides
 [[ -n "${USER_VIDEO_DEV-}" ]] && VIDEO_DEV="$USER_VIDEO_DEV"
 [[ -n "${USER_AUDIO_DEV-}" ]] && AUDIO_DEV="$USER_AUDIO_DEV"
-[[ -n "${USER_RTMP_URL-}" ]] && YT_RTMP_URL="$USER_RTMP_URL"
+[[ -n "${USER_STREAM_URL-}" ]] && STREAM_URL="$USER_STREAM_URL"
 [[ -n "${USER_STREAM_KEY-}" ]] && STREAM_KEY="$USER_STREAM_KEY"
+[[ -n "${USER_YT_RTMP_URL-}" ]] && YT_RTMP_URL="$USER_YT_RTMP_URL"
 
-# --- sanitize vars: drop trailing comments and trim whitespace
-_trim_var() {
-  local name="$1" val
-  eval "val=\${$name:-}"
-  val="${val%%\#*}"
-  val="$(echo "$val" | xargs)"
-  printf -v "$name" '%s' "$val"
-}
-_trim_var VIDEO_DEV
-_trim_var AUDIO_DEV
-[[ -z "${AUDIO_DEV:-}" ]] && AUDIO_DEV=default
-
-mask(){ local s="${1:-}"; [[ -n "$s" ]] && echo "${s:0:8}****" || echo ""; }
-
-# ---- helper: is a video device free? ----
-is_video_free() {
-  local dev="$1"
-  # Try MJPEG (most USB cams)
-  if ffmpeg -v error -f v4l2 -input_format mjpeg -framerate 5 -video_size 640x480 -t 0.5 -i "$dev" -f null - >/dev/null 2>&1; then
-    echo "ok:mjpeg"; return 0
-  fi
-  # Try YUYV fallback
-  if ffmpeg -v error -f v4l2 -input_format yuyv422 -framerate 5 -video_size 640x480 -t 0.5 -i "$dev" -f null - >/dev/null 2>&1; then
-    echo "ok:yuyv"; return 0
-  fi
-  return 1
-}
-
-# ---- helper: pick a free video device ----
-pick_free_video() {
-  local verdict dev fmt
-  # User-provided override
-  if [[ -n "${VIDEO_DEV:-}" && -e "${VIDEO_DEV}" ]]; then
-    verdict="$(is_video_free "${VIDEO_DEV}" || true)"
-    if [[ "$verdict" == ok:* ]]; then echo "${VIDEO_DEV}"; return 0
-    else echo "⚠️  ${VIDEO_DEV} not openable (probe failed)" >&2; fi
-  fi
-  # by-id first
-  if [[ -d /dev/v4l/by-id ]]; then
-    for link in /dev/v4l/by-id/*video-index0*; do
-      [[ -e "$link" ]] || continue
-      dev="$(readlink -f "$link")"
-      verdict="$(is_video_free "$dev" || true)"
-      if [[ "$verdict" == ok:* ]]; then echo "$dev"; return 0
-      else echo "ℹ️  Skipping $dev (probe $verdict)" >&2; fi
-    done
-  fi
-  # generic nodes
-  for dev in /dev/video*; do
-    [[ -e "$dev" ]] || continue
-    verdict="$(is_video_free "$dev" || true)"
-    if [[ "$verdict" == ok:* ]]; then echo "$dev"; return 0
-    else echo "ℹ️  Skipping $dev (probe $verdict)" >&2; fi
-  done
-  return 1
-}
-
-# ---- helper: discover audio device ----
-find_audio_dev() {
-  local want="${AUDIO_DEV:-}"
-  if [[ -n "$want" ]]; then echo "$want"; return 0; fi
-  # Parse 'arecord -l' for first capture card/device
-  local line card dev
-  while IFS= read -r line; do
-    # Example: "card 1: XYZ [...], device 0: USB Audio"
-    if [[ "$line" =~ card\ ([0-9]+).*,\ device\ ([0-9]+): ]]; then
-      card="${BASH_REMATCH[1]}"; dev="${BASH_REMATCH[2]}"
-      echo "hw:${card},${dev}"; return 0
-    fi
-  done < <(arecord -l 2>/dev/null)
-  # Fallback default
-  echo "hw:1,0"; return 0
-}
-
-# --- flags ---
-CONSOLE=0
-if [[ "${1-}" == "--console" ]]; then CONSOLE=1; shift || true; fi
-
-# ---- devices flag ----
+# Quick flags that don't require env normalization
 if [[ "${1-}" == "--devices" ]]; then
   echo "Video nodes:"; ls -l /dev/video* 2>/dev/null || true
   echo; echo "/dev/v4l/by-id:"; ls -l /dev/v4l/by-id 2>/dev/null || true
@@ -119,153 +41,114 @@ if [[ "${1-}" == "--devices" ]]; then
   exit 0
 fi
 
-# --- free video helper ---
 if [[ "${1-}" == "--free-video" ]]; then
-  shift || true
   echo "🔧 Releasing holders of /dev/video* ..."
   sudo fuser -k /dev/video* || true
   exit 0
 fi
 
-# --- resolve RTMP URL from multiple names or STREAM_KEY ---
-RTMP_SCHEME="${RTMP_SCHEME:-rtmps}"   # set to "rtmp" to test non-TLS
-: "${YT_RTMP_URL:=${YOUTUBE_RTMP_URL:-${YOUTUBE_URL:-${RTMP_URL:-}}}}"
-if [[ -z "${YT_RTMP_URL:-}" && -n "${STREAM_KEY:-}" ]]; then
-  YT_RTMP_URL="${RTMP_SCHEME}://a.rtmp.youtube.com/live2/${STREAM_KEY}"
-fi
-RTMP_URL="${YT_RTMP_URL:-}"
+# --- begin: env normalization & dirs ---
+set -euo pipefail
 
-# --- config ---
-WIDTH="${WIDTH:-1280}"; HEIGHT="${HEIGHT:-720}"; FPS="${FPS:-30}"
-AUDIO_DEV="${AUDIO_DEV:-hw:1,0}"
-VIDEO_BITRATE="${VIDEO_BITRATE:-3500k}"
-VIDEO_MAXRATE="${VIDEO_MAXRATE:-4000k}"
-VIDEO_BUFSIZE="${VIDEO_BUFSIZE:-6000k}"
-LOGLEVEL="${LOGLEVEL:-info}"
-TEE_MODE="${TEE_MODE:-both}"  # both | file | rtmp
-
-RECORD_DIR="${RECORD_DIR:-recordings}"
-LOG_DIR="${LOG_DIR:-livestream_logs}"
-mkdir -p "$RECORD_DIR" "$LOG_DIR"
-TS="$(date +%Y%m%d_%H%M%S)"
-REC_PATH="${RECORD_DIR}/${TS}_raw.mkv"
-LOG_PATH="${LOG_DIR}/${TS}.log"
-
-# --- encoder selection ---
-if [[ "${USE_SW_ENC:-0}" == "1" || "${SKIP_HW_ENC:-0}" == "1" || "${LEGACY_MODE:-0}" == "1" ]]; then
-  ENC_FLAG="-c:v libx264"
-else
-  DET_ARGS=( --silent )
-  [[ -n "${PREFERRED_ENCODERS-}" ]] && DET_ARGS+=( --preferred "${PREFERRED_ENCODERS}" )
-  ENC_FLAG="$(tools/encoder_detect.py "${DET_ARGS[@]}")"
+# Build STREAM_URL if not provided
+: "${YT_RTMP_URL:=rtmps://a.rtmps.youtube.com/live2}"
+: "${STREAM_KEY:=}"
+if [ -z "${STREAM_URL:-}" ]; then
+  if [ -n "$STREAM_KEY" ]; then
+    STREAM_URL="${YT_RTMP_URL%/}/$STREAM_KEY"
+  else
+    echo "ERROR: STREAM_KEY or STREAM_URL must be set"; exit 1
+  fi
 fi
 
-echo "📡 Streaming to: $(mask "$RTMP_URL")"
+# Video defaults (proven stable on Jetson + HDMI dongle)
+: "${VIDEO_DEV:=/dev/video0}"
+: "${VIDEO_INPUT_FORMAT:=mjpeg}"
+: "${VIDEO_SIZE:=1280x720}"
+: "${VIDEO_FPS:=30}"
 
-# --- resolve devices (auto) ---
-VIDEO_DEV="$(pick_free_video || true)"
-AUDIO_DEV="$(find_audio_dev || true)"
-if [[ -z "$VIDEO_DEV" ]]; then
-  echo "❌ No free camera found. Try: ./gameday --devices or ./gameday --free-video"
-  exit 1
-fi
-VIDEO_FMT="$(is_video_free "$VIDEO_DEV" || true)"
-VIDEO_FMT="${VIDEO_FMT#ok:}"
-if ! arecord -l >/dev/null 2>&1; then
-  echo "⚠️  No ALSA capture devices found (audio will fail). Continue anyway..."
-fi
-echo "🎥 Using video device: ${VIDEO_DEV} (${VIDEO_FMT})"
-echo "🎤 Using mic: ${AUDIO_DEV}"
-echo "🗂  Recording file: ${REC_PATH}"
-echo "📜 Log: ${LOG_PATH}"
-echo "⚙️  Encoder: ${ENC_FLAG}"
+# Audio defaults (Pulse source for RØDE; fallback handled below)
+: "${AUDIO_DEV:=alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_17477F5D-00.mono-fallback}"
 
-# --- audio probe with optional fallback
-probe_audio() {
-  ffmpeg -hide_banner -loglevel error -f alsa -ar 48000 -ac 1 -i "$AUDIO_DEV" -t 0.2 -f null - >/dev/null 2>&1
+# Bitrate/gop defaults tuned for 720p30
+: "${VIDEO_BITRATE:=2800k}"
+: "${VIDEO_MAXRATE:=3000k}"
+: "${VIDEO_BUFSIZE:=5000k}"
+: "${GOP:=60}"
+: "${AUDIO_BITRATE:=128k}"
+
+# Create dirs and logfile
+mkdir -p livestream_logs recordings
+LOGFILE="livestream_logs/$(date +%Y%m%d_%H%M%S).log"
+# --- end: env normalization & dirs ---
+
+build_ffmpeg_cmd_pulse() {
+  cat <<EOF
+ffmpeg -hide_banner -loglevel info -fflags +genpts \
+ -thread_queue_size 2048 -use_wallclock_as_timestamps 1 \
+ -f video4linux2 -input_format ${VIDEO_INPUT_FORMAT} -video_size ${VIDEO_SIZE} -framerate ${VIDEO_FPS} -i ${VIDEO_DEV} \
+ -thread_queue_size 2048 -use_wallclock_as_timestamps 1 \
+ -f pulse -ac 2 -ar 48000 -i ${AUDIO_DEV} \
+ -map 0:v:0 -map 1:a:0 \
+ -vf "setpts=PTS-STARTPTS,fps=${VIDEO_FPS}" \
+ -af "asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0" \
+ -c:v libx264 -preset superfast -tune zerolatency -pix_fmt yuv420p \
+ -b:v ${VIDEO_BITRATE} -maxrate ${VIDEO_MAXRATE} -bufsize ${VIDEO_BUFSIZE} -g ${GOP} -r ${VIDEO_FPS} -vsync 1 \
+ -c:a aac -b:a ${AUDIO_BITRATE} -ar 48000 \
+ -rtbufsize 256M \
+ -reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 -reconnect_on_network_error 1 \
+ -f flv "${STREAM_URL}"
+EOF
 }
 
-USE_ANULLSRC="${USE_ANULLSRC:-1}"   # set to 0 to disable fallback
-if ! probe_audio; then
-  if [[ "$USE_ANULLSRC" == "1" ]]; then
-    echo "🔇 ALSA '$AUDIO_DEV' failed to open; using silent audio (anullsrc) so stream can start."
-    AUDIO_INPUT_KIND="anullsrc"
-  else
-    echo "❌ ALSA '$AUDIO_DEV' failed to open; set AUDIO_DEV=hw:CARD,DEV (see: arecord -l)"
-    exit 1
+build_ffmpeg_cmd_alsa() {
+  local ALSA_DEV="${ALSA_FALLBACK_DEV:-plughw:2,0}"
+  cat <<EOF
+ffmpeg -hide_banner -loglevel info -fflags +genpts \
+ -thread_queue_size 2048 -use_wallclock_as_timestamps 1 \
+ -f video4linux2 -input_format ${VIDEO_INPUT_FORMAT} -video_size ${VIDEO_SIZE} -framerate ${VIDEO_FPS} -i ${VIDEO_DEV} \
+ -thread_queue_size 2048 -use_wallclock_as_timestamps 1 \
+ -f alsa -ac 2 -ar 48000 -i ${ALSA_DEV} \
+ -map 0:v:0 -map 1:a:0 \
+ -vf "setpts=PTS-STARTPTS,fps=${VIDEO_FPS}" \
+ -af "asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0" \
+ -c:v libx264 -preset superfast -tune zerolatency -pix_fmt yuv420p \
+ -b:v ${VIDEO_BITRATE} -maxrate ${VIDEO_MAXRATE} -bufsize ${VIDEO_BUFSIZE} -g ${GOP} -r ${VIDEO_FPS} -vsync 1 \
+ -c:a aac -b:a ${AUDIO_BITRATE} -ar 48000 \
+ -rtbufsize 256M \
+ -reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 -reconnect_on_network_error 1 \
+ -f flv "${STREAM_URL}"
+EOF
+}
+
+run_and_log() {
+  local CMD_STR="$1"
+  echo "[ffmpeg] $CMD_STR" | tee -a "$LOGFILE"
+  bash -lc "$CMD_STR" 2>>"$LOGFILE"
+}
+
+run_with_rtmp_fallback() {
+  local CMD_STR="$1"
+  if run_and_log "$CMD_STR"; then
+    return 0
   fi
-else
-  AUDIO_INPUT_KIND="alsa"
+  if [[ "$STREAM_URL" =~ ^rtmps://a\.rtmps\.youtube\.com ]]; then
+    echo "[warn] RTMPS failed; retrying with RTMP (no TLS) once..." | tee -a "$LOGFILE"
+    local RTMP_URL="${STREAM_URL/rtmps:\/\/a.rtmps.youtube.com/rtmp:\/\/a.rtmp.youtube.com}"
+    CMD_STR="${CMD_STR//${STREAM_URL}/${RTMP_URL}}"
+    run_and_log "$CMD_STR"
+  fi
+}
+
+echo "🎥 Using video: ${VIDEO_DEV} (${VIDEO_INPUT_FORMAT} ${VIDEO_SIZE} @ ${VIDEO_FPS}fps)" | tee -a "$LOGFILE"
+echo "🎤 Using audio: ${AUDIO_DEV} (Pulse) [ALSA fallback: plughw:2,0]" | tee -a "$LOGFILE"
+echo "📡 Streaming to: ${STREAM_URL}" | tee -a "$LOGFILE"
+echo "📜 Log: $LOGFILE" | tee -a "$LOGFILE"
+
+CMD="$(build_ffmpeg_cmd_pulse)"
+if ! run_with_rtmp_fallback "$CMD"; then
+  echo "[warn] Pulse with RTMP fallback failed; trying ALSA..." | tee -a "$LOGFILE"
+  CMD="$(build_ffmpeg_cmd_alsa)"
+  run_with_rtmp_fallback "$CMD" || exit $?
 fi
 
-# --- common ffmpeg args ---
-FFMPEG_COMMON=(
-  -hide_banner -nostdin -loglevel "$LOGLEVEL" -fflags +genpts
-  -f v4l2 -input_format mjpeg -framerate "$FPS" -video_size "${WIDTH}x${HEIGHT}" -thread_queue_size 512 -i "$VIDEO_DEV"
-)
-
-if [[ "$AUDIO_INPUT_KIND" == "alsa" ]]; then
-  FFMPEG_COMMON+=( -f alsa -ar 48000 -ac 1 -thread_queue_size 512 -i "$AUDIO_DEV" )
-else
-  # silent mono 48k
-  FFMPEG_COMMON+=( -f lavfi -i anullsrc=channel_layout=mono:sample_rate=48000 )
-fi
-
-# map stays the same (0:v is cam, 1:a is either alsa or anullsrc)
-FFMPEG_COMMON+=( -map 0:v:0 -map 1:a:0 )
-FFMPEG_VIDEO=(
-  $ENC_FLAG -pix_fmt yuv420p -vf "scale=${WIDTH}:${HEIGHT},format=yuv420p"
-  -g "$((FPS*2))" -bf 0
-  -b:v "$VIDEO_BITRATE" -maxrate "$VIDEO_MAXRATE" -bufsize "$VIDEO_BUFSIZE"
-  -preset "${X264_PRESET:-veryfast}" -tune "${X264_TUNE:-zerolatency}"
-)
-FFMPEG_AUDIO=( -c:a aac -b:a 128k -flags +global_header )
-
-# --- outputs (resilient tee) ---
-case "$TEE_MODE" in
-  both)
-    if [[ -z "$RTMP_URL" ]]; then
-      echo "ℹ️  No RTMP URL; falling back to file-only."
-      FFMPEG_OUT=( -f matroska "$REC_PATH" )
-    else
-      # onfail=ignore keeps recording even if RTMP fails; use_fifo avoids blocking
-      FFMPEG_OUT=( -f tee "[onfail=ignore:use_fifo=1:f=flv]${RTMP_URL}|[f=matroska]${REC_PATH}" )
-    fi
-    ;;
-  file)
-    FFMPEG_OUT=( -f matroska "$REC_PATH" )
-    ;;
-  rtmp)
-    if [[ -z "$RTMP_URL" ]]; then echo "❌ YT_RTMP_URL/STREAM_KEY missing"; exit 1; fi
-    FFMPEG_OUT=( -f flv "$RTMP_URL" )
-    ;;
-  *) echo "Invalid TEE_MODE: $TEE_MODE"; exit 1;;
-esac
-
-# --- run ffmpeg, mirror logs if --console, print tail on failure ---
-set -x
-if [[ "$CONSOLE" == "1" ]]; then
-  if ! ffmpeg "${FFMPEG_COMMON[@]}" "${FFMPEG_VIDEO[@]}" "${FFMPEG_AUDIO[@]}" "${FFMPEG_OUT[@]}" 2> >(tee "$LOG_PATH" >&2); then
-    set +x
-    echo -e "\n⚠️  FFmpeg exited non-zero. Last 60 log lines:\n"
-    tail -n 60 "$LOG_PATH" || true
-    echo "⚠️  FFmpeg exited non-zero. Hints:" | tee -a "${LOG_PATH}"
-    echo " • Camera present? ./gameday --devices (look for /dev/video* or /dev/v4l/by-id/*video-index0)" | tee -a "${LOG_PATH}"
-    echo " • If camera moved, run: VIDEO_DEV=\$(readlink -f \$(ls -1 /dev/v4l/by-id/*video-index0* | head -n1)) ./gameday --console" | tee -a "${LOG_PATH}"
-    echo " • Audio present? arecord -l (set AUDIO_DEV=hw:CARD,DEV)" | tee -a "${LOG_PATH}"
-    echo " • RTMP issues? set TEE_MODE=file to record without streaming; tail the log for details." | tee -a "${LOG_PATH}"
-    exit 1
-  fi
-else
-  if ! ffmpeg "${FFMPEG_COMMON[@]}" "${FFMPEG_VIDEO[@]}" "${FFMPEG_AUDIO[@]}" "${FFMPEG_OUT[@]}" 2> "$LOG_PATH"; then
-    set +x
-    echo -e "\n⚠️  FFmpeg exited non-zero. See log: $LOG_PATH"
-    tail -n 60 "$LOG_PATH" || true
-    echo "⚠️  FFmpeg exited non-zero. Hints:" | tee -a "${LOG_PATH}"
-    echo " • Camera present? ./gameday --devices (look for /dev/video* or /dev/v4l/by-id/*video-index0)" | tee -a "${LOG_PATH}"
-    echo " • If camera moved, run: VIDEO_DEV=\$(readlink -f \$(ls -1 /dev/v4l/by-id/*video-index0* | head -n1)) ./gameday --console" | tee -a "${LOG_PATH}"
-    echo " • Audio present? arecord -l (set AUDIO_DEV=hw:CARD,DEV)" | tee -a "${LOG_PATH}"
-    echo " • RTMP issues? set TEE_MODE=file to record without streaming; tail the log for details." | tee -a "${LOG_PATH}"
-    exit 1
-  fi
-fi
