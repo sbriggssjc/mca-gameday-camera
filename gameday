@@ -83,7 +83,7 @@ fi
 : "${DYN_PERCENTILE:=0.95}"         # 0.0..1.0; higher = protect peaks
 
 # compressor fallback tuning
-: "${COMP_THRESHOLD_DB:--22}"       # start compressing around -22 dBFS
+: "${COMP_THRESHOLD_DB:=-22}"       # start compressing around -22 dBFS
 : "${COMP_RATIO:=3.5}"              # 3.5:1 ratio
 : "${COMP_ATTACK_MS:=12}"
 : "${COMP_RELEASE_MS:=250}"
