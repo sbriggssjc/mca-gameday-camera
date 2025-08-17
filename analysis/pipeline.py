@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 # Fallback defaults
 DEFAULT_MIN_PLAY_GAP = 1.5
-DEFAULT_MIN_PLAY_LEN = 6.0, Sequence
+DEFAULT_MIN_PLAY_LEN = 6.0
 
 
 # Optional shared config; fall back to internal defaults if missing
@@ -33,16 +33,23 @@ except Exception:
     CFG_MIN_LEN = DEFAULT_MIN_PLAY_LEN
     CFG_PROFILE_DEFAULTS = {
         'game': {
-            'min_play_gap': DEFAULT_MIN_PLAY_GAP,
-            'min_play_length': DEFAULT_MIN_PLAY_LEN,
-            'generate_report': True,
-            'generate_clips': True,
-            'generate_highlights': True,
-        }
+            'min_play_length': 6.0,
+            'min_play_gap': 1.5,
+            'strict': True,
+            'overlay': True,
+            'summary': True,
+        },
+        'practice': {
+            'min_play_length': 3.0,
+            'min_play_gap': 0.5,
+            'strict': False,
+            'overlay': True,
+            'summary': True,
+        },
+    }
 
 # Back-compat alias if other code references PROFILE_DEFAULTS
 PROFILE_DEFAULTS = CFG_PROFILE_DEFAULTS
-    }
 
 import numpy as np
 
