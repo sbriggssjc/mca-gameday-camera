@@ -1,0 +1,58 @@
+{
+  "meta": {"team": "Metro Christian 5th", "version": "v2"},
+  "offense": {
+    "formations": ["Rit","Lit","Rend","Lend","Reo","Leo"],
+    "plays": [
+      {"id":"O01","name":"Rit Dive","family":"Dive","formation":"Rit","keys":{"RB_path":"A/B hit","OL":"down/drive first step"},"tags":["run","inside"]},
+      {"id":"O02","name":"Lit Dive","family":"Dive","formation":"Lit","tags":["run","inside"]},
+      {"id":"O03","name":"Rit Sweep","family":"Sweep","formation":"Rit","tags":["run","edge"]},
+      {"id":"O04","name":"Lit Sweep","family":"Sweep","formation":"Lit","tags":["run","edge"]},
+      {"id":"O05","name":"Rit F Counter","family":"Counter","formation":"Rit","tags":["run","counter"]},
+      {"id":"O06","name":"Lit F Counter","family":"Counter","formation":"Lit","tags":["run","counter"]},
+      {"id":"O07","name":"Rit Power R","family":"Power","formation":"Rit","tags":["run","power"]},
+      {"id":"O08","name":"Lit Power L","family":"Power","formation":"Lit","tags":["run","power"]},
+      {"id":"O09","name":"Rit Jet Sweep","family":"Jet","formation":"Rit","tags":["run","jet"]},
+      {"id":"O10","name":"Lit Jet Sweep","family":"Jet","formation":"Lit","tags":["run","jet"]},
+      {"id":"O11","name":"Rit 8 Option","family":"8 Option","formation":"Rit","tags":["option"]},
+      {"id":"O12","name":"Lit 8 Option","family":"8 Option","formation":"Lit","tags":["option"]},
+      {"id":"O13","name":"Reo F Stick","family":"Stick","formation":"Reo","tags":["pass","quick"]},
+      {"id":"O14","name":"Leo F Stick","family":"Stick","formation":"Leo","tags":["pass","quick"]},
+      {"id":"O15","name":"Rit Flare Boot","family":"Boot","formation":"Rit","tags":["playaction","boot"]},
+      {"id":"O16","name":"Lit Flare Boot","family":"Boot","formation":"Lit","tags":["playaction","boot"]},
+      {"id":"O17","name":"Rit F Screen","family":"Screen","formation":"Rit","tags":["screen"]},
+      {"id":"O18","name":"Lit F Screen","family":"Screen","formation":"Lit","tags":["screen"]},
+      {"id":"O19","name":"Reo Flood","family":"Flood","formation":"Reo","tags":["pass","flood"]},
+      {"id":"O20","name":"Leo Flood","family":"Flood","formation":"Leo","tags":["pass","flood"]},
+      {"id":"O21","name":"Reo Quick Screen","family":"Quick Screen","formation":"Reo","tags":["screen"]},
+      {"id":"O22","name":"Leo Quick Screen","family":"Quick Screen","formation":"Leo","tags":["screen"]},
+      {"id":"O23","name":"Reo Jet Sweep","family":"Jet","formation":"Reo","tags":["run","jet"]},
+      {"id":"O24","name":"Leo Jet Sweep","family":"Jet","formation":"Leo","tags":["run","jet"]},
+      {"id":"O25","name":"Reo Pitch","family":"Pitch","formation":"Reo","tags":["run","edge"]},
+      {"id":"O26","name":"Leo Pitch","family":"Pitch","formation":"Leo","tags":["run","edge"]},
+      {"id":"O27","name":"REND Tackle","family":"Tackle","formation":"Rend","tags":["run","tackle"]},
+      {"id":"O28","name":"LEND Tackle","family":"Tackle","formation":"Lend","tags":["run","tackle"]},
+      {"id":"O29","name":"REND Dive","family":"Dive","formation":"Rend","tags":["run","inside"]},
+      {"id":"O30","name":"LEND Dive","family":"Dive","formation":"Lend","tags":["run","inside"]},
+      {"id":"O31","name":"REND Slant","family":"Slant","formation":"Rend","tags":["pass","quick"]},
+      {"id":"O32","name":"LEND Slant","family":"Slant","formation":"Lend","tags":["pass","quick"]},
+      {"id":"O33","name":"REND Option","family":"Option","formation":"Rend","tags":["option"]},
+      {"id":"O34","name":"LEND Option","family":"Option","formation":"Lend","tags":["option"]}
+    ]
+  },
+  "defense": {
+    "base":"4-2-5",
+    "positions": {
+      "LE":{"gap":"C","tech":"5","role":"contain"},
+      "RE":{"gap":"C","tech":"5","role":"contain"},
+      "DT1":{"gap":"A","tech":"1","role":"anchor"},
+      "DT3":{"gap":"B","tech":"3","role":"penetrate"},
+      "Mike":{"gap":"A/B","read":"guard","pass":"hook"},
+      "Will":{"gap":"B","read":"guard","pass":"hook"},
+      "Monster":{"gap":"D","tech":"9","role":"force/flat"},
+      "Blood":{"gap":"D","tech":"9","role":"force/flat"},
+      "FS":{"zone":"deep 3rd"},
+      "RCB":{"zone":"deep 3rd"},
+      "LCB":{"zone":"deep 3rd"}
+    }
+  }
+}
