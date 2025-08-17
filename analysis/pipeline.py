@@ -14,7 +14,11 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List
+
+# Fallback defaults
+DEFAULT_MIN_PLAY_GAP = 1.5
+DEFAULT_MIN_PLAY_LEN = 6.0, Sequence
 
 import numpy as np
 
@@ -311,7 +315,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     # ----- resolve profile defaults and CLI overrides -----
-    prof = PROFILE_DEFAULTS.get(args.profile, PROFILE_DEFAULTS["game"])
+    prof = (PROFILE_DEFAULTS.get(getattr(args, 'profile', 'game'), PROFILE_DEFAULTS['game']) if 'PROFILE_DEFAULTS' in globals() else {'min_play_gap': DEFAULT_MIN_PLAY_GAP, 'min_play_length': DEFAULT_MIN_PLAY_LEN, 'generate_report': True, 'generate_clips': True, 'generate_highlights': True})
 
     min_play_gap = args.min_play_gap if args.min_play_gap is not None else prof["min_play_gap"]
     min_play_length = (
