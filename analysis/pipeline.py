@@ -14,11 +14,35 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Sequence
 
 # Fallback defaults
 DEFAULT_MIN_PLAY_GAP = 1.5
 DEFAULT_MIN_PLAY_LEN = 6.0, Sequence
+
+
+# Optional shared config; fall back to internal defaults if missing
+try:
+    from analysis.config import (
+        DEFAULT_MIN_PLAY_GAP as CFG_MIN_GAP,
+        DEFAULT_MIN_PLAY_LEN as CFG_MIN_LEN,
+        PROFILE_DEFAULTS as CFG_PROFILE_DEFAULTS,
+    )
+except Exception:
+    CFG_MIN_GAP = DEFAULT_MIN_PLAY_GAP
+    CFG_MIN_LEN = DEFAULT_MIN_PLAY_LEN
+    CFG_PROFILE_DEFAULTS = {
+        'game': {
+            'min_play_gap': DEFAULT_MIN_PLAY_GAP,
+            'min_play_length': DEFAULT_MIN_PLAY_LEN,
+            'generate_report': True,
+            'generate_clips': True,
+            'generate_highlights': True,
+        }
+
+# Back-compat alias if other code references PROFILE_DEFAULTS
+PROFILE_DEFAULTS = CFG_PROFILE_DEFAULTS
+    }
 
 import numpy as np
 
