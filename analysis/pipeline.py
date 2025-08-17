@@ -44,7 +44,6 @@ from analysis.segmentation import Segment, segment_video
 from .io_utils import write_metadata
 
 # playbook integration and grading helpers
-from analysis.playbook.loader import load_playbook
 from analysis.match.formation_matcher import match_formation
 from analysis.match.play_matcher import match_play
 from analysis.grading.grader import load_weights, grade_players
@@ -347,7 +346,9 @@ def run_pipeline(
     meta_path.write_text(json.dumps(meta, indent=2))
 
     # Load playbook index and grading weights once
-    pb_index = load_playbook(playbook_path) if playbook_path else None
+    # The unified playbook format is loaded later for review tools; formation/play
+    # matching is skipped here.
+    pb_index = None
     weights = load_weights(grading_weights)
 
     plays_index_rows: List[Dict[str, Any]] = []
@@ -792,7 +793,7 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--video", required=True, help="Path to input video")
     parser.add_argument("--team", default="WHITE")
     parser.add_argument("--opponent", type=str, default=None)
-    parser.add_argument("--playbook", default=None)
+    parser.add_argument("--playbook", default="playbooks/mca_5th_v2.json")
     parser.add_argument("--out", default="output")
     parser.add_argument(
         "--single-run",
@@ -888,6 +889,18 @@ def main(argv: List[str] | None = None) -> None:
         "--strict",
         action="store_true",
         help="Fail if suspicious output (e.g., too few plays for clip length, zero matches, etc.)",
+    )
+    parser.add_argument("--review-rank", action="store_true", help="rank clips by teaching value")
+    parser.add_argument(
+        "--review-topk",
+        type=int,
+        default=0,
+        help="if >0, prepare top-K for auto-draw",
+    )
+    parser.add_argument(
+        "--auto-draw",
+        action="store_true",
+        help="render first-pass telestration on review set",
     )
     parser.add_argument(
         "--debug-summary",
@@ -1027,6 +1040,21 @@ def main(argv: List[str] | None = None) -> None:
         orientation_auto=args.orientation_auto,
         grade=args.grade,
       )
+
+    # Optional review ranking and telestration
+    pb = None
+    if args.review_rank or args.review_topk or args.auto_draw:
+        from analysis.playbook_loader import load_playbook as _load_pb
+
+        pb = _load_pb(args.playbook)
+    if args.review_rank and pb is not None:
+        from analysis.review_ranker import rank_all
+
+        rank_all(args.out, pb)
+    if args.review_topk and args.auto_draw and pb is not None:
+        from analysis.review_draw import draw_topk
+
+        draw_topk(args.out, pb, top_k=args.review_topk)
 
     # ---- Strict checks & overlays & summary ----
     game_dir = _game_dir(str(out_dir), run_cfg.video)

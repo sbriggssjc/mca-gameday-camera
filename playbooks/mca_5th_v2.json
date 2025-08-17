@@ -3,7 +3,7 @@
   "offense": {
     "formations": ["Rit","Lit","Rend","Lend","Reo","Leo"],
     "plays": [
-      {"id":"O01","name":"Rit Dive","family":"Dive","formation":"Rit","keys":{"RB_path":"A/B hit","OL":"down/drive first step"},"tags":["run","inside"]},
+      {"id":"O01","name":"Rit Dive","family":"Dive","formation":"Rit","tags":["run","inside"]},
       {"id":"O02","name":"Lit Dive","family":"Dive","formation":"Lit","tags":["run","inside"]},
       {"id":"O03","name":"Rit Sweep","family":"Sweep","formation":"Rit","tags":["run","edge"]},
       {"id":"O04","name":"Lit Sweep","family":"Sweep","formation":"Lit","tags":["run","edge"]},
@@ -56,3 +56,4 @@
     }
   }
 }
+
