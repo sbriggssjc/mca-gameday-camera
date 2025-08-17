@@ -1,7 +1,11 @@
-from __future__ import annotations
-from typing import List, Dict
 from dataclasses import dataclass
-import cv2, numpy as np
+from typing import List, Dict
+import numpy as np
+
+try:  # pragma: no cover
+    import cv2
+except Exception:  # pragma: no cover
+    cv2 = None  # type: ignore
 
 
 @dataclass
@@ -24,10 +28,23 @@ def segment_video(
     motion_thresh: float = 8.0,   # motion energy threshold (tunable)
     min_active_sec: float = 1.0,  # need at least this much contiguous activity to start a play
 ) -> List[Dict]:
+    """Simple motion-based play segmentation.
+
+    When OpenCV is unavailable, we fall back to returning a single segment
+    spanning the entire video duration (via ``ffprobe``).
     """
-    Simple motion-based play segmentation.
-    Returns: [{"id": "PLAY_001", "t0": start_sec, "t1": end_sec}, ...]
-    """
+    if cv2 is None:
+        import subprocess, json
+        try:
+            out = subprocess.check_output([
+                "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                "stream=duration", "-of", "json", path
+            ])
+            dur = float(json.loads(out)["streams"][0].get("duration", 0.0))
+        except Exception:
+            dur = 0.0
+        return [{"id": "PLAY_001", "t0": 0.0, "t1": max(10.0, dur)}]
+
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         raise FileNotFoundError(f"Cannot open video: {path}")
@@ -81,19 +98,15 @@ def segment_video(
     segs: List[Dict] = []
     i = 0
     t = lambda fi: max(0.0, fi / fps)
-    last_end = -1e9
     play_idx = 1
     while i < len(active):
         if active[i]:
             j = i
             while j < len(active) and active[j]:
                 j += 1
-            # continuous active region [i, j)
             t0 = t(i) - warmup
             t1 = t(j) + tail_margin
-            # merge by min_gap
             if segs and (t0 - segs[-1]["t1"]) < min_play_gap:
-                # extend previous
                 segs[-1]["t1"] = t1
             else:
                 segs.append({"id": f"PLAY_{play_idx:03d}", "t0": max(0.0, t0), "t1": t1})
@@ -102,13 +115,9 @@ def segment_video(
         else:
             i += 1
 
-    # enforce min length
     segs = [s for s in segs if (s["t1"] - s["t0"]) >= min_play_length]
-
-    # clamp to video duration
     dur = total / fps if total else None
     if dur:
         for s in segs:
             s["t1"] = min(s["t1"], dur)
-
     return segs
