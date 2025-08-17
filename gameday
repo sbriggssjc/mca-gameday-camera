@@ -91,6 +91,7 @@ fi
 
 # extra pregain if your source is always quiet (applied before AGC)
 : "${AUDIO_PREGAIN_DB:=0}"          # e.g., set to 6 or 8 to nudge up
+MONO_MODE="${MONO_MODE:-mix}"   # left | right | mix
 
 # Bitrate/gop defaults tuned for 720p30
 : "${VIDEO_BITRATE:=2800k}"
@@ -120,25 +121,31 @@ fi
 
 # --- Build audio filter chain (AGC) ---
 build_agc_chain() {
-  local chain=""
+  # --- mono routing first (before any gain/AGC) ---
+  case "$MONO_MODE" in
+    left)   AF_MONO='pan=mono|c0=c0' ;;
+    right)  AF_MONO='pan=mono|c0=c1' ;;
+    mix|*)  AF_MONO='pan=mono|c0=0.5*c0+0.5*c1' ;;
+  esac
+
+  local chain="$AF_MONO"
 
   # Front-end cleanup & optional pregain
-  chain+="highpass=f=${HPF_HZ}"
+  chain+=",highpass=f=${HPF_HZ}"
   if [[ "${AUDIO_PREGAIN_DB}" != "0" ]]; then
     chain+=",volume=${AUDIO_PREGAIN_DB}dB"
   fi
 
+  # AGC block (dynaudnorm if available, else compressor)
   if [[ "$AGC" == "1" ]]; then
     if [[ "$AGC_MODE" == "auto" ]] && ffmpeg -hide_banner -v error -filters 2>/dev/null | grep -q '\bdynaudnorm\b'; then
-      # Live auto gain (dynamic normalizer)
       chain+=",dynaudnorm=f=${DYN_FRAME_MS}:s=${DYN_SMOOTH_MS}:g=${DYN_MAX_GAIN_DB}:p=${DYN_PERCENTILE}"
     else
-      # Fallback: compressor + limiter (acts like gentle AGC)
       chain+=",acompressor=threshold=${COMP_THRESHOLD_DB}dB:ratio=${COMP_RATIO}:attack=${COMP_ATTACK_MS}:release=${COMP_RELEASE_MS}:makeup=${COMP_MAKEUP_DB}"
     fi
   fi
 
-  # Hard safety limiter at the end to prevent clipping
+  # Safety limiter
   chain+=",alimiter=limit=${A_LIMIT_DB}:attack=5:release=20"
 
   echo "$chain"
