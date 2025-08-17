@@ -8,9 +8,58 @@ done
 
 mask(){ local s="${1:-}"; [[ -n "$s" ]] && echo "${s:0:8}****" || echo ""; }
 
+# ---- helper: discover video device ----
+find_video_dev() {
+  local want="${VIDEO_DEV:-}"
+  # 1) If provided and exists, use it
+  if [[ -n "$want" && -e "$want" ]]; then echo "$want"; return 0; fi
+  # 2) Prefer stable by-id links (index0 = capture)
+  if [[ -d /dev/v4l/by-id ]]; then
+    local link
+    link="$(ls -1 /dev/v4l/by-id/*video-index0* 2>/dev/null | head -n1 || true)"
+    if [[ -n "$link" ]]; then
+      readlink -f "$link"; return 0
+    fi
+  fi
+  # 3) Fallback: first /dev/video* node that responds
+  for dev in /dev/video*; do
+    [[ -e "$dev" ]] || continue
+    # quick probe: attempt to read caps (non-fatal)
+    if v4l2-ctl --device="$dev" --all >/dev/null 2>&1; then
+      echo "$dev"; return 0
+    fi
+  done
+  return 1
+}
+
+# ---- helper: discover audio device ----
+find_audio_dev() {
+  local want="${AUDIO_DEV:-}"
+  if [[ -n "$want" ]]; then echo "$want"; return 0; fi
+  # Parse 'arecord -l' for first capture card/device
+  local line card dev
+  while IFS= read -r line; do
+    # Example: "card 1: XYZ [...], device 0: USB Audio"
+    if [[ "$line" =~ card\ ([0-9]+).*,\ device\ ([0-9]+): ]]; then
+      card="${BASH_REMATCH[1]}"; dev="${BASH_REMATCH[2]}"
+      echo "hw:${card},${dev}"; return 0
+    fi
+  done < <(arecord -l 2>/dev/null)
+  # Fallback default
+  echo "hw:1,0"; return 0
+}
+
 # --- flags ---
 CONSOLE=0
 if [[ "${1-}" == "--console" ]]; then CONSOLE=1; shift || true; fi
+
+# ---- devices flag ----
+if [[ "${1-}" == "--devices" ]]; then
+  echo "Video nodes:"; ls -l /dev/video* 2>/dev/null || true
+  echo; echo "/dev/v4l/by-id:"; ls -l /dev/v4l/by-id 2>/dev/null || true
+  echo; echo "ALSA capture devices:"; arecord -l 2>/dev/null || true
+  exit 0
+fi
 
 # --- resolve RTMP URL from multiple names or STREAM_KEY ---
 RTMP_SCHEME="${RTMP_SCHEME:-rtmps}"   # set to "rtmp" to test non-TLS
@@ -47,6 +96,17 @@ else
 fi
 
 echo "📡 Streaming to: $(mask "$RTMP_URL")"
+
+# --- resolve devices (auto) ---
+VIDEO_DEV="$(find_video_dev || true)"
+AUDIO_DEV="$(find_audio_dev || true)"
+if [[ -z "$VIDEO_DEV" || ! -e "$VIDEO_DEV" ]]; then
+  echo "❌ No camera found. Try: ./gameday --devices  (plug camera, check /dev/v4l/by-id, then set VIDEO_DEV=/dev/videoX)"
+  exit 1
+fi
+if ! arecord -l >/dev/null 2>&1; then
+  echo "⚠️  No ALSA capture devices found (audio will fail). Continue anyway..."
+fi
 echo "🎥 Using video device: ${VIDEO_DEV}"
 echo "🎤 Using mic: ${AUDIO_DEV}"
 echo "🗂  Recording file: ${REC_PATH}"
@@ -96,6 +156,11 @@ if [[ "$CONSOLE" == "1" ]]; then
     set +x
     echo -e "\n⚠️  FFmpeg exited non-zero. Last 60 log lines:\n"
     tail -n 60 "$LOG_PATH" || true
+    echo "⚠️  FFmpeg exited non-zero. Hints:" | tee -a "${LOG_PATH}"
+    echo " • Camera present? ./gameday --devices (look for /dev/video* or /dev/v4l/by-id/*video-index0)" | tee -a "${LOG_PATH}"
+    echo " • If camera moved, run: VIDEO_DEV=\$(readlink -f \$(ls -1 /dev/v4l/by-id/*video-index0* | head -n1)) ./gameday --console" | tee -a "${LOG_PATH}"
+    echo " • Audio present? arecord -l (set AUDIO_DEV=hw:CARD,DEV)" | tee -a "${LOG_PATH}"
+    echo " • RTMP issues? set TEE_MODE=file to record without streaming; tail the log for details." | tee -a "${LOG_PATH}"
     exit 1
   fi
 else
@@ -103,6 +168,11 @@ else
     set +x
     echo -e "\n⚠️  FFmpeg exited non-zero. See log: $LOG_PATH"
     tail -n 60 "$LOG_PATH" || true
+    echo "⚠️  FFmpeg exited non-zero. Hints:" | tee -a "${LOG_PATH}"
+    echo " • Camera present? ./gameday --devices (look for /dev/video* or /dev/v4l/by-id/*video-index0)" | tee -a "${LOG_PATH}"
+    echo " • If camera moved, run: VIDEO_DEV=\$(readlink -f \$(ls -1 /dev/v4l/by-id/*video-index0* | head -n1)) ./gameday --console" | tee -a "${LOG_PATH}"
+    echo " • Audio present? arecord -l (set AUDIO_DEV=hw:CARD,DEV)" | tee -a "${LOG_PATH}"
+    echo " • RTMP issues? set TEE_MODE=file to record without streaming; tail the log for details." | tee -a "${LOG_PATH}"
     exit 1
   fi
 fi
