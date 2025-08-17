@@ -26,28 +26,42 @@ mask(){ local s="${1:-}"; [[ -n "$s" ]] && echo "${s:0:8}****" || echo ""; }
 # ---- helper: is a video device free? ----
 is_video_free() {
   local dev="$1"
-  # Try a 0.5s open-and-close. If it succeeds, device is usable.
-  ffmpeg -v error -f v4l2 -framerate 1 -video_size 320x240 -i "$dev" -t 0.5 -f null - >/dev/null 2>&1
+  # Try MJPEG (most USB cams)
+  if ffmpeg -v error -f v4l2 -input_format mjpeg -framerate 5 -video_size 640x480 -t 0.5 -i "$dev" -f null - >/dev/null 2>&1; then
+    echo "ok:mjpeg"; return 0
+  fi
+  # Try YUYV fallback
+  if ffmpeg -v error -f v4l2 -input_format yuyv422 -framerate 5 -video_size 640x480 -t 0.5 -i "$dev" -f null - >/dev/null 2>&1; then
+    echo "ok:yuyv"; return 0
+  fi
+  return 1
 }
 
 # ---- helper: pick a free video device ----
 pick_free_video() {
-  # 1) user-provided and free?
-  if [[ -n "${VIDEO_DEV:-}" && -e "${VIDEO_DEV}" ]] && is_video_free "${VIDEO_DEV}"; then
-    echo "${VIDEO_DEV}"; return 0
+  local verdict dev fmt
+  # User-provided override
+  if [[ -n "${VIDEO_DEV:-}" && -e "${VIDEO_DEV}" ]]; then
+    verdict="$(is_video_free "${VIDEO_DEV}" || true)"
+    if [[ "$verdict" == ok:* ]]; then echo "${VIDEO_DEV}"; return 0
+    else echo "⚠️  ${VIDEO_DEV} not openable (probe failed)" >&2; fi
   fi
-  # 2) by-id (stable)
+  # by-id first
   if [[ -d /dev/v4l/by-id ]]; then
     for link in /dev/v4l/by-id/*video-index0*; do
       [[ -e "$link" ]] || continue
       dev="$(readlink -f "$link")"
-      if is_video_free "$dev"; then echo "$dev"; return 0; fi
+      verdict="$(is_video_free "$dev" || true)"
+      if [[ "$verdict" == ok:* ]]; then echo "$dev"; return 0
+      else echo "ℹ️  Skipping $dev (probe $verdict)" >&2; fi
     done
   fi
-  # 3) generic /dev/video*
+  # generic nodes
   for dev in /dev/video*; do
     [[ -e "$dev" ]] || continue
-    if is_video_free "$dev"; then echo "$dev"; return 0; fi
+    verdict="$(is_video_free "$dev" || true)"
+    if [[ "$verdict" == ok:* ]]; then echo "$dev"; return 0
+    else echo "ℹ️  Skipping $dev (probe $verdict)" >&2; fi
   done
   return 1
 }
@@ -131,10 +145,12 @@ if [[ -z "$VIDEO_DEV" ]]; then
   echo "❌ No free camera found. Try: ./gameday --devices or ./gameday --free-video"
   exit 1
 fi
+VIDEO_FMT="$(is_video_free "$VIDEO_DEV" || true)"
+VIDEO_FMT="${VIDEO_FMT#ok:}"
 if ! arecord -l >/dev/null 2>&1; then
   echo "⚠️  No ALSA capture devices found (audio will fail). Continue anyway..."
 fi
-echo "🎥 Using video device: ${VIDEO_DEV}"
+echo "🎥 Using video device: ${VIDEO_DEV} (${VIDEO_FMT})"
 echo "🎤 Using mic: ${AUDIO_DEV}"
 echo "🗂  Recording file: ${REC_PATH}"
 echo "📜 Log: ${LOG_PATH}"
