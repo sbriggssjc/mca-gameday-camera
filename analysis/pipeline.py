@@ -960,6 +960,7 @@ def main(argv: List[str] | None = None) -> None:
     # ----- canonical single-run folder routing -----
     OUT_ROOT = Path(args.out) if hasattr(args, "out") and args.out else Path("output")
     if getattr(args, "single_run", False) or getattr(args, "single-run", False):
+        pass
         canonical = _canonical_outdir(str(OUT_ROOT), args.video)
         _ensure_clean_dir(canonical, overwrite=getattr(args, "overwrite", False))
         args.out = str(canonical)
