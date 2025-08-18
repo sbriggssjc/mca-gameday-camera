@@ -1,62 +1,150 @@
+from __future__ import annotations
+from typing import List
+import cv2
+import math
 import numpy as np
 
-try:  # pragma: no cover
-    import cv2
-except Exception:  # pragma: no cover - graceful fallback if cv2 missing
-    cv2 = None
+
+def _resize_long_side(img, long_side_max=720):
+    h, w = img.shape[:2]
+    long_side = max(h, w)
+    if long_side <= long_side_max:
+        return img
+    scale = long_side_max / float(long_side)
+    return cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
 
-def estimate_rotation_degrees(video_path: str, sample_frames: int = 30) -> float:
-    """Estimate dominant field rotation in degrees.
+def _angles_from_houghp(linesp) -> List[float]:
+    # linesp: (N,1,4) or (N,4)
+    if linesp is None:
+        return []
+    linesp = np.squeeze(linesp)
+    if linesp.ndim == 1 and linesp.size == 4:
+        linesp = linesp.reshape(1, 4)
+    angles = []
+    for x1, y1, x2, y2 in linesp:
+        dx, dy = float(x2 - x1), float(y2 - y1)
+        if dx == 0.0 and dy == 0.0:
+            continue
+        ang = math.degrees(math.atan2(dy, dx))  # relative to +x axis
+        # Map to [-90, +90] for rotation estimation (ignore direction)
+        if ang > 90:
+            ang -= 180
+        if ang < -90:
+            ang += 180
+        angles.append(ang)
+    return angles
 
-    We sample a handful of frames, run edge/line detection, and compute the
-    median angle of strong lines.  The result is snapped to the nearest of
-    {0, 90, 180, 270} when within ~15 degrees.  Falls back to a simple aspect
-    ratio heuristic when OpenCV or the video cannot be read.
-    """
-    if cv2 is None:
+
+def _angles_from_hough(lines) -> List[float]:
+    # lines: (N,1,2) or (N,2) with (rho, theta)
+    if lines is None:
+        return []
+    lines = np.squeeze(lines)
+    if lines.ndim == 1 and lines.size == 2:
+        lines = lines.reshape(1, 2)
+    angles = []
+    for rho_theta in lines:
+        # tolerate either shape
+        if isinstance(rho_theta, (list, tuple, np.ndarray)) and len(rho_theta) >= 2:
+            rho, theta = float(rho_theta[0]), float(rho_theta[1])
+            # Convert theta (angle of normal) to line angle relative to horizontal
+            ang = math.degrees(theta) - 90.0
+            if ang > 90:
+                ang -= 180
+            if ang < -90:
+                ang += 180
+            angles.append(ang)
+    return angles
+
+
+def _circular_median_deg(angles: List[float]) -> float:
+    if not angles:
         return 0.0
+    # robust median with wrap-around: rotate angles so median is computed in a stable window
+    # Try multiple rotation anchors and pick the tightest spread
+    best_med, best_spread = 0.0, 1e9
+    for anchor in (-90, -45, 0, 45, 90):
+        shifted = [((a - anchor + 180) % 360) - 180 for a in angles]
+        med = float(np.median(shifted))
+        spread = float(np.median(np.abs(shifted - med)))
+        if spread < best_spread:
+            best_spread = spread
+            best_med = med + anchor
+    # normalize to [-180, 180]
+    best_med = ((best_med + 180) % 360) - 180
+    # also fold to [-90, 90] since rotation symmetry exists
+    if best_med > 90:
+        best_med -= 180
+    if best_med < -90:
+        best_med += 180
+    return best_med
+
+
+def _snap_to_right_angle(deg: float) -> int:
+    candidates = np.array([-180.0, -90.0, 0.0, 90.0, 180.0], dtype=np.float32)
+    idx = int(np.argmin(np.abs(candidates - deg)))
+    return int(candidates[idx])
+
+
+def estimate_rotation_degrees(video_path: str, *, sample_stride: int = 30, max_frames: int = 300) -> int:
+    """
+    Estimate camera rotation in degrees. Never raises on empty/odd Hough output.
+    Returns one of {-180, -90, 0, 90, 180}.
+    """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        return 0.0
+        return 0
+
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    if total <= 0:
-        total = sample_frames
-    idxs = np.linspace(0, max(0, total - 1), num=min(sample_frames, total))
-    angles: list[float] = []
-    w = h = 0
-    for i in idxs:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, i)
+    step = max(1, sample_stride)
+    limit = max_frames
+
+    all_angles: List[float] = []
+    grabbed = 0
+    for idx in range(0, total, step):
+        if grabbed >= limit:
+            break
+        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
         ok, frame = cap.read()
-        if not ok:
+        if not ok or frame is None:
             continue
-        h, w = frame.shape[:2]
+        grabbed += 1
+
+        frame = _resize_long_side(frame, 720)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 50, 150, apertureSize=3)
-        lines = cv2.HoughLines(edges, 1, np.pi / 180, 120)
-        if lines is None:
-            continue
-        for rho, theta in lines[:20]:
-            ang = theta * 180.0 / np.pi
-            ang = (ang + 90) % 180 - 90  # map to [-90, 90)
-            angles.append(float(ang))
+        gray = cv2.GaussianBlur(gray, (5, 5), 0)
+
+        edges = cv2.Canny(gray, 60, 180, L2gradient=True)
+
+        # Prefer probabilistic Hough
+        linesp = cv2.HoughLinesP(edges, 1, np.pi/180.0, threshold=60, minLineLength=gray.shape[1]//6, maxLineGap=gray.shape[1]//30)
+        angles = _angles_from_houghp(linesp)
+
+        # Fallback to classic Hough
+        if not angles:
+            lines = cv2.HoughLines(edges, 1, np.pi/180.0, threshold=100)
+            angles = _angles_from_hough(lines)
+
+        # Keep a few strongest angles per frame
+        if angles:
+            # robustly keep central angles
+            med = np.median(angles)
+            sel = [a for a in angles if abs(a - med) <= 20.0]
+            all_angles.extend(sel)
+
     cap.release()
-    if not angles:
-        # Fallback: portrait vs landscape
-        if h > w:
-            return 90.0
-        return 0.0
-    med = float(np.median(angles))
-    candidates = [0.0, 90.0, 180.0, 270.0]
-    best = min(candidates, key=lambda c: abs((med - c + 180) % 360 - 180))
-    if abs(best - med) <= 15.0:
-        med = best
-    return float(med % 360)
+
+    if not all_angles:
+        return 0
+
+    median_angle = _circular_median_deg(all_angles)
+    return _snap_to_right_angle(median_angle)
 
 
 def normalize_orientation(frame, rotate_deg: int):
     """Rotate frame by ``rotate_deg`` degrees clockwise."""
-    if cv2 is None or rotate_deg % 360 == 0:
+    if rotate_deg % 360 == 0:
         return frame
     rot = rotate_deg % 360
     if rot == 90:
@@ -65,7 +153,7 @@ def normalize_orientation(frame, rotate_deg: int):
         return cv2.rotate(frame, cv2.ROTATE_180)
     if rot == 270:
         return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    # arbitrary angles
     h, w = frame.shape[:2]
     M = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), rot, 1.0)
     return cv2.warpAffine(frame, M, (w, h))
+
