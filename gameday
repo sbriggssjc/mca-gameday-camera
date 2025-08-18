@@ -60,6 +60,7 @@ if [ -z "${STREAM_URL:-}" ]; then
     echo "ERROR: STREAM_KEY or STREAM_URL must be set"; exit 1
   fi
 fi
+# Copy the exact RTMPS Stream URL from YouTube Live Control Room (lock icon reveals RTMPS; port 443 preferred)
 
 # Video defaults (proven stable on Jetson + HDMI dongle)
 : "${VIDEO_DEV:=/dev/video0}"
@@ -70,28 +71,11 @@ fi
 # Audio defaults (Pulse source for RØDE; fallback handled below)
 : "${AUDIO_DEV:=alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_17477F5D-00.mono-fallback}"
 
-# --- Audio gain/AGC controls ---
-: "${AGC:=1}"                       # 1=enabled, 0=disabled
-: "${AGC_MODE:=auto}"               # auto=dynaudnorm, comp=acompressor+alimiter
-: "${HPF_HZ:=100}"                  # high-pass to kill rumble
-: "${A_LIMIT_DB:=0.0dB}"            # final limiter ceiling
-
-# dynaudnorm (auto gain) tuning (safe defaults for speech/sideline)
-: "${DYN_FRAME_MS:=250}"            # analysis window (ms)
-: "${DYN_SMOOTH_MS:=10}"            # smoothing (ms)
-: "${DYN_MAX_GAIN_DB:=18}"          # cap how much it can boost
-: "${DYN_PERCENTILE:=0.95}"         # 0.0..1.0; higher = protect peaks
-
-# compressor fallback tuning
-: "${COMP_THRESHOLD_DB:=-22}"       # start compressing around -22 dBFS
-: "${COMP_RATIO:=3.5}"              # 3.5:1 ratio
-: "${COMP_ATTACK_MS:=12}"
-: "${COMP_RELEASE_MS:=250}"
-: "${COMP_MAKEUP_DB:=8}"            # makeup gain after compression
-
-# extra pregain if your source is always quiet (applied before AGC)
-: "${AUDIO_PREGAIN_DB:=0}"          # e.g., set to 6 or 8 to nudge up
-MONO_MODE="${MONO_MODE:-mix}"   # left | right | mix
+# --- audio/rtmp pacing toggles ---
+: "${NO_RE:=0}"                     # set NO_RE=1 to disable -re
+: "${PAN_MONO:=}"                   # override mono pan (empty to skip)
+: "${DISABLE_LIMITER:=0}"           # set DISABLE_LIMITER=1 to drop limiter
+MONO_MODE="${MONO_MODE:-mix}"       # left | right | mix
 
 # Bitrate/gop defaults tuned for 720p30
 : "${VIDEO_BITRATE:=2800k}"
@@ -108,9 +92,8 @@ LOGFILE="livestream_logs/$(date +%Y%m%d_%H%M%S).log"
 # Parse video settings
 IFS='x' read -r WIDTH HEIGHT <<<"$VIDEO_SIZE"
 INPUT_FORMAT="$VIDEO_INPUT_FORMAT"
-FPS="$VIDEO_FPS"
+FRAMERATE="$VIDEO_FPS"
 : "${LOGLEVEL:=info}"
-ENC_FLAG=${ENC_FLAG:- -c:v libx264}
 
 # Determine if ALSA audio device is available
 if ffmpeg -hide_banner -v error -f alsa -ar 48000 -ac 1 -i "$AUDIO_DEV" -t 0.1 -f null - 2>/dev/null; then
@@ -119,66 +102,37 @@ else
   AUDIO_INPUT_KIND="none"
 fi
 
-# --- Build audio filter chain (AGC) ---
-build_agc_chain() {
-  # --- mono routing first (before any gain/AGC) ---
-  case "$MONO_MODE" in
-    left)   AF_MONO='pan=mono|c0=c0' ;;
-    right)  AF_MONO='pan=mono|c0=c1' ;;
-    mix|*)  AF_MONO='pan=mono|c0=0.5*c0+0.5*c1' ;;
-  esac
+# --- Build pacing inputs ---
+if [[ "$NO_RE" == "1" ]]; then RE=(); else RE=(-re); fi
+IN_V=("${RE[@]}" -f v4l2 -input_format "$INPUT_FORMAT" -framerate "${FRAMERATE}" -video_size "${WIDTH}x${HEIGHT}" -thread_queue_size 512 -i "$VIDEO_DEV")
+IN_A=("${RE[@]}" -f alsa -ar 48000 -ac 1 -thread_queue_size 512 -i "$AUDIO_DEV")
+IN_A_NULL=("${RE[@]}" -f lavfi -i "anullsrc=channel_layout=mono:sample_rate=48000")
 
-  local chain="$AF_MONO"
-
-  # Front-end cleanup & optional pregain
-  chain+=",highpass=f=${HPF_HZ}"
-  if [[ "${AUDIO_PREGAIN_DB}" != "0" ]]; then
-    chain+=",volume=${AUDIO_PREGAIN_DB}dB"
-  fi
-
-  # AGC block (dynaudnorm if available, else compressor)
-  if [[ "$AGC" == "1" ]]; then
-    if [[ "$AGC_MODE" == "auto" ]] && ffmpeg -hide_banner -v error -filters 2>/dev/null | grep -q '\bdynaudnorm\b'; then
-      chain+=",dynaudnorm=f=${DYN_FRAME_MS}:s=${DYN_SMOOTH_MS}:g=${DYN_MAX_GAIN_DB}:p=${DYN_PERCENTILE}"
-    else
-      chain+=",acompressor=threshold=${COMP_THRESHOLD_DB}dB:ratio=${COMP_RATIO}:attack=${COMP_ATTACK_MS}:release=${COMP_RELEASE_MS}:makeup=${COMP_MAKEUP_DB}"
-    fi
-  fi
-
-  # Safety limiter
-  chain+=",alimiter=limit=${A_LIMIT_DB}:attack=5:release=20"
-
-  echo "$chain"
-}
-
-if [[ "${1-}" == "--print-audio-chain" ]]; then
-  AFILTERS="$(build_agc_chain)"
-  echo "$AFILTERS"
-  exit 0
-fi
-
-AFILTERS="$(build_agc_chain)"
-echo "🎚  Audio chain: $AFILTERS"
-
-# Build FFmpeg argument arrays
-FFMPEG_COMMON=(
-  -hide_banner -nostdin -loglevel "$LOGLEVEL" -fflags +genpts
-  -f v4l2 -input_format "$INPUT_FORMAT" -framerate "$FPS" -video_size "${WIDTH}x${HEIGHT}" -thread_queue_size 512 -i "$VIDEO_DEV"
-)
-
-if [[ "$AUDIO_INPUT_KIND" == "alsa" ]]; then
-  FFMPEG_COMMON+=( -f alsa -ar 48000 -ac 1 -thread_queue_size 512 -i "$AUDIO_DEV" )
+if [[ "$AUDIO_INPUT_KIND" == "alsa" && "${USE_SILENT_AUDIO:-0}" -ne 1 ]]; then
+  IN_AUDIO=("${IN_A[@]}")
 else
-  # silent mono 48k if mic isn’t opening (keeps stream alive)
-  FFMPEG_COMMON+=( -f lavfi -i anullsrc=channel_layout=mono:sample_rate=48000 )
+  IN_AUDIO=("${IN_A_NULL[@]}")
 fi
 
-# map stays the same
-FFMPEG_COMMON+=( -map 0:v:0 -map 1:a:0 )
-
-# Keep your existing video settings; just add -af here before AAC encode
-FFMPEG_VIDEO=( $ENC_FLAG -pix_fmt yuv420p -vf "scale=${WIDTH}:${HEIGHT},format=yuv420p" -g "$((FPS*2))" -bf 0 -b:v "$VIDEO_BITRATE" -maxrate "$VIDEO_MAXRATE" -bufsize "$VIDEO_BUFSIZE" -preset "${X264_PRESET:-veryfast}" -tune "${X264_TUNE:-zerolatency}" )
-FFMPEG_AUDIO=( -af "$AFILTERS" -c:a aac -b:a "$AUDIO_BITRATE" -flags +global_header )
+# --- Build filter chains ---
+VFILT="setpts=PTS-STARTPTS,scale=${WIDTH:-1280}:${HEIGHT:-720},format=yuv420p"
+if [[ -z "${PAN_MONO+x}" ]]; then
+  case "$MONO_MODE" in
+    left) PAN_MONO="pan=mono|c0=c0" ;;
+    right) PAN_MONO="pan=mono|c0=c1" ;;
+    mix|*) PAN_MONO="pan=mono|c0=0.5*c0+0.5*c1" ;;
+  esac
+fi
+if [[ -z "${AFILT:-}" ]]; then
+  PAN_STEP="${PAN_MONO:-pan=mono|c0=0.5*c0+0.5*c1}"
+  AFILT="asetpts=PTS-STARTPTS"
+  [[ -n "$PAN_STEP" ]] && AFILT+=",$PAN_STEP"
+  AFILT+=",highpass=f=100,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=8"
+  if [[ "$DISABLE_LIMITER" != "1" ]]; then
+    AFILT+=",alimiter=limit=0.0dB:attack=5:release=20"
+  fi
+fi
+echo "🎚  Audio chain: $AFILT"
 
 run_and_log() {
   local -a CMD=("$@")
@@ -199,16 +153,29 @@ run_with_rtmp_fallback() {
   fi
 }
 
-echo "🎥 Using video: ${VIDEO_DEV} (${INPUT_FORMAT} ${WIDTH}x${HEIGHT} @ ${FPS}fps)" | tee -a "$LOGFILE"
+echo "🎥 Using video: ${VIDEO_DEV} (${INPUT_FORMAT} ${WIDTH}x${HEIGHT} @ ${FRAMERATE}fps)" | tee -a "$LOGFILE"
 if [[ "$AUDIO_INPUT_KIND" == "alsa" ]]; then
   echo "🎤 Using audio: ${AUDIO_DEV} (ALSA)" | tee -a "$LOGFILE"
 else
   echo "🔇 Using audio: anullsrc (silent)" | tee -a "$LOGFILE"
 fi
-echo "📡 Streaming to: ${STREAM_URL}" | tee -a "$LOGFILE"
+echo "📡 Streaming to: ${STREAM_URL}" | tee -a "$LOGFILE"  # Use exact RTMPS URL from YouTube (lock icon, port 443 preferred)
 echo "📜 Log: $LOGFILE" | tee -a "$LOGFILE"
+echo "RTMP pacing: -re + setpts/asetpts + CFR enabled"
 
-FFMPEG_CMD=(ffmpeg "${FFMPEG_COMMON[@]}" "${FFMPEG_VIDEO[@]}" "${FFMPEG_AUDIO[@]}" -f flv "$STREAM_URL")
+FFMPEG_CMD=(ffmpeg -hide_banner -nostdin -loglevel "$LOGLEVEL" -fflags +genpts \
+  "${IN_V[@]}" \
+  "${IN_AUDIO[@]}" \
+  -map 0:v:0 -map 1:a:0 \
+  -c:v ${VIDEO_CODEC:-libx264} -pix_fmt yuv420p -vf "$VFILT" \
+  -g "$GOP" -bf 0 -b:v "$VIDEO_BITRATE" -maxrate "$VIDEO_MAXRATE" -bufsize "$VIDEO_BUFSIZE" \
+  -preset "${X264_PRESET:-veryfast}" -tune "${X264_TUNE:-zerolatency}" \
+  -af "$AFILT" -c:a aac -b:a "$AUDIO_BITRATE" \
+  -vsync cfr -r "$FRAMERATE" \
+  -max_interleave_delta 0 -muxdelay 0 \
+  -flvflags no_duration_filesize -rtmp_live live \
+  -flags +global_header \
+  -f flv "$STREAM_URL")
 
 run_with_rtmp_fallback "${FFMPEG_CMD[@]}" || exit $?
 
