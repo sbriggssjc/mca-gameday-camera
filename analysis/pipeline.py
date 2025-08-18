@@ -134,9 +134,14 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         )
         cap0.release()
     if args.orientation_auto:
-        meta["rotation_deg"] = orientation.estimate_rotation_degrees(args.video)
+        rotation = 0
+        try:
+            rotation = orientation.estimate_rotation_degrees(args.video)
+        except Exception:
+            rotation = 0
+        meta["rotation_deg"] = int(rotation)
     else:
-        meta["rotation_deg"] = 0.0
+        meta["rotation_deg"] = 0
     (run_dir / "metadata.json").write_text(json.dumps(meta, indent=2))
 
     # 1) segmentation
