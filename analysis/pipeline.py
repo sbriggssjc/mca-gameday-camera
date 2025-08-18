@@ -8,6 +8,7 @@ Jetson without additional model weights.
 from __future__ import annotations
 
 import argparse
+from argparse import BooleanOptionalAction
 import csv
 import hashlib
 import json
@@ -20,36 +21,25 @@ from typing import Any, Dict, List, Optional, Sequence
 DEFAULT_MIN_PLAY_GAP = 1.5
 DEFAULT_MIN_PLAY_LEN = 6.0
 
-
 # Optional shared config; fall back to internal defaults if missing
 try:
-    from analysis.config import (
-        DEFAULT_MIN_PLAY_GAP as CFG_MIN_GAP,
-        DEFAULT_MIN_PLAY_LEN as CFG_MIN_LEN,
-        PROFILE_DEFAULTS as CFG_PROFILE_DEFAULTS,
-    )
+    from analysis.config import PROFILE_DEFAULTS as _PROFILE_DEFAULTS  # type: ignore
+    PROFILE_DEFAULTS = dict(_PROFILE_DEFAULTS)
 except Exception:
-    CFG_MIN_GAP = DEFAULT_MIN_PLAY_GAP
-    CFG_MIN_LEN = DEFAULT_MIN_PLAY_LEN
-    CFG_PROFILE_DEFAULTS = {
+    PROFILE_DEFAULTS = {
         'game': {
-            'min_play_length': 6.0,
-            'min_play_gap': 1.5,
-            'strict': True,
-            'overlay': True,
-            'summary': True,
-        },
-        'practice': {
-            'min_play_length': 3.0,
-            'min_play_gap': 0.5,
-            'strict': False,
-            'overlay': True,
-            'summary': True,
-        },
+            'min_play_gap': DEFAULT_MIN_PLAY_GAP,
+            'min_play_length': DEFAULT_MIN_PLAY_LEN,
+            'generate_report': True,
+            'generate_clips': True,
+            'generate_highlights': True,
+            'make_overlay': False,
+        }
     }
 
-# Back-compat alias if other code references PROFILE_DEFAULTS
-PROFILE_DEFAULTS = CFG_PROFILE_DEFAULTS
+# Ensure baseline profile exists and has sane defaults
+PROFILE_DEFAULTS.setdefault('game', {})
+PROFILE_DEFAULTS['game']['make_overlay'] = PROFILE_DEFAULTS['game'].get('make_overlay', False) and False
 
 import numpy as np
 
@@ -315,6 +305,7 @@ def run_pipeline(*, args: argparse.Namespace | None = None, **kwargs) -> None:
     highlight.touch()
 
 
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -325,19 +316,28 @@ def build_argparser() -> argparse.ArgumentParser:
     p.add_argument("--team", required=False, default=None)
     p.add_argument("--playbook", default="playbooks/mca_5th_v2.json")
     p.add_argument("--out", default="output")
-    p.add_argument("--min-play-gap", type=float, default=1.5)
-    p.add_argument("--min-play-length", type=float, default=6.0)
-    p.add_argument("--generate-report", action="store_true")
-    p.add_argument("--generate-clips", action="store_true")
-    p.add_argument("--generate-highlights", action="store_true")
-    p.add_argument("--clip-pre", type=float, default=1.0)
-    p.add_argument("--clip-post", type=float, default=1.0)
-    p.add_argument("--orientation-auto", action="store_true")
-    p.add_argument("--auto-zoom", action="store_true")
-    p.add_argument("--overwrite", action="store_true")
-    p.add_argument("--review-rank", action="store_true", help="rank clips by teaching value")
-    p.add_argument("--review-topk", type=int, default=0, help="if >0, prepare top-K for auto-draw")
-    p.add_argument("--auto-draw", action="store_true", help="render first-pass telestration on review set")
+
+    # Boolean flags with None default so profiles/env can override
+    p.add_argument("--generate-report", action=BooleanOptionalAction, default=None)
+    p.add_argument("--generate-clips", action=BooleanOptionalAction, default=None)
+    p.add_argument("--generate-highlights", action=BooleanOptionalAction, default=None)
+    p.add_argument("--make-overlay", action=BooleanOptionalAction, default=None)
+    p.add_argument("--orientation-auto", action=BooleanOptionalAction, default=None)
+    p.add_argument("--auto-zoom", action=BooleanOptionalAction, default=None)
+    p.add_argument("--overwrite", action=BooleanOptionalAction, default=None)
+    p.add_argument("--auto-draw", action=BooleanOptionalAction, default=None)
+
+    # Numeric thresholds
+    p.add_argument("--min-play-gap", type=float, default=None)
+    p.add_argument("--min-play-length", type=float, default=None)
+    p.add_argument("--clip-pre", type=float, default=None)
+    p.add_argument("--clip-post", type=float, default=None)
+
+    # Optional paths/strings
+    p.add_argument("--player-ids", type=str, default=None)
+    p.add_argument("--id-overrides", type=str, default=None)
+    p.add_argument("--grading-weights", type=str, default=None)
+    p.add_argument("--team-color", type=str, default=None)
     return p
 
 
@@ -345,236 +345,52 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = build_argparser()
     args = parser.parse_args(argv)
 
-    # ----- resolve profile defaults and CLI overrides -----
-    prof = (PROFILE_DEFAULTS.get(getattr(args, 'profile', 'game'), PROFILE_DEFAULTS['game']) if 'PROFILE_DEFAULTS' in globals() else {'min_play_gap': DEFAULT_MIN_PLAY_GAP, 'min_play_length': DEFAULT_MIN_PLAY_LEN, 'generate_report': True, 'generate_clips': True, 'generate_highlights': True})
+    prof = PROFILE_DEFAULTS.get('game', {})
+    env_len = os.getenv("MCA_MIN_PLAY_LEN")
+    env_gap = os.getenv("MCA_MIN_PLAY_GAP")
 
-    min_play_gap = args.min_play_gap if args.min_play_gap is not None else prof["min_play_gap"]
     min_play_length = (
-        args.min_play_length if args.min_play_length is not None else prof["min_play_length"]
+        args.min_play_length if getattr(args, 'min_play_length', None) not in (None, 0)
+        else float(env_len) if env_len
+        else float(prof.get('min_play_length', DEFAULT_MIN_PLAY_LEN))
+    )
+    min_play_gap = (
+        args.min_play_gap if getattr(args, 'min_play_gap', None) not in (None, 0)
+        else float(env_gap) if env_gap
+        else float(prof.get('min_play_gap', DEFAULT_MIN_PLAY_GAP))
     )
 
-    generate_report = prof["generate_report"] if args.generate_report is None else args.generate_report
-    generate_clips = prof["generate_clips"] if args.generate_clips is None else args.generate_clips
-    generate_highlights = (
-        prof["generate_highlights"]
-        if args.generate_highlights is None
-        else args.generate_highlights
-    )
-    make_overlay = prof["make_overlay"] if args.make_overlay is None else args.make_overlay
+    generate_report = prof.get('generate_report', True) if getattr(args, 'generate_report', None) is None else args.generate_report
+    generate_clips = prof.get('generate_clips', True) if getattr(args, 'generate_clips', None) is None else args.generate_clips
+    generate_highlights = prof.get('generate_highlights', True) if getattr(args, 'generate_highlights', None) is None else args.generate_highlights
+    make_overlay = prof.get('make_overlay', False) if getattr(args, 'make_overlay', None) is None else args.make_overlay
+    orientation_auto = prof.get('orientation_auto', False) if getattr(args, 'orientation_auto', None) is None else args.orientation_auto
+    auto_zoom = prof.get('auto_zoom', False) if getattr(args, 'auto_zoom', None) is None else args.auto_zoom
+    overwrite = prof.get('overwrite', False) if getattr(args, 'overwrite', None) is None else args.overwrite
+    auto_draw = prof.get('auto_draw', False) if getattr(args, 'auto_draw', None) is None else args.auto_draw
 
-    # ----- build RunConfig for downstream calls -----
-    run_cfg = RunConfig(
-        video=args.video,
-        team=args.team,
-        out_dir=args.out,
-        playbook_path=args.playbook,
-        opponent=getattr(args, "opponent", None),
-        fps=args.fps,
-        min_play_gap=min_play_gap,
-        min_play_length=min_play_length,
-        generate_report=generate_report,
-        generate_clips=generate_clips,
-        generate_highlights=generate_highlights,
-        make_overlay=make_overlay,
-        profile=args.profile,
-        debug_vid=getattr(args, "debug_vid", False),
-    )
+    clip_pre = args.clip_pre if args.clip_pre is not None else 1.0
+    clip_post = args.clip_post if args.clip_post is not None else 1.0
 
-    # If downstream functions expect to read from args, mirror back the resolved values:
-    args.min_play_gap = min_play_gap
     args.min_play_length = min_play_length
+    args.min_play_gap = min_play_gap
     args.generate_report = generate_report
     args.generate_clips = generate_clips
     args.generate_highlights = generate_highlights
     args.make_overlay = make_overlay
-
-    profile_key = args.profile
-
-    # ----- optional pre-clean of output root -----
-    if getattr(args, "preclean", False):
-        cleaner = Path("tools/cleanup_outputs.py")
-        if cleaner.exists():
-            cmd = [sys.executable, str(cleaner), "--out", args.out, "--archive", "--prune"]
-            print("[PRECLEAN] Running:", " ".join(cmd))
-            try:
-                subprocess.run(cmd, check=False)
-            except Exception as e:  # pragma: no cover - best effort
-                print("[PRECLEAN] Warning:", e)
-        else:
-            print("[PRECLEAN] Skipped (tools/cleanup_outputs.py not found)")
-
-    # ----- canonical single-run folder routing -----
-    OUT_ROOT = Path(args.out) if hasattr(args, "out") and args.out else Path("output")
-    if getattr(args, "single_run", False) or getattr(args, "single-run", False):
-        pass
-        canonical = _canonical_outdir(str(OUT_ROOT), args.video)
-        _ensure_clean_dir(canonical, overwrite=getattr(args, "overwrite", False))
-        args.out = str(canonical)
-        print(f"[OUT] Using canonical output: {args.out}")
-        _write_metadata(
-            Path(args.out),
-            {
-                "video_path": str(args.video),
-                "created": datetime.now().isoformat(timespec="seconds"),
-                "flags": {
-                    "clip_pre": getattr(args, "clip_pre", 2.0),
-                    "clip_post": getattr(args, "clip_post", 2.5),
-                    "auto_zoom": getattr(args, "auto_zoom", False),
-                    "orientation_auto": getattr(args, "orientation_auto", False),
-                    "grade": getattr(args, "grade", False),
-                    "overwrite": getattr(args, "overwrite", False),
-                },
-            },
-        )
-    else:
-        Path(OUT_ROOT).mkdir(parents=True, exist_ok=True)
-
-    out_dir = Path(args.out)
-    (out_dir / "run_id.txt").write_text(datetime.utcnow().isoformat())
-
-    run_cfg.out_dir = args.out
+    args.orientation_auto = orientation_auto
+    args.auto_zoom = auto_zoom
+    args.overwrite = overwrite
+    args.auto_draw = auto_draw
+    args.clip_pre = clip_pre
+    args.clip_post = clip_post
 
     print(
-        f"[config] profile={profile_key} min_play_length={run_cfg.min_play_length:.2f}s "
-        f"min_play_gap={run_cfg.min_play_gap:.2f}s strict={bool(args.strict)} "
-        f"overlay={run_cfg.make_overlay} summary={bool(getattr(args, 'debug_summary', False))}"
+        f"[config] min_play_length={min_play_length} min_play_gap={min_play_gap} "
+        f"report={generate_report} clips={generate_clips} highlights={generate_highlights} overlay={make_overlay}"
     )
 
-    run_pipeline(
-        video=run_cfg.video,
-        team=run_cfg.team,
-        opponent=run_cfg.opponent,
-        playbook_path=run_cfg.playbook_path,
-        out_dir=str(out_dir),
-        fps=run_cfg.fps,
-        generate_report=run_cfg.generate_report,
-        generate_clips=run_cfg.generate_clips,
-        generate_highlights=run_cfg.generate_highlights,
-        min_play_gap=run_cfg.min_play_gap,
-        min_play_length=run_cfg.min_play_length,
-        clip_pre=args.clip_pre,
-        clip_post=args.clip_post,
-        max_per_seg=args.max_per_seg,
-        player_ids=args.player_ids,
-        id_overrides=args.id_overrides,
-        team_color=args.team_color,
-        grading_weights=args.grading_weights,
-        clip_corrections=args.clip_corrections,
-        clip_wins=args.clip_wins,
-        clip_highlights=args.clip_highlights,
-        detect_model=args.detect_model,
-        args=args,
-        conf_thresh=args.conf_thresh,
-        nms_thresh=args.nms_thresh,
-        debug_detections=args.debug_detections,
-        max_debug_frames=args.max_debug_frames,
-        force_cpu=args.force_cpu,
-        auto_zoom=args.auto_zoom,
-        orientation_auto=args.orientation_auto,
-        grade=args.grade,
-      )
-
-    if args.review_rank or args.review_topk or args.auto_draw:
-        from analysis.playbook_loader import load_playbook
-        pb = load_playbook(args.playbook)
-        print(f"[pipeline] Playbook loaded: {args.playbook}")
-    if args.review_rank:
-        from analysis.review_ranker import rank_all
-        rank_all(args.out, pb)
-        print("[pipeline] Review rankings complete. Next:")
-        print(f"  python3 tools/review_batch.py --in \"{args.out}\" --playbook {args.playbook} --top-k 10 --auto-draw")
-    if args.review_topk and args.auto_draw:
-        from analysis.review_draw import draw_topk
-        draw_topk(args.out, pb, top_k=args.review_topk)
-        print("[pipeline] Auto-draw complete. Next:")
-        print(f"  python3 tools/review_record.py --in \"{args.out}/review/auto_annotated\"")
-
-    # ---- Strict checks & overlays & summary ----
-    game_dir = _game_dir(str(out_dir), run_cfg.video)
-    plays_fp = game_dir / "plays.jsonl"
-    predictions_fp = game_dir / "play_predictions.jsonl"
-    grades_fp = game_dir / "grades.jsonl"
-    tracking_fp = game_dir / "tracking.jsonl"
-    metadata_fp = game_dir / "metadata.json"
-
-    def _safe_load_jsonl(fp: Path) -> List[Dict[str, Any]]:
-        if not fp.exists():
-            return []
-        return [json.loads(line) for line in fp.read_text().splitlines() if line.strip()]
-
-    def _safe_load_json(fp: Path) -> Dict[str, Any]:
-        if not fp.exists():
-            return {}
-        return json.loads(fp.read_text())
-
-    plays = _safe_load_jsonl(plays_fp)
-    predictions = _safe_load_jsonl(predictions_fp)
-    grades = _safe_load_jsonl(grades_fp)
-    tracking_rows = _safe_load_jsonl(tracking_fp)
-    meta = _safe_load_json(metadata_fp)
-
-    video_len_s = float(meta.get("video_length_sec") or 0.0)
-    if (not video_len_s) and meta.get("video_path"):
-        try:  # pragma: no cover - best effort only
-            import cv2  # type: ignore
-
-            cap2 = cv2.VideoCapture(meta["video_path"])
-            fps2 = cap2.get(cv2.CAP_PROP_FPS) or 30.0
-            frames2 = cap2.get(cv2.CAP_PROP_FRAME_COUNT) or 0
-            video_len_s = (frames2 / fps2) if fps2 and frames2 else 0.0
-            cap2.release()
-        except Exception:
-            video_len_s = 0.0
-
-    # STRICT: basic sanity checks
-    if args.strict:
-        # if the clip is long but we got almost no segments, something is wrong with the segmenter thresholds
-        if video_len_s >= 45.0 and len(plays) < 3:
-            raise SystemExit(
-                f"Strict mode: too few plays ({len(plays)}) for video length {video_len_s:.1f}s"
-            )
-        # if tracking never populated, flag it
-        if len(tracking_rows) == 0:
-            raise SystemExit("Strict mode: no tracking.jsonl rows found (tracking likely failed)")
-        # if classifier/predictions are empty, flag it
-        if len(predictions) == 0:
-            raise SystemExit(
-                "Strict mode: no play_predictions.jsonl produced (classification likely failed)"
-            )
-
-    # Overlays
-    if run_cfg.make_overlay:
-        if render_overlays_for_out_dir is None:
-            print(
-                "[WARN] --make-overlay requested but overlays.debug_overlay not importable; skipping overlays."
-            )
-        else:
-            try:
-                render_overlays_for_out_dir(game_dir)
-            except Exception as e:  # pragma: no cover - best effort
-                print(f"[WARN] Overlay rendering failed: {e}")
-
-    # Debug summary
-    if getattr(args, "debug_summary", False):
-        if print_debug_summary is None:
-            print(
-                "[WARN] --debug-summary requested but reporting.debug_summary not importable; skipping summary."
-            )
-
-        else:
-            try:
-                print_debug_summary(
-                    game_dir,
-                    plays,
-                    predictions,
-                    grades,
-                    profile=run_cfg.profile,
-                    min_len=run_cfg.min_play_length,
-                    min_gap=run_cfg.min_play_gap,
-                )
-            except Exception as e:  # pragma: no cover - best effort
-                print(f"[WARN] Debug summary failed: {e}")
-
+    run_pipeline(args=args)
 
 
 if __name__ == "__main__":  # pragma: no cover
