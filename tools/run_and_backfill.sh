@@ -1,25 +1,32 @@
+# tools/run_and_backfill.sh
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Pass all args to the pipeline
 python3 -m analysis.pipeline "$@"
 
-# Extract the run_dir from pipeline’s metadata
 OUT_DIR="output"
-RUN_DIR="$(ls -td "${OUT_DIR}/games/"* | head -n1)"
+RUN_DIR="$(ls -td "${OUT_DIR}/games/"* | head -n1 || true)"
+if [[ -z "${RUN_DIR}" || ! -d "${RUN_DIR}" ]]; then
+  echo "[error] could not locate newest run dir under ${OUT_DIR}/games"
+  exit 1
+fi
 
-# Backfill plays.jsonl and plays_index.csv from the clips we just cut
-python3 tools/backfill_from_clips.py "$RUN_DIR"
+python3 tools/backfill_from_clips.py "${RUN_DIR}"
 
 echo
 echo "== Summary =="
-echo "Run dir: $RUN_DIR"
-[ -f "$RUN_DIR/metadata.json" ] && jq -c '.rotation_deg,.fps,.width,.height' "$RUN_DIR/metadata.json" || true
+echo "Run dir: ${RUN_DIR}"
+if [[ -f "${RUN_DIR}/metadata.json" ]]; then
+  jq -r '.rotation_deg, .fps, .width, .height' "${RUN_DIR}/metadata.json"
+fi
 echo
 echo "Clips (first 10):"
-find "$RUN_DIR/clips" -type f -name '*.mp4' | head -n 10 || true
+find "${RUN_DIR}/clips" -type f -name '*.mp4' | head -n 10 || true
 echo
 echo "plays_index.csv (head):"
-[ -f "$RUN_DIR/plays_index.csv" ] && sed -n '1,6p' "$RUN_DIR/plays_index.csv" || echo "(no plays_index.csv yet)"
+sed -n '1,6p' "${RUN_DIR}/plays_index.csv" || echo "(no plays_index.csv yet)"
 echo
 echo "plays.jsonl (first 3):"
-[ -f "$RUN_DIR/plays.jsonl" ] && head -n 3 "$RUN_DIR/plays.jsonl" || echo "(no plays.jsonl yet)"
+head -n 3 "${RUN_DIR}/plays.jsonl" || echo "(no plays.jsonl yet)"
+
