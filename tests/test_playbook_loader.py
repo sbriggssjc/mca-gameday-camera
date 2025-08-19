@@ -25,10 +25,8 @@ def test_normalise_variants(minimal, split_sections, flat_lists):
         assert set(canon.keys()) == {"offense", "defense"}
         assert isinstance(canon["offense"]["plays"], list)
 
-def test_real_playbooks_same_structure():
-    pb1 = assignments.load_playbook("mca_full_playbook_final.json")
-    pb2 = assignments.load_playbook("mca_playbook.json")
-    assert isinstance(pb1.offense_plays, list)
-    assert isinstance(pb2.offense_plays, list)
-    assert isinstance(pb1.defense_positions, list)
-    assert isinstance(pb2.defense_positions, list)
+def test_offense_playbook_loads():
+    from playbooks import load_offense_playbook
+    pb = load_offense_playbook()
+    assert pb.get("metadata", {}).get("phase") == "offense"
+    assert isinstance(pb.get("plays"), list) and pb["plays"]

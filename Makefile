@@ -23,7 +23,7 @@ run-pipeline:
 >python3 -m analysis.pipeline \
 >  --video video/manual_uploads/IMG_4129.MP4 \
 >  --team WHITE \
->  --playbook mca_full_playbook_final.json \
+>  --playbook playbooks/mca_5th_playbook.json \
 >  --out $$OUT \
 >  --make-overlay \
 >  --debug-summary \

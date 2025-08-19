@@ -62,7 +62,7 @@ def analyze_clip(path: Path) -> Dict[str, float]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Process practice clips for training")
     parser.add_argument("folder", help="Folder containing practice videos")
-    parser.add_argument("--playbook", default="mca_full_playbook_final.json", help="Playbook JSON")
+    parser.add_argument("--playbook", default="playbooks/mca_5th_playbook.json", help="Playbook JSON")
     parser.add_argument("--output", default="training_set.json", help="Output training JSON")
     args = parser.parse_args()
 

@@ -1,0 +1,208 @@
+{
+  "metadata": {
+    "team": "Metro Christian Academy 5th",
+    "phase": "offense",
+    "version": "2025-08-19",
+    "source": "MCA 5th Offensive Playbook (PDF)",
+    "notes": "Single source of truth for analysis, overlays, grading, reports, and wristband export."
+  },
+  "formation_pairs": [
+    {"pair": "Rit/Lit", "right": "Rit", "left": "Lit", "abbr": "R/L"},
+    {"pair": "Rend/Lend", "right": "Rend", "left": "Lend", "abbr": "Ren/Len"},
+    {"pair": "Reo/Leo", "right": "Reo", "left": "Leo", "abbr": "Re/Le"}
+  ],
+  "plays": [
+    {
+      "num": 1,
+      "name": "Dive",
+      "pairs": ["Rit/Lit"],
+      "type": "run",
+      "tags": ["interior","A-gap"],
+      "default_read": ["hit A", "bounce", "cutback"],
+      "notes": "PLAY 1: Rit/Lit Dive. Defensive look: 4-4 / 4-3."
+    },
+    {
+      "num": 2,
+      "name": "Sweep",
+      "pairs": ["Rit/Lit"],
+      "type": "run",
+      "tags": ["perimeter","edge"],
+      "default_read": ["edge", "alley", "cutback"],
+      "notes": "PLAY 2: Rit/Lit Sweep. Defensive look: 4-4 / 4-3."
+    },
+    {
+      "num": 3,
+      "name": "F Counter",
+      "pairs": ["Rit/Lit"],
+      "type": "run",
+      "tags": ["counter","C-gap"],
+      "default_read": ["kick", "wrap", "crease"],
+      "notes": "PLAY 3: Rit/Lit F Counter. Defensive look: 4-4 / 4-3."
+    },
+    {
+      "num": 4,
+      "name": "Power",
+      "pairs": ["Rit/Lit"],
+      "type": "run",
+      "tags": ["down","kick","pull"],
+      "default_read": ["down-kick", "follow FB", "B/C gap"],
+      "notes": "PLAY 4: Rit Power R / Lit Power L. Defensive look: 4-4 / 4-3."
+    },
+    {
+      "num": 5,
+      "name": "Jet Sweep",
+      "pairs": ["Rit/Lit"],
+      "type": "run",
+      "tags": ["jet","motion","perimeter"],
+      "default_read": ["timing", "edge", "cut"],
+      "notes": "PLAY 5: Rit/Lit Jet Sweep. Defensive look: 4-4 / 4-3."
+    },
+    {
+      "num": 6,
+      "name": "8 Option",
+      "pairs": ["Rit/Lit"],
+      "type": "option",
+      "tags": ["QB read","pitch"],
+      "default_read": ["EMOL", "keep", "pitch"],
+      "notes": "PLAY 6: Rit/Lit 8 Option. Defensive look: 4-4 / 4-3."
+    },
+    {
+      "num": 7,
+      "name": "F Stick",
+      "pairs": ["Reo/Leo"],
+      "type": "pass",
+      "tags": ["quick-game","stick"],
+      "progression": ["flat", "hook/stick", "outside"],
+      "notes": "PLAY 7: Reo/Leo F Stick."
+    },
+    {
+      "num": 8,
+      "name": "Flare Boot",
+      "pairs": ["Rit/Lit"],
+      "type": "pass",
+      "tags": ["play-action","boot"],
+      "progression": ["flat/flare", "cross", "comeback/over", "check"],
+      "notes": "PLAY 8: Rit/Lit Flare Boot."
+    },
+    {
+      "num": 9,
+      "name": "F Screen",
+      "pairs": ["Rit/Lit"],
+      "type": "screen",
+      "tags": ["screen","OL release"],
+      "progression": ["screen", "alert backside"],
+      "notes": "PLAY 9: Rit/Lit F Screen."
+    },
+    {
+      "num": 10,
+      "name": "Flood",
+      "pairs": ["Reo/Leo"],
+      "type": "pass",
+      "tags": ["sail","flood","boot/roll"],
+      "progression": ["go/deep", "intermediate sail", "flat"],
+      "notes": "PLAY 10: Reo/Leo Flood."
+    },
+    {
+      "num": 11,
+      "name": "Quick Screen",
+      "pairs": ["Reo/Leo"],
+      "type": "screen",
+      "tags": ["perimeter","RPO look"],
+      "progression": ["bubble/now", "alert slant/go"],
+      "notes": "PLAY 11: Reo/Leo Quick Screen."
+    },
+    {
+      "num": 12,
+      "name": "Jet Sweep",
+      "pairs": ["Reo/Leo"],
+      "type": "run",
+      "tags": ["jet","motion","perimeter"],
+      "default_read": ["timing", "edge", "cut"],
+      "notes": "PLAY 12: Reo/Leo Jet Sweep. Defensive look: 4-4 / 4-3."
+    },
+    {
+      "num": 13,
+      "name": "Pitch",
+      "pairs": ["Reo/Leo"],
+      "type": "run",
+      "tags": ["perimeter","pitch"],
+      "default_read": ["leverage", "alley", "cutback"],
+      "notes": "PLAY 13: Reo/Leo Pitch. Defensive look: 4-4 / 4-3."
+    },
+    {
+      "num": 14,
+      "name": "Tackle",
+      "pairs": ["Rend/Lend"],
+      "type": "run",
+      "tags": ["off-tackle","C/D-gap"],
+      "default_read": ["kick", "wrap", "bounce"],
+      "notes": "PLAY 14: Rend/Lend Tackle. Defensive look: 4-4 / 4-3."
+    },
+    {
+      "num": 15,
+      "name": "Dive",
+      "pairs": ["Rend/Lend"],
+      "type": "run",
+      "tags": ["interior","A/B-gap"],
+      "default_read": ["A/B", "bounce", "cutback"],
+      "notes": "PLAY 15: Rend/Lend Dive. Defensive look: 4-4 / 4-3."
+    },
+    {
+      "num": 155,
+      "name": "Slant",
+      "pairs": ["Rend/Lend"],
+      "type": "run",
+      "tags": ["quick-hit","inside slant"],
+      "default_read": ["crease", "cut"],
+      "notes": "PLAY 15 (variant): Rend/Lend Slant. Variant keyed in slides as part of 15 set."
+    },
+    {
+      "num": 16,
+      "name": "Option",
+      "pairs": ["Rend/Lend"],
+      "type": "option",
+      "tags": ["QB read","edge"],
+      "default_read": ["EMOL", "keep", "pitch"],
+      "notes": "PLAY 16: Rend/Lend Option. Defensive look: 4-4 / 4-3."
+    },
+    {
+      "num": 17,
+      "name": "Tush Push",
+      "pairs": ["Reo/Leo"],
+      "type": "short-yardage",
+      "tags": ["sneak","rugby"],
+      "default_read": ["A-gap surge"],
+      "notes": "PLAY 17: Reo/Leo Tush Push. Defensive look: 4-4 / 4-3."
+    }
+  ],
+  "wristband": {
+    "signal_protocol": "Coach flashes formation direction (Right/Left) then holds up play number; QB calls 'Formation + Number + Name' in huddle.",
+    "abbrev_legend": {
+      "R/L": "Rit/Lit",
+      "Ren/Len": "Rend/Lend",
+      "Re/Le": "Reo/Leo"
+    },
+    "slots": [
+      {"slot": 1, "sig": "R/L", "num": 1, "name": "Dive"},
+      {"slot": 2, "sig": "R/L", "num": 2, "name": "Sweep"},
+      {"slot": 3, "sig": "R/L", "num": 3, "name": "F Counter"},
+      {"slot": 4, "sig": "R/L", "num": 4, "name": "Power"},
+      {"slot": 5, "sig": "R/L", "num": 5, "name": "Jet Sweep"},
+      {"slot": 6, "sig": "R/L", "num": 6, "name": "8 Option"},
+      {"slot": 7, "sig": "Re/Le", "num": 7, "name": "F Stick"},
+      {"slot": 8, "sig": "R/L", "num": 8, "name": "Flare Boot"},
+      {"slot": 9, "sig": "R/L", "num": 9, "name": "F Screen"},
+      {"slot": 10, "sig": "Re/Le", "num": 10, "name": "Flood"},
+      {"slot": 11, "sig": "Re/Le", "num": 11, "name": "Quick Screen"},
+      {"slot": 12, "sig": "Re/Le", "num": 12, "name": "Jet Sweep"},
+      {"slot": 13, "sig": "Re/Le", "num": 13, "name": "Pitch"},
+      {"slot": 14, "sig": "Ren/Len", "num": 14, "name": "Tackle"},
+      {"slot": 15, "sig": "Ren/Len", "num": 15, "name": "Dive"},
+      {"slot": 16, "sig": "Ren/Len", "num": 155, "name": "Slant"},
+      {"slot": 17, "sig": "Ren/Len", "num": 16, "name": "Option"},
+      {"slot": 18, "sig": "Re/Le", "num": 17, "name": "Tush Push"},
+      {"slot": 19, "sig": "Re/Le", "num": null, "name": "Special A"},
+      {"slot": 20, "sig": "Ren/Len", "num": null, "name": "Special B"}
+    ]
+  }
+}

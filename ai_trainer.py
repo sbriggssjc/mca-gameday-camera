@@ -102,12 +102,7 @@ def main() -> None:
     frames_dir.mkdir(parents=True, exist_ok=True)
     labels_dir.mkdir(parents=True, exist_ok=True)
 
-    playbook_file = (
-        "mca_full_playbook_final.json"
-        if Path("mca_full_playbook_final.json").exists()
-        else "mca_playbook.json"
-    )
-    playbook = load_playbook(playbook_file)
+    playbook = load_playbook()
 
     if args.evaluate:
         label_path = labels_dir / f"{Path(args.video).stem}.json"
