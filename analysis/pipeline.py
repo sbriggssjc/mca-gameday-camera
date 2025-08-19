@@ -149,7 +149,11 @@ def _run_pipeline(args: argparse.Namespace) -> None:
     (run_dir / "metadata.json").write_text(json.dumps(meta, indent=2))
 
     # load playbook for playcall matching if available
-    raw_pb: Dict[str, Any] = load_offense_playbook(getattr(args, "playbook", None))
+    try:
+        raw_pb: Dict[str, Any] = load_offense_playbook(getattr(args, "playbook", None))
+    except FileNotFoundError as e:
+        print(f"[playbook] {e}")
+        raw_pb = {}
     plays = []
     # Extract plays from multiple known schemas
     if isinstance(raw_pb, dict):
@@ -172,9 +176,10 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         f"[config] min_play_length={args.min_play_length} min_play_gap={args.min_play_gap} "
         f"report={args.generate_report} clips={args.generate_clips} highlights={args.generate_highlights} overlay={getattr(args, 'make_overlay', getattr(args, 'overlay', False))}"
     )
+    print(f"[playbook] source={raw_pb.get('_source_path', '<none>')}")
     print(f"[pipeline] playbook loaded with {len(plays)} plays")
     if len(plays) == 0:
-        print("[pipeline] NOTE: proceeding without play names (formation-only classification).")
+        print("[pipeline] WARNING: proceeding without play names (formation-only classification).")
 
     # 1) segmentation
     segs = segment_video(args.video, min_play_gap=args.min_play_gap, min_play_length=args.min_play_length)
@@ -304,6 +309,7 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         clip_out.parent.mkdir(parents=True, exist_ok=True)
         export_clip(args.video, clip_start, clip_end, clip_out, rotation)
 
+        clip_duration = float(t1 - t0)
         plays_index.append(
             {
                 "play_id": seg_id,
@@ -313,8 +319,11 @@ def _run_pipeline(args: argparse.Namespace) -> None:
                 "whistle": t1,
                 "clip_path": str(clip_out),
                 "formation": formation_name,
+                "formation_confidence": formation_conf,
                 "play_family": play_family,
+                "playcall_confidence": float(play_conf),
                 "outcome": "",
+                "clip_duration": clip_duration,
             }
         )
 
@@ -329,7 +338,20 @@ def _run_pipeline(args: argparse.Namespace) -> None:
     with (run_dir / "plays_index.csv").open("w", newline="", encoding="utf8") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["play_id", "t0", "t1", "snap", "whistle", "clip_path", "formation", "play_family", "outcome"],
+            fieldnames=[
+                "play_id",
+                "t0",
+                "t1",
+                "snap",
+                "whistle",
+                "clip_path",
+                "formation",
+                "formation_confidence",
+                "play_family",
+                "playcall_confidence",
+                "outcome",
+                "clip_duration",
+            ],
         )
         writer.writeheader()
         writer.writerows(plays_index)
