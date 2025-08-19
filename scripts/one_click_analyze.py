@@ -154,7 +154,7 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--team", required=True)
     parser.add_argument("--opponent", required=True)
     parser.add_argument("--date", required=True, help="YYYY-MM-DD")
-    parser.add_argument("--playbook", default="mca_full_playbook_final.json")
+    parser.add_argument("--playbook", default="playbooks/mca_5th_playbook.json")
     parser.add_argument("--player-ids")
     parser.add_argument("--wins-threshold", type=float, default=3.0)
     parser.add_argument("--corrections-threshold", type=float, default=2.0)

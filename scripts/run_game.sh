@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 
 VIDEO="${1:-video/manual_uploads/IMG_4129.MP4}"
 TEAM="${TEAM:-Metro Christian Academy}"
-PLAYBOOK="${PLAYBOOK:-mca_full_playbook_final.json}"
+PLAYBOOK="${PLAYBOOK:-playbooks/mca_5th_playbook.json}"
 OPPONENT="${OPPONENT:-}"
 
 OUT="output/$(basename "${VIDEO%.*}")_$(date +%Y%m%d_%H%M)"; export OUT

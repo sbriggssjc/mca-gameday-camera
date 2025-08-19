@@ -20,7 +20,7 @@ Run cleaner automatically before analysis:
 python3 -m analysis.pipeline \
   --video video/manual_uploads/IMG_4129.MP4 \
   --team WHITE \
-  --playbook mca_full_playbook_final.json \
+  --playbook playbooks/mca_5th_playbook.json \
   --out output \
   --single-run --overwrite --clip-pre 2.0 --clip-post 2.5 \
   --auto-zoom --orientation-auto --grade \
