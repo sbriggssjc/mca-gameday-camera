@@ -150,7 +150,17 @@ def _run_pipeline(args: argparse.Namespace) -> None:
 
     # load playbook for playcall matching if available
     raw_pb: Dict[str, Any] = load_offense_playbook(getattr(args, "playbook", None))
-    plays: List[Dict[str, Any]] = raw_pb.get("plays", [])
+    plays = []
+    # Extract plays from multiple known schemas
+    if isinstance(raw_pb, dict):
+        if isinstance(raw_pb.get("plays"), list):
+            plays = raw_pb["plays"]
+        elif isinstance(raw_pb.get("offense"), dict) and isinstance(raw_pb["offense"].get("plays"), list):
+            plays = raw_pb["offense"]["plays"]
+        elif isinstance(raw_pb.get("sections"), dict):
+            off = raw_pb["sections"].get("offense") or raw_pb["sections"].get("Offense")
+            if isinstance(off, dict) and isinstance(off.get("plays"), list):
+                plays = off["plays"]
     pb = None
     if plays:
         try:
@@ -158,9 +168,13 @@ def _run_pipeline(args: argparse.Namespace) -> None:
             pb = validate_playbook(canonical_pb)
         except Exception:
             pb = None
+    print(
+        f"[config] min_play_length={args.min_play_length} min_play_gap={args.min_play_gap} "
+        f"report={args.generate_report} clips={args.generate_clips} highlights={args.generate_highlights} overlay={getattr(args, 'make_overlay', getattr(args, 'overlay', False))}"
+    )
     print(f"[pipeline] playbook loaded with {len(plays)} plays")
     if len(plays) == 0:
-        print("[pipeline] NOTE: classifier will degrade with 0 plays; continuing with formation-only heuristics.")
+        print("[pipeline] NOTE: proceeding without play names (formation-only classification).")
 
     # 1) segmentation
     segs = segment_video(args.video, min_play_gap=args.min_play_gap, min_play_length=args.min_play_length)
@@ -352,6 +366,7 @@ def run_pipeline(*, args: argparse.Namespace | None = None, **kwargs) -> None:
             "generate_report": False,
             "generate_clips": False,
             "generate_highlights": False,
+            "make_overlay": False,
             "clip_pre": 1.0,
             "clip_post": 1.0,
             "orientation_auto": False,
