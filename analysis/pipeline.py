@@ -50,6 +50,9 @@ except Exception:  # pragma: no cover
 
 from .segmentation import segment_video
 from . import detect_track, features, orientation, zoom
+from formation_detector import detect_formation
+from .playbook.loader import load_playbook
+from .match.play_matcher import match_play
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +147,14 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         meta["rotation_deg"] = 0
     (run_dir / "metadata.json").write_text(json.dumps(meta, indent=2))
 
+    # load playbook for playcall matching if available
+    try:
+        pb = load_playbook(args.playbook) if getattr(args, "playbook", None) else None
+    except Exception:
+        pb = None
+    if pb:
+        print(f"[pipeline] playbook loaded with {len(pb.plays)} plays")
+
     # 1) segmentation
     segs = segment_video(args.video, min_play_gap=args.min_play_gap, min_play_length=args.min_play_length)
     print(f"[pipeline] segments detected: {len(segs)}")
@@ -197,11 +208,55 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         except Exception:
             feat = {"features": {}, "num_players": 0}
         features_rows.append({"segment_id": seg_id, "features": feat.get("features", {}), "num_players": feat.get("num_players", 0)})
-        try:
-            formation, play_family, conf = predict_from_features(feat.get("features", {}))
-        except Exception:
-            formation, play_family, conf = "", "", 0.0
-        prediction_rows.append({"play_id": seg_id, "formation": formation, "play_family": play_family, "confidence": conf})
+
+        # Formation detection on first frame with player boxes
+        formation_name = "Unknown"
+        formation_conf = 0.0
+        formation_cands: List[Dict[str, Any]] = []
+        if frames:
+            bboxes = [tuple(map(int, pl["bbox"])) for pl in players]
+            try:
+                formation_name, _ = detect_formation(frames[0], bboxes, play_id=int(i))
+            except Exception:
+                formation_name = "Unknown"
+        if formation_name != "Unknown":
+            formation_conf = 0.8
+        formation_cands.append({"name": formation_name, "score": formation_conf})
+        print(f"[formation_detector] {seg_id}: {formation_name} conf={formation_conf:.2f}")
+
+        # Playcall classification using playbook matcher
+        play_candidates: List[tuple[str, float]] = []
+        play_name: Optional[str] = None
+        play_conf = 0.0
+        play_family = ""
+        if pb and formation_name != "Unknown":
+            try:
+                play_candidates = match_play(pb, formation_name, {})
+            except Exception:
+                play_candidates = []
+            if play_candidates:
+                play_name, play_conf = play_candidates[0]
+                ps = pb.plays.get(play_name)
+                if ps and ps.family:
+                    play_family = ps.family
+        playcall_dict = {
+            "name": play_name,
+            "confidence": float(play_conf),
+            "candidates": [{"name": n, "score": s} for n, s in play_candidates],
+        }
+        print(f"[play_classifier] {seg_id}: {play_name} conf={play_conf:.2f}")
+
+        formation_dict = {
+            "name": formation_name if formation_name != "Unknown" else None,
+            "confidence": formation_conf,
+            "candidates": formation_cands,
+        }
+        prediction_rows.append({
+            "play_id": seg_id,
+            "formation": formation_dict,
+            "playcall": playcall_dict,
+            "play_family": play_family,
+        })
 
         # grades -- simple constant grade for each detected player
         for pl in players:
@@ -230,7 +285,7 @@ def _run_pipeline(args: argparse.Namespace) -> None:
                 "snap": t0,
                 "whistle": t1,
                 "clip_path": str(clip_out),
-                "formation": formation,
+                "formation": formation_name,
                 "play_family": play_family,
                 "outcome": "",
             }
@@ -261,8 +316,10 @@ def _run_pipeline(args: argparse.Namespace) -> None:
 
     summary = {"formations": {}, "play_families": {}}
     for pr in prediction_rows:
-        summary["formations"][pr["formation"]] = summary["formations"].get(pr["formation"], 0) + 1
-        summary["play_families"][pr["play_family"]] = summary["play_families"].get(pr["play_family"], 0) + 1
+        fname = pr.get("formation", {}).get("name", "")
+        summary["formations"][fname] = summary["formations"].get(fname, 0) + 1
+        pfam = pr.get("play_family", "")
+        summary["play_families"][pfam] = summary["play_families"].get(pfam, 0) + 1
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     if args.generate_report:
         (run_dir / "report.md").write_text("# Automated Report\n")
