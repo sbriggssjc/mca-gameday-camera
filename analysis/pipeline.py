@@ -51,7 +51,7 @@ except Exception:  # pragma: no cover
 from .segmentation import segment_video
 from . import detect_track, features, orientation, zoom
 from formation_detector import detect_formation
-from analysis.playbook_loader import load_playbook
+from playbooks import load_offense_playbook
 from .playbook.schema import validate_playbook
 from .match.play_matcher import match_play
 
@@ -149,9 +149,8 @@ def _run_pipeline(args: argparse.Namespace) -> None:
     (run_dir / "metadata.json").write_text(json.dumps(meta, indent=2))
 
     # load playbook for playcall matching if available
-    raw_pb: Dict[str, Any]
-    plays: List[Dict[str, Any]]
-    raw_pb, plays = (load_playbook(args.playbook) if getattr(args, "playbook", None) else ({}, []))
+    raw_pb: Dict[str, Any] = load_offense_playbook(getattr(args, "playbook", None))
+    plays: List[Dict[str, Any]] = raw_pb.get("plays", [])
     pb = None
     if plays:
         try:
@@ -399,7 +398,7 @@ def build_argparser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Minimal football film analysis pipeline")
     p.add_argument("--video", required=True)
     p.add_argument("--team", required=False, default=None)
-    p.add_argument("--playbook", default="playbooks/mca_5th_v2.json")
+    p.add_argument("--playbook", default="playbooks/mca_5th_playbook.json")
     p.add_argument("--out", default="output")
 
     # Boolean flags with None default so profiles/env can override
