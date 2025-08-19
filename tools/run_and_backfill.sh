@@ -2,6 +2,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# If user passes a bare filename that doesn't exist in CWD,
+# pipeline will still try playbooks/<name> and defaults.
+# Here we only forward what the user gave us.
 # Pass all args to the pipeline
 python3 -m analysis.pipeline "$@"
 
