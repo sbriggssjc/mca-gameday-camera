@@ -97,7 +97,7 @@ def load_assignments(path: str) -> Dict[int, str]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Rate players per play (stub)")
     parser.add_argument("video", help="Path to a video clip")
-    parser.add_argument("--playbook", help="Path to playbook JSON", default=None)
+    parser.add_argument("--playbook", help="Path to playbook JSON", default="playbooks/mca_5th_playbook.json")
     parser.add_argument("--output", help="Output CSV file", default="player_ratings.csv")
     args = parser.parse_args()
 
