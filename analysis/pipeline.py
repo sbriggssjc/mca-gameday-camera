@@ -51,7 +51,8 @@ except Exception:  # pragma: no cover
 from .segmentation import segment_video
 from . import detect_track, features, orientation, zoom
 from formation_detector import detect_formation
-from .playbook.loader import load_playbook
+from analysis.playbook_loader import load_playbook
+from .playbook.schema import validate_playbook
 from .match.play_matcher import match_play
 
 
@@ -148,16 +149,26 @@ def _run_pipeline(args: argparse.Namespace) -> None:
     (run_dir / "metadata.json").write_text(json.dumps(meta, indent=2))
 
     # load playbook for playcall matching if available
-    try:
-        pb = load_playbook(args.playbook) if getattr(args, "playbook", None) else None
-    except Exception:
-        pb = None
-    if pb:
-        print(f"[pipeline] playbook loaded with {len(pb.plays)} plays")
+    raw_pb: Dict[str, Any]
+    plays: List[Dict[str, Any]]
+    raw_pb, plays = (load_playbook(args.playbook) if getattr(args, "playbook", None) else ({}, []))
+    pb = None
+    if plays:
+        try:
+            canonical_pb = {"plays": plays, "formations": raw_pb.get("formations", [])}
+            pb = validate_playbook(canonical_pb)
+        except Exception:
+            pb = None
+    print(f"[pipeline] playbook loaded with {len(plays)} plays")
+    if len(plays) == 0:
+        print("[pipeline] NOTE: classifier will degrade with 0 plays; continuing with formation-only heuristics.")
 
     # 1) segmentation
     segs = segment_video(args.video, min_play_gap=args.min_play_gap, min_play_length=args.min_play_length)
     print(f"[pipeline] segments detected: {len(segs)}")
+    skip_play_match = len(plays) == 0
+    if skip_play_match:
+        print("[pipeline] INFO: skipping play matching (no plays in playbook). Formation-only pass will run.")
 
     features_rows: List[Dict[str, Any]] = []
     prediction_rows: List[Dict[str, Any]] = []
@@ -229,7 +240,7 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         play_name: Optional[str] = None
         play_conf = 0.0
         play_family = ""
-        if pb and formation_name != "Unknown":
+        if not skip_play_match and pb and formation_name != "Unknown":
             try:
                 play_candidates = match_play(pb, formation_name, {})
             except Exception:
@@ -244,7 +255,10 @@ def _run_pipeline(args: argparse.Namespace) -> None:
             "confidence": float(play_conf),
             "candidates": [{"name": n, "score": s} for n, s in play_candidates],
         }
-        print(f"[play_classifier] {seg_id}: {play_name} conf={play_conf:.2f}")
+        if not play_name:
+            print(f"[play_classifier] {seg_id}: Unknown conf={play_conf:.2f}")
+        else:
+            print(f"[play_classifier] {seg_id}: {play_name} conf={play_conf:.2f}")
 
         formation_dict = {
             "name": formation_name if formation_name != "Unknown" else None,
