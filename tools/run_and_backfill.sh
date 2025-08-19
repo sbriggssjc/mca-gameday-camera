@@ -8,6 +8,23 @@ set -euo pipefail
 # Pass all args to the pipeline
 python3 -m analysis.pipeline "$@"
 
+# Determine playbook argument for messaging
+PLAYBOOK=""
+prev=""
+for arg in "$@"; do
+  if [[ "$prev" == "--playbook" ]]; then
+    PLAYBOOK="$arg"
+    break
+  fi
+  prev="$arg"
+done
+
+if [[ -n "$PLAYBOOK" ]]; then
+  echo "[playbook] OK: requested playbook: $PLAYBOOK"
+else
+  echo "[playbook] using default candidate resolution (see playbooks/__init__.py)"
+fi
+
 OUT_DIR="output"
 RUN_DIR="$(ls -td "${OUT_DIR}/games/"* | head -n1 || true)"
 if [[ -z "${RUN_DIR}" || ! -d "${RUN_DIR}" ]]; then
