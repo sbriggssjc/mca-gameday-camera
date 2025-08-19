@@ -2,7 +2,7 @@ import json, csv, argparse, pathlib
 ap = argparse.ArgumentParser()
 ap.add_argument("--formations-csv", required=True)
 ap.add_argument("--plays-csv", required=True)
-ap.add_argument("--out", default="mca_full_playbook_final.json")
+ap.add_argument("--out", default="playbooks/mca_5th_playbook.json")
 args = ap.parse_args()
 
 def load_csv(path): return list(csv.DictReader(open(path,newline="",encoding="utf8")))

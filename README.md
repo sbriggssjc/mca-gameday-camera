@@ -11,7 +11,7 @@ full game video, performs lightweight play recognition and writes summary
 artefacts. Run it with:
 
 ```bash
-python -m analysis.pipeline --video path/to/game.mp4 --team WHITE --playbook mca_full_playbook_final.json --out output/ --generate-report
+python -m analysis.pipeline --video path/to/game.mp4 --team WHITE --playbook playbooks/mca_5th_playbook.json --out output/ --generate-report
 ```
 
 The command creates JSON lines files and, when `--generate-report` is used, a
@@ -178,11 +178,11 @@ This repository contains simple utilities for analyzing football plays.
   a directory of clips.
 - `record_video.py` – records 640x480 video from /dev/video0 to output.mp4
 - `highlight_recorder.py` – automatically captures 10-second clips when motion is detected
-- `play_recognizer.py` – identifies plays based on formations in `mca_playbook.json` and writes results to `play_log.json`.
+- `play_recognizer.py` – identifies plays based on formations in `playbooks/mca_5th_playbook.json` and writes results to `play_log.json`.
 - `practice_trainer.py` – analyzes labeled practice clips and stores motion
   statistics in `training_set.json` for use by `play_recognizer.py`.
 ```bash
-python play_recognizer.py path/to/game.mp4 --playbook mca_playbook.json --output play_log.csv
+python play_recognizer.py path/to/game.mp4 --playbook playbooks/mca_5th_playbook.json --output play_log.csv
 ```
 You can generate training data from practice clips:
 
@@ -395,7 +395,7 @@ mkdir -p "$OUT"
 python3 -m analysis.pipeline \
   --video video/manual_uploads/IMG_4129.MP4 \
   --team WHITE \
-  --playbook mca_full_playbook_final.json \
+  --playbook playbooks/mca_5th_playbook.json \
   --out "$OUT" \
   --player-ids config/player_visual_ids.yaml \
   --generate-report \
