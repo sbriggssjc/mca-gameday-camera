@@ -12,9 +12,9 @@ def main() -> None:
     ap.add_argument("--auto-draw", action="store_true")
     args = ap.parse_args()
 
-    pb = load_playbook(args.playbook)
+    raw_pb, _ = load_playbook(args.playbook)
     if args.auto_draw:
-        draw_topk(args.out_dir, pb, top_k=args.top_k)
+        draw_topk(args.out_dir, raw_pb, top_k=args.top_k)
     print("[review_batch] done")
 
 
