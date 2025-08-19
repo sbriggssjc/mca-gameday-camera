@@ -3,6 +3,14 @@ from __future__ import annotations
 import csv, json, subprocess, sys
 from pathlib import Path
 
+def as_str(x, key: str = "name") -> str:
+    if isinstance(x, str):
+        return x
+    if isinstance(x, dict):
+        return x.get(key) or x.get("id") or ""
+    return ""
+
+
 def ffprobe_duration(mp4: Path) -> float | None:
     try:
         out = subprocess.check_output(
@@ -120,6 +128,18 @@ def backfill(run_dir: Path) -> int:
             }
             jf.write(json.dumps(row_json) + "\n")
 
+            def _formation_name(f):
+                if isinstance(f, dict):
+                    return f.get("name") or f.get("id") or ""
+                if isinstance(f, str):
+                    return f
+                return ""
+
+            f_name = _formation_name(formation)
+            p_name = as_str(playcall)
+            f_conf = float(formation.get("confidence", 0.0)) if isinstance(formation, dict) else 0.0
+            p_conf = float(playcall.get("confidence", 0.0)) if isinstance(playcall, dict) else 0.0
+
             w.writerow(
                 {
                     "play_id": pid,
@@ -128,15 +148,15 @@ def backfill(run_dir: Path) -> int:
                     "snap": existing.get("snap", ""),
                     "whistle": existing.get("whistle", ""),
                     "clip_path": str(mp4),
-                    "formation": formation.get("name") or "",
+                    "formation": f_name,
                     "play_family": play_family or "",
                     "outcome": existing.get("outcome", ""),
                     "clip_duration": row_json["clip_duration"],
                 }
             )
             print(
-                f"[backfill] play {pid}: formation={formation.get('name')} conf={formation.get('confidence')} "
-                f"playcall={playcall.get('name')} conf={playcall.get('confidence')}"
+                f"[backfill] play {pid}: formation={f_name} conf={f_conf} "
+                f"playcall={p_name} conf={p_conf}"
             )
             total += 1
 
