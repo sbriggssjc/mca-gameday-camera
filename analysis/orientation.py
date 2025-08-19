@@ -1,6 +1,11 @@
 # analysis/orientation.py
 from __future__ import annotations
-import cv2, numpy as np
+import numpy as np
+
+try:  # optional dependency
+    import cv2  # type: ignore
+except Exception:  # pragma: no cover - handle headless environments
+    cv2 = None  # type: ignore
 
 def _frame_angles(gray) -> list[float]:
     """Return candidate line angles (degrees) for a single gray frame (0..180)."""
@@ -27,6 +32,8 @@ def estimate_rotation_degrees(path: str) -> int:
     Return one of {0, 90, 180, 270} as a coarse device rotation.
     Defensive across OpenCV builds. Falls back to 0 if uncertain.
     """
+    if cv2 is None:
+        return 0
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         return 0
@@ -80,4 +87,18 @@ def estimate_rotation_degrees(path: str) -> int:
     }
     dom = max(quadrant_votes, key=quadrant_votes.get)
     return int(dom % 360)
+
+
+def normalize_orientation(frame: np.ndarray, rotation: int) -> np.ndarray:
+    """Rotate ``frame`` by multiples of 90 degrees to correct orientation."""
+    if cv2 is None:
+        return frame
+    r = rotation % 360
+    if r == 90:
+        return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+    if r == 180:
+        return cv2.rotate(frame, cv2.ROTATE_180)
+    if r == 270:
+        return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    return frame
 
