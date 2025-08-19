@@ -179,7 +179,10 @@ def _run_pipeline(args: argparse.Namespace) -> None:
                 if rotation:
                     fr = orientation.normalize_orientation(fr, int(rotation))
                 frames.append(fr)
-        tracks = detect_track.track_from_frames(frames, team=args.team)
+        try:
+            tracks = detect_track.track_from_frames(frames, team=args.team)
+        except Exception:
+            tracks = []
         players = []
         for tr in tracks:
             x1, y1, x2, y2 = tr.bbox
@@ -189,9 +192,15 @@ def _run_pipeline(args: argparse.Namespace) -> None:
             centers_per_frame.append([(cx, cy)])
         track_row = {"segment_id": seg_id, "players": players}
 
-        feat = features.compute_all([track_row], meta={"width": width, "height": height})[0]
+        try:
+            feat = features.compute_all([track_row], meta={"width": width, "height": height})[0]
+        except Exception:
+            feat = {"features": {}, "num_players": 0}
         features_rows.append({"segment_id": seg_id, "features": feat.get("features", {}), "num_players": feat.get("num_players", 0)})
-        formation, play_family, conf = predict_from_features(feat.get("features", {}))
+        try:
+            formation, play_family, conf = predict_from_features(feat.get("features", {}))
+        except Exception:
+            formation, play_family, conf = "", "", 0.0
         prediction_rows.append({"play_id": seg_id, "formation": formation, "play_family": play_family, "confidence": conf})
 
         # grades -- simple constant grade for each detected player
