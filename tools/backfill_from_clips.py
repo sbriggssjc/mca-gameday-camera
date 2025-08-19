@@ -2,13 +2,22 @@
 from __future__ import annotations
 import csv, json, subprocess, sys
 from pathlib import Path
+from typing import Any, Dict
 
-def as_str(x, key: str = "name") -> str:
+
+def _as_name(x: Any) -> str:
     if isinstance(x, str):
         return x
     if isinstance(x, dict):
-        return x.get(key) or x.get("id") or ""
+        return (x.get("name") or x.get("id") or "").strip()
     return ""
+
+
+def _as_float(x: Any, default: float = 0.0) -> float:
+    try:
+        return float(x)
+    except Exception:
+        return default
 
 
 def ffprobe_duration(mp4: Path) -> float | None:
@@ -91,7 +100,9 @@ def backfill(run_dir: Path) -> int:
             "whistle",
             "clip_path",
             "formation",
+            "formation_confidence",
             "play_family",
+            "playcall_confidence",
             "outcome",
             "clip_duration",
         ]
@@ -128,17 +139,10 @@ def backfill(run_dir: Path) -> int:
             }
             jf.write(json.dumps(row_json) + "\n")
 
-            def _formation_name(f):
-                if isinstance(f, dict):
-                    return f.get("name") or f.get("id") or ""
-                if isinstance(f, str):
-                    return f
-                return ""
-
-            f_name = _formation_name(formation)
-            p_name = as_str(playcall)
-            f_conf = float(formation.get("confidence", 0.0)) if isinstance(formation, dict) else 0.0
-            p_conf = float(playcall.get("confidence", 0.0)) if isinstance(playcall, dict) else 0.0
+            formation_name = _as_name(formation)
+            playcall_name = _as_name(playcall)
+            formation_conf = _as_float(formation.get("confidence") if isinstance(formation, dict) else 0.0)
+            playcall_conf = _as_float(playcall.get("confidence") if isinstance(playcall, dict) else 0.0)
 
             w.writerow(
                 {
@@ -148,15 +152,17 @@ def backfill(run_dir: Path) -> int:
                     "snap": existing.get("snap", ""),
                     "whistle": existing.get("whistle", ""),
                     "clip_path": str(mp4),
-                    "formation": f_name,
-                    "play_family": play_family or "",
+                    "formation": formation_name,
+                    "formation_confidence": formation_conf,
+                    "play_family": playcall_name or "",
+                    "playcall_confidence": playcall_conf,
                     "outcome": existing.get("outcome", ""),
                     "clip_duration": row_json["clip_duration"],
                 }
             )
             print(
-                f"[backfill] play {pid}: formation={f_name} conf={f_conf} "
-                f"playcall={p_name} conf={p_conf}"
+                f"[backfill] play {pid}: formation={formation_name} conf={formation_conf} "
+                f"playcall={playcall_name} conf={playcall_conf}"
             )
             total += 1
 
