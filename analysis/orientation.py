@@ -1,74 +1,83 @@
+# analysis/orientation.py
 from __future__ import annotations
 import cv2, numpy as np
 
 def _frame_angles(gray) -> list[float]:
-    # Canny + Hough
+    """Return candidate line angles (degrees) for a single gray frame (0..180)."""
     edges = cv2.Canny(gray, 60, 180)
     lines = cv2.HoughLines(edges, 1, np.pi / 180, 200)
     if lines is None or len(lines) == 0:
         return []
-
-    # OpenCV can return shape (N,1,2) or (N,2). Normalize.
+    # Normalize shapes: can be (N,1,2) or (N,2)
     thetas = []
-    for ln in lines[:40]:
+    for ln in lines:
         try:
-            if hasattr(ln, "__len__") and len(ln) >= 1 and hasattr(ln[0], "__len__"):
-                # (1,2) container case
-                _, theta = ln[0]
+            if hasattr(ln, "__len__") and len(ln) == 1 and hasattr(ln[0], "__len__"):
+                rho, theta = ln[0]
             else:
-                # (2,) flat case
-                _, theta = ln
+                rho, theta = ln
             thetas.append(float(theta))
         except Exception:
             continue
-
-    # Convert radians to degrees, fold into [0,180)
-    degs = [(np.degrees(t) % 180.0) for t in thetas]
-    return degs
+    # Convert radians to degrees in [0, 180)
+    return [(t * 180.0 / np.pi) % 180.0 for t in thetas]
 
 def estimate_rotation_degrees(path: str) -> int:
     """
-    Return one of {0, 90, 180, 270}. Defensive against odd Hough outputs.
-    Falls back to 0 if we can't infer a dominant orientation.
+    Return one of {0, 90, 180, 270} as a coarse device rotation.
+    Defensive across OpenCV builds. Falls back to 0 if uncertain.
     """
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         return 0
 
-    # Sample up to ~10 frames uniformly across the video (cheap)
+    # Sample up to ~12 frames across video
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    sample_idxs = np.linspace(0, max(0, total - 1), num=min(10, max(1, total // 50)), dtype=int)
+    fps   = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
+    HOPS  = max(1, total // 12) if total > 0 else int(5 * fps)
 
-    all_angles: list[float] = []
-    for idx in sample_idxs:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
-        ok, frame = cap.read()
-        if not ok or frame is None:
-            continue
-        # downscale for speed & denoise
-        h, w = frame.shape[:2]
-        scale = max(1, min(h, w) // 480)
-        if scale > 1:
-            frame = cv2.resize(frame, (w // scale, h // scale), interpolation=cv2.INTER_AREA)
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        all_angles.extend(_frame_angles(gray))
-
+    angles = []
+    idx = 0
+    while True:
+        ok = cap.grab()
+        if not ok:
+            break
+        if idx % HOPS == 0:
+            ok2, frame = cap.retrieve()
+            if not ok2 or frame is None:
+                idx += 1
+                continue
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            angles.extend(_frame_angles(gray))
+        idx += 1
     cap.release()
 
-    if not all_angles:
+    if not angles:
         return 0
 
-    # Histogram over [0,180) to find dominant orientation (vertical vs horizontal)
-    bins = np.arange(0, 181, 5)  # 5° bins
-    hist, _ = np.histogram(all_angles, bins=bins)
-    dom_center = (bins[np.argmax(hist)] + bins[np.argmax(hist)+1]) / 2.0  # bin center
+    # Map each angle to closest of the 0/90/180/270 "orientations"
+    # (for 180/270 reduce mod 180 first; then lift back to 0/90/180/270)
+    bins = np.array([0, 90], dtype=float)
+    votes = []
+    for a in angles:
+        a180 = a % 180.0
+        nearest = bins[np.argmin(np.abs(bins - a180))]
+        # Lift 0/90 into {0,90,180,270} by also voting the opposite direction
+        votes.append(nearest)
+        votes.append((nearest + 180.0) % 360.0)
 
-    # Snap to nearest 90 degrees (0, 90)
-    snapped_180 = int(round(dom_center / 90.0) * 90) % 180
-    # Map to device rotations {0,90,180,270}
-    # Heuristic: if dominant is ~0 -> landscape (0 or 180); ~90 -> portrait (90 or 270).
-    # Return 0 for ~0, and 90 for ~90; caller can mirror if needed.
-    if snapped_180 in (0, 180):
+    if not votes:
         return 0
-    else:
-        return 90
+    counts = np.bincount(np.round(np.array(votes) % 360).astype(int))
+    if counts.size == 0:
+        return 0
+    # Collapse to the nearest 90° bucket
+    quadrant_votes = {
+        0:   counts[[0, 1, 359]].sum() if counts.size > 359 else counts.sum(),
+        90:  counts[90]  if counts.size > 90  else 0,
+        180: counts[180] if counts.size > 180 else 0,
+        270: counts[270] if counts.size > 270 else 0,
+    }
+    dom = max(quadrant_votes, key=quadrant_votes.get)
+    return int(dom % 360)
+
