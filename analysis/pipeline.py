@@ -151,9 +151,6 @@ def _run_pipeline(args: argparse.Namespace) -> None:
 
     # load playbook for playcall matching if available
     raw_pb: Dict[str, Any] = load_offense_playbook(getattr(args, "playbook", None))
-    print(
-        f"[playbook] OK: requested playbook: {getattr(args, 'playbook', None) if getattr(args, 'playbook', None) else '<auto>'}"
-    )
     plays = []
     # Extract plays from multiple known schemas
     if isinstance(raw_pb, dict):
@@ -266,6 +263,18 @@ def _run_pipeline(args: argparse.Namespace) -> None:
                 ps = pb.plays.get(play_name)
                 if ps and ps.family:
                     play_family = ps.family
+            elif pb:
+                # fallback: surface all plays with matching formation
+                fallback = [
+                    (n, ps.family)
+                    for n, ps in pb.plays.items()
+                    if ps.formation == formation_name
+                ]
+                if fallback:
+                    play_candidates = [(n, 0.0) for n, _ in fallback]
+                    fams = [fam for _, fam in fallback if fam]
+                    if fams and not play_family:
+                        play_family = ",".join(sorted(set(fams)))
         playcall_dict = {
             "name": play_name,
             "confidence": float(play_conf),
@@ -332,6 +341,7 @@ def _run_pipeline(args: argparse.Namespace) -> None:
 
     _write_jsonl(features_rows, run_dir / "features.jsonl")
     _write_jsonl(prediction_rows, run_dir / "play_predictions.jsonl")
+    _write_jsonl(prediction_rows, run_dir / "plays.jsonl")
     _write_jsonl(grade_rows, run_dir / "grades.jsonl")
 
     # plays index
