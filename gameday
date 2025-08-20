@@ -2,7 +2,6 @@
 
 # Preserve user overrides before loading .env
 USER_VIDEO_DEV="${VIDEO_DEV-}"
-USER_AUDIO_DEV="${AUDIO_DEV-}"
 USER_STREAM_URL="${STREAM_URL-}"
 USER_STREAM_KEY="${STREAM_KEY-}"
 USER_YT_RTMP_URL="${YT_RTMP_URL-}"
@@ -28,19 +27,17 @@ done
 
 # Restore user overrides
 [[ -n "${USER_VIDEO_DEV-}" ]] && VIDEO_DEV="$USER_VIDEO_DEV"
-[[ -n "${USER_AUDIO_DEV-}" ]] && AUDIO_DEV="$USER_AUDIO_DEV"
 [[ -n "${USER_STREAM_URL-}" ]] && STREAM_URL="$USER_STREAM_URL"
 [[ -n "${USER_STREAM_KEY-}" ]] && STREAM_KEY="$USER_STREAM_KEY"
 [[ -n "${USER_YT_RTMP_URL-}" ]] && YT_RTMP_URL="$USER_YT_RTMP_URL"
 
-# Quick flags that don't require env normalization
+# Quick flags
 if [[ "${1-}" == "--devices" ]]; then
   echo "Video nodes:"; ls -l /dev/video* 2>/dev/null || true
   echo; echo "/dev/v4l/by-id:"; ls -l /dev/v4l/by-id 2>/dev/null || true
   echo; echo "ALSA capture devices:"; arecord -l 2>/dev/null || true
   exit 0
 fi
-
 if [[ "${1-}" == "--free-video" ]]; then
   echo "🔧 Releasing holders of /dev/video* ..."
   sudo fuser -k /dev/video* || true
@@ -50,7 +47,6 @@ fi
 # --- begin: env normalization & dirs ---
 set -euo pipefail
 
-# Build STREAM_URL if not provided
 : "${YT_RTMP_URL:=rtmps://a.rtmps.youtube.com/live2}"
 : "${STREAM_KEY:=}"
 if [ -z "${STREAM_URL:-}" ]; then
@@ -60,79 +56,141 @@ if [ -z "${STREAM_URL:-}" ]; then
     echo "ERROR: STREAM_KEY or STREAM_URL must be set"; exit 1
   fi
 fi
-# Copy the exact RTMPS Stream URL from YouTube Live Control Room (lock icon reveals RTMPS; port 443 preferred)
 
-# Video defaults (proven stable on Jetson + HDMI dongle)
 : "${VIDEO_DEV:=/dev/video0}"
 : "${VIDEO_INPUT_FORMAT:=mjpeg}"
 : "${VIDEO_SIZE:=1280x720}"
 : "${VIDEO_FPS:=30}"
 
-# Audio defaults (Pulse source for RØDE; fallback handled below)
-: "${AUDIO_DEV:=alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_17477F5D-00.mono-fallback}"
+: "${MIC_BACKEND:=auto}"
+: "${MIC_PULSE_NAME:=}"
+: "${MIC_ALSA_DEVICE:=}"
+: "${AUDIO_FORCE_MONO:=true}"
+: "${AUDIO_BITRATE:=128k}"
+: "${AUDIO_SAMPLE_RATE:=48000}"
+: "${AUDIO_CHANNELS:=2}"
+: "${ALLOW_SILENT_STREAM:=false}"
 
-# --- audio/rtmp pacing toggles ---
-: "${NO_RE:=0}"                     # set NO_RE=1 to disable -re
-: "${PAN_MONO:=}"                   # override mono pan (empty to skip)
-: "${DISABLE_LIMITER:=0}"           # set DISABLE_LIMITER=1 to drop limiter
-MONO_MODE="${MONO_MODE:-mix}"       # left | right | mix
+: "${NO_RE:=0}"
 
-# Bitrate/gop defaults tuned for 720p30
 : "${VIDEO_BITRATE:=2800k}"
 : "${VIDEO_MAXRATE:=3000k}"
 : "${VIDEO_BUFSIZE:=5000k}"
 : "${GOP:=60}"
-: "${AUDIO_BITRATE:=128k}"
 
-# Create dirs and logfile
 mkdir -p livestream_logs recordings
 LOGFILE="livestream_logs/$(date +%Y%m%d_%H%M%S).log"
 # --- end: env normalization & dirs ---
 
-# Parse video settings
 IFS='x' read -r WIDTH HEIGHT <<<"$VIDEO_SIZE"
 INPUT_FORMAT="$VIDEO_INPUT_FORMAT"
 FRAMERATE="$VIDEO_FPS"
 : "${LOGLEVEL:=info}"
 
-# Determine if ALSA audio device is available
-if ffmpeg -hide_banner -v error -f alsa -ar 48000 -ac 1 -i "$AUDIO_DEV" -t 0.1 -f null - 2>/dev/null; then
-  AUDIO_INPUT_KIND="alsa"
-else
-  AUDIO_INPUT_KIND="none"
-fi
-
-# --- Build pacing inputs ---
-if [[ "$NO_RE" == "1" ]]; then RE=(); else RE=(-re); fi
-IN_V=("${RE[@]}" -f v4l2 -input_format "$INPUT_FORMAT" -framerate "${FRAMERATE}" -video_size "${WIDTH}x${HEIGHT}" -thread_queue_size 512 -i "$VIDEO_DEV")
-IN_A=("${RE[@]}" -f alsa -ar 48000 -ac 1 -thread_queue_size 512 -i "$AUDIO_DEV")
-IN_A_NULL=("${RE[@]}" -f lavfi -i "anullsrc=channel_layout=mono:sample_rate=48000")
-
-if [[ "$AUDIO_INPUT_KIND" == "alsa" && "${USE_SILENT_AUDIO:-0}" -ne 1 ]]; then
-  IN_AUDIO=("${IN_A[@]}")
-else
-  IN_AUDIO=("${IN_A_NULL[@]}")
-fi
-
-# --- Build filter chains ---
-VFILT="setpts=PTS-STARTPTS,scale=${WIDTH:-1280}:${HEIGHT:-720},format=yuv420p"
-if [[ -z "${PAN_MONO+x}" ]]; then
-  case "$MONO_MODE" in
-    left) PAN_MONO="pan=mono|c0=c0" ;;
-    right) PAN_MONO="pan=mono|c0=c1" ;;
-    mix|*) PAN_MONO="pan=mono|c0=0.5*c0+0.5*c1" ;;
+AUDIO_SOURCE="$MIC_BACKEND"
+MIC_OVERRIDE=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --audio-source) AUDIO_SOURCE="$2"; shift 2;;
+    --mic) MIC_OVERRIDE="$2"; shift 2;;
+    --silent) AUDIO_SOURCE="silent"; shift;;
+    *) break;;
   esac
-fi
-if [[ -z "${AFILT:-}" ]]; then
-  PAN_STEP="${PAN_MONO:-pan=mono|c0=0.5*c0+0.5*c1}"
-  AFILT="asetpts=PTS-STARTPTS"
-  [[ -n "$PAN_STEP" ]] && AFILT+=",$PAN_STEP"
-  AFILT+=",highpass=f=100,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=8"
-  if [[ "$DISABLE_LIMITER" != "1" ]]; then
-    AFILT+=",alimiter=limit=0.0dB:attack=5:release=20"
+done
+
+echo "[diag] Listing audio devices (run: python3 tools/list_audio.py)"
+python3 tools/list_audio.py || true
+
+if [[ "$AUDIO_SOURCE" == "silent" ]]; then
+  AUDIO_IN=(-f lavfi -i "anullsrc=r=${AUDIO_SAMPLE_RATE}:cl=stereo")
+  SRC_INFO="anullsrc"
+else
+  if [[ "$AUDIO_SOURCE" == "auto" ]]; then
+    read AUDIO_SOURCE AUTO_MIC <<<$(python3 - <<'PY'
+from tools.audio_devices import pick_audio_source
+import os
+b,s = pick_audio_source("auto", os.environ.get("MIC_PULSE_NAME"), os.environ.get("MIC_ALSA_DEVICE"))
+if b and s:
+    print(b, s)
+PY
+)
+    MIC="${MIC_OVERRIDE:-$AUTO_MIC}"
+  elif [[ "$AUDIO_SOURCE" == "pulse" ]]; then
+    MIC="${MIC_OVERRIDE:-${MIC_PULSE_NAME}}"
+  else
+    MIC="${MIC_OVERRIDE:-${MIC_ALSA_DEVICE}}"
+  fi
+  case "$AUDIO_SOURCE" in
+    pulse)
+      if [[ -z "$MIC" ]]; then
+        MIC="$(python3 -c 'from tools.audio_devices import default_pulse_source; print(default_pulse_source() or "")')"
+      fi
+      [[ -z "$MIC" ]] && { echo "No Pulse source found"; exit 1; }
+      PROBE_JSON=$(MIC_BACKEND=pulse MIC_PULSE_NAME="$MIC" AUDIO_SAMPLE_RATE="$AUDIO_SAMPLE_RATE" python3 tools/audio_probe.py)
+      ;;
+    alsa)
+      if [[ -z "$MIC" ]]; then
+        MIC="$(python3 -c 'from tools.audio_devices import default_alsa_device; print(default_alsa_device() or "")')"
+      fi
+      [[ -z "$MIC" ]] && { echo "No ALSA device found"; exit 1; }
+      PROBE_JSON=$(MIC_BACKEND=alsa MIC_ALSA_DEVICE="$MIC" AUDIO_SAMPLE_RATE="$AUDIO_SAMPLE_RATE" python3 tools/audio_probe.py)
+      ;;
+    *)
+      echo "No audio source found"; exit 1;;
+  esac
+  echo "[probe] $PROBE_JSON"
+  export PROBE="$PROBE_JSON"
+  MEAN=$(python3 - <<'PY'
+import json,os
+d=json.loads(os.environ['PROBE'])
+print(d.get('mean_db',''))
+PY
+)
+  PEAK=$(python3 - <<'PY'
+import json,os
+d=json.loads(os.environ['PROBE'])
+print(d.get('peak_db',''))
+PY
+)
+  SRC_INFO="$AUDIO_SOURCE:$MIC"
+  if [[ -z "$MEAN" || "$MEAN" == "None" ]]; then
+    echo "❌ Unable to measure audio level (no mean dB)." | tee -a "$LOGFILE"
+    [[ "$ALLOW_SILENT_STREAM" == "true" ]] || exit 1
+  else
+    python3 - <<'PY'
+import os
+m=float(os.environ['MEAN']);p=float(os.environ.get('PEAK','0'))
+print(f"🎚  Audio source: {os.environ['SRC_INFO']} (mean={m:.1f} dB, peak={p:.1f} dB)")
+PY
+    python3 - <<'PY'
+import os,sys
+m=float(os.environ['MEAN'])
+sys.exit(0 if m > -60.0 else 2)
+PY
+    RC=$?
+    if [[ $RC -ne 0 && "$ALLOW_SILENT_STREAM" != "true" ]]; then
+      echo "❌ Refusing to go live: audio appears silent (mean <= -60 dB). Use --audio-source and --mic to pick a device or set ALLOW_SILENT_STREAM=true to bypass (not recommended)." | tee -a "$LOGFILE"
+      exit 1
+    fi
+  fi
+  if [[ "$AUDIO_SOURCE" == "pulse" ]]; then
+    AUDIO_IN=(-f pulse -ac 2 -ar "$AUDIO_SAMPLE_RATE" -i "$MIC")
+  else
+    AUDIO_IN=(-f alsa -ac 2 -ar "$AUDIO_SAMPLE_RATE" -i "$MIC")
   fi
 fi
-echo "🎚  Audio chain: $AFILT"
+
+if [[ "$NO_RE" == "1" ]]; then RE=(); else RE=(-re); fi
+IN_V=("${RE[@]}" -f v4l2 -input_format "$INPUT_FORMAT" -framerate "${FRAMERATE}" -video_size "${WIDTH}x${HEIGHT}" -thread_queue_size 512 -i "$VIDEO_DEV")
+
+VFILT="setpts=PTS-STARTPTS,scale=${WIDTH:-1280}:${HEIGHT:-720},format=yuv420p"
+AFILTER_BASE="aresample=async=1:min_hard_comp=0.100:max_hard_comp=0.100,highpass=f=100,dynaudnorm=f=150:g=31,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=6"
+if [[ "$AUDIO_FORCE_MONO" == "true" ]]; then
+  AFILT="$AFILTER_BASE,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,alimiter=limit=0.0dB:attack=5:release=20"
+else
+  AFILT="$AFILTER_BASE,alimiter=limit=0.0dB:attack=5:release=20"
+fi
+echo "🎚  Audio chain: $AFILT" | tee -a "$LOGFILE"
 
 run_and_log() {
   local -a CMD=("$@")
@@ -154,23 +212,19 @@ run_with_rtmp_fallback() {
 }
 
 echo "🎥 Using video: ${VIDEO_DEV} (${INPUT_FORMAT} ${WIDTH}x${HEIGHT} @ ${FRAMERATE}fps)" | tee -a "$LOGFILE"
-if [[ "$AUDIO_INPUT_KIND" == "alsa" ]]; then
-  echo "🎤 Using audio: ${AUDIO_DEV} (ALSA)" | tee -a "$LOGFILE"
-else
-  echo "🔇 Using audio: anullsrc (silent)" | tee -a "$LOGFILE"
-fi
-echo "📡 Streaming to: ${STREAM_URL}" | tee -a "$LOGFILE"  # Use exact RTMPS URL from YouTube (lock icon, port 443 preferred)
+[[ "$AUDIO_SOURCE" == "silent" ]] && echo "🔇 Audio source: anullsrc" | tee -a "$LOGFILE"
+echo "📡 Streaming to: ${STREAM_URL}" | tee -a "$LOGFILE"
 echo "📜 Log: $LOGFILE" | tee -a "$LOGFILE"
 echo "RTMP pacing: -re + setpts/asetpts + CFR enabled"
 
 FFMPEG_CMD=(ffmpeg -hide_banner -nostdin -loglevel "$LOGLEVEL" -fflags +genpts \
   "${IN_V[@]}" \
-  "${IN_AUDIO[@]}" \
+  "${AUDIO_IN[@]}" \
   -map 0:v:0 -map 1:a:0 \
   -c:v ${VIDEO_CODEC:-libx264} -pix_fmt yuv420p -vf "$VFILT" \
   -g "$GOP" -bf 0 -b:v "$VIDEO_BITRATE" -maxrate "$VIDEO_MAXRATE" -bufsize "$VIDEO_BUFSIZE" \
   -preset "${X264_PRESET:-veryfast}" -tune "${X264_TUNE:-zerolatency}" \
-  -af "$AFILT" -c:a aac -b:a "$AUDIO_BITRATE" \
+  -af "$AFILT" -c:a aac -b:a "$AUDIO_BITRATE" -ar "$AUDIO_SAMPLE_RATE" -ac "$AUDIO_CHANNELS" \
   -vsync cfr -r "$FRAMERATE" \
   -max_interleave_delta 0 -muxdelay 0 \
   -flvflags no_duration_filesize -rtmp_live live \
@@ -178,4 +232,3 @@ FFMPEG_CMD=(ffmpeg -hide_banner -nostdin -loglevel "$LOGLEVEL" -fflags +genpts \
   -f flv "$STREAM_URL")
 
 run_with_rtmp_fallback "${FFMPEG_CMD[@]}" || exit $?
-
