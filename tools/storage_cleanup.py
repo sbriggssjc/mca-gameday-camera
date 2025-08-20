@@ -128,6 +128,10 @@ def ensure_min_free_space(min_free_gb: float, video_dir: Path, output_dir: Path,
         return
 
     enable_gdrive = _truthy_env("GOOGLE_DRIVE_SYNC", "0")
+    if enable_gdrive:
+        from tools.gdrive_sync import upload_tree_with_manifest
+    else:
+        print("[storage] Google Drive sync disabled (set GOOGLE_DRIVE_SYNC=1 to enable)")
 
     # Step 1: upload the oldest runs (not in the last N) as tarballs then delete
     removed_any = False
@@ -139,7 +143,6 @@ def ensure_min_free_space(min_free_gb: float, video_dir: Path, output_dir: Path,
             tar = tarball(r, archive_dir)
             manifest = archive_dir / "manifest.jsonl"
             try:
-                from tools.gdrive_sync import upload_tree_with_manifest
                 upload_tree_with_manifest(tar.parent, gdrive_folder_analyzed, manifest)
             except Exception as e:
                 print(f"[storage_cleanup] WARNING: Google Drive upload skipped due to error: {e}")
@@ -151,7 +154,6 @@ def ensure_min_free_space(min_free_gb: float, video_dir: Path, output_dir: Path,
             except Exception:
                 pass
         else:
-            print("[storage_cleanup] Drive upload disabled (set GOOGLE_DRIVE_SYNC=1 to enable).")
             try:
                 shutil.rmtree(r, ignore_errors=True)
                 removed_any = True

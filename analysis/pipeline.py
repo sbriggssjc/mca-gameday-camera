@@ -261,18 +261,18 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         else:
             print(f"[play_classifier] {seg_id}: Unknown conf=0.00")
 
-        play_family = ""
-        if play_name:
-            lname = play_name.lower()
-            if any(k in lname for k in ("reo", "leo")):
-                play_family = "Pass"
-            elif any(k in lname for k in ("rit", "lit", "rend", "lend")):
-                play_family = "Run"
+        play_family = play_name or ""
 
         playcall_dict = {
-            "name": play_name,
-            "confidence": float(play_conf),
-            "candidates": ([{"name": play_name, "score": play_conf}] if play_name else []),
+            "name": play_name if play_name else None,
+            "confidence": float(play_conf or 0.0),
+            "candidates": [],
+        }
+
+        formation_dict = {
+            "name": formation_name if formation_name else None,
+            "confidence": float(formation_conf or 0.0),
+            "candidates": [],
         }
 
         # grades -- simple constant grade for each detected player
@@ -299,13 +299,13 @@ def _run_pipeline(args: argparse.Namespace) -> None:
             "clip_path": str(clip_out),
             "t0": t0,
             "t1": t1,
-            "formation": formation_name,
+            "formation": formation_dict,
             "formation_confidence": formation_conf,
             "playcall": playcall_dict,
             "play_family": play_family,
             "outcome": "",
             "cues": {},
-            "clip_duration": clip_duration,
+            "clip_duration": float(clip_duration),
         }
         prediction_rows.append(play_rec)
 
@@ -320,9 +320,9 @@ def _run_pipeline(args: argparse.Namespace) -> None:
                 "formation": formation_name,
                 "formation_confidence": formation_conf,
                 "play_family": play_family,
-                "playcall_confidence": float(play_conf),
+                "playcall_confidence": float(play_conf or 0.0),
                 "outcome": "",
-                "clip_duration": clip_duration,
+                "clip_duration": float(clip_duration),
             }
         )
 
@@ -365,7 +365,9 @@ def _run_pipeline(args: argparse.Namespace) -> None:
 
     summary = {"formations": {}, "play_families": {}}
     for pr in prediction_rows:
-        fname = pr.get("formation", "")
+        fname = pr.get("formation")
+        if isinstance(fname, dict):
+            fname = fname.get("name", "")
         summary["formations"][fname] = summary["formations"].get(fname, 0) + 1
         pfam = pr.get("play_family", "")
         summary["play_families"][pfam] = summary["play_families"].get(pfam, 0) + 1
@@ -528,15 +530,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise
 
     if getattr(args, "sync_to_drive", False):
-        import sys
-        from tools.sync_and_cleanup import main as sync_main
+        gsync = os.getenv("GOOGLE_DRIVE_SYNC", "").strip().lower()
+        if gsync in ("1", "true", "yes", "y", "on"):
+            import sys
+            from tools.sync_and_cleanup import main as sync_main
 
-        sys.argv = [
-            "sync_and_cleanup.py",
-            *(["--verify-drive"] if args.verify_drive else []),
-            *(["--purge-now"] if args.purge_now else []),
-        ]
-        sync_main()
+            sys.argv = [
+                "sync_and_cleanup.py",
+                *(["--verify-drive"] if args.verify_drive else []),
+                *(["--purge-now"] if args.purge_now else []),
+            ]
+            sync_main()
+        else:
+            print("[storage] Google Drive sync disabled (set GOOGLE_DRIVE_SYNC=1 to enable)")
 
 
 if __name__ == "__main__":  # pragma: no cover

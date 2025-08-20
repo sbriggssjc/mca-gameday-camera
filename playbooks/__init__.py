@@ -41,13 +41,12 @@ def load_offense_playbook(playbook_path: str | None = None) -> Dict[str, Any]:
     if playbook_path:
         print(f"[playbook] source={playbook_path}")
         resolved = _try_paths(playbook_path)
+        print(f"[playbook] OK: requested playbook: {playbook_path}")
         if resolved:
             pb = _load_json(resolved)
             pb["_source_path"] = str(resolved)
-            print(f"[playbook] OK: requested playbook: {playbook_path}")
+            print(f"[playbook] OK: loaded playbook from {resolved}")
             return pb
-        # acknowledge the request even if the file was not found
-        print(f"[playbook] OK: requested playbook: {playbook_path}")
     for cand in DEFAULT_PLAYBOOK_CANDIDATES:
         resolved = _try_paths(cand)
         if resolved:
