@@ -28,14 +28,12 @@ def _drive():
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
-def _gdrive_escape_name(name: str) -> str:
-    """Escape single quotes for use in Drive query strings."""
-    return (name or "").replace("'", "\\'")
-
-
 def _build_folder_query(name: str, parent_id: Optional[str] = None) -> str:
-    esc = _gdrive_escape_name(name)
-    base = "mimeType='application/vnd.google-apps.folder' and name='{n}' and trashed=false".format(n=esc)
+    esc = name.replace("'", "\\'")
+    base = (
+        "mimeType='application/vnd.google-apps.folder' and "
+        "name='{name}' and trashed=false"
+    ).format(name=esc)
     if parent_id:
         base += " and '{pid}' in parents".format(pid=parent_id)
     return base
