@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import io
 import json
@@ -10,6 +12,8 @@ from typing import Optional, List, Dict
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+
+# Only function and constant definitions here; no code executed at import time.
 
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
@@ -24,13 +28,22 @@ def _drive():
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
-def ensure_folder(drive, name: str, parent_id: Optional[str] = None) -> str:
-    q = (
-        "mimeType='application/vnd.google-apps.folder' and "
-        f"name='{name.replace("'", "\\'")}' and trashed=false"
-    )
+def _gdrive_escape_name(name: str) -> str:
+    """Escape single quotes for use in Drive query strings."""
+    return (name or "").replace("'", "\\'")
+
+
+def _build_folder_query(name: str, parent_id: Optional[str] = None) -> str:
+    esc = _gdrive_escape_name(name)
+    base = "mimeType='application/vnd.google-apps.folder' and name='{n}' and trashed=false".format(n=esc)
     if parent_id:
-        q += f" and '{parent_id}' in parents"
+        base += " and '{pid}' in parents".format(pid=parent_id)
+    return base
+
+
+def find_or_create_folder(drive, name: str, parent_id: Optional[str] = None) -> str:
+    """Return id of existing Drive folder or create one."""
+    q = _build_folder_query(name, parent_id)
     resp = drive.files().list(q=q, fields="files(id,name)").execute()
     files = resp.get("files", [])
     if files:
@@ -40,6 +53,11 @@ def ensure_folder(drive, name: str, parent_id: Optional[str] = None) -> str:
         body["parents"] = [parent_id]
     f = drive.files().create(body=body, fields="id").execute()
     return f["id"]
+
+
+# Backwards compatibility alias
+def ensure_folder(drive, name: str, parent_id: Optional[str] = None) -> str:
+    return find_or_create_folder(drive, name, parent_id)
 
 
 def get_or_create_subpath(
@@ -55,7 +73,7 @@ def get_or_create_subpath(
         if key in cache:
             cur = cache[key]
             continue
-        cur = ensure_folder(drive, part, cur)
+        cur = find_or_create_folder(drive, part, cur)
         cache[key] = cur
     return cur
 
@@ -163,6 +181,7 @@ def upload_tree_with_manifest(local_dir: Path, parent_id: str, manifest_path: Pa
 
 # Backwards compatibility exports
 __all__ = [
+    "find_or_create_folder",
     "ensure_folder",
     "get_or_create_subpath",
     "list_files",
