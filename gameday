@@ -68,6 +68,7 @@ fi
 : "${AUDIO_BITRATE:=160k}"
 : "${AUDIO_SAMPLE_RATE:=48000}"
 : "${AUDIO_CHANNELS:=2}"
+: "${EXTRA_GAIN_DB:=6}"
 : "${ALLOW_SILENT_STREAM:=false}"
 
 : "${NO_RE:=0}"
@@ -189,12 +190,11 @@ PY
   fi
 fi
 
-echo "🎚  Audio source: ${AUDIO_SOURCE}:${SRC} | mean=${MEAN:-n/a} dB peak=${PEAK:-n/a} dB"
+echo "🎚  Audio source: ${AUDIO_SOURCE}:${SRC} | USE_LOUDNORM=${USE_LOUDNORM:-false} EXTRA_GAIN_DB=${EXTRA_GAIN_DB} | mean=${MEAN:-n/a} dB peak=${PEAK:-n/a} dB"
 if [[ "$NO_RE" == "1" ]]; then RE=(); else RE=(-re); fi
 VIDEO_IN=("${RE[@]}" -f v4l2 -input_format "$INPUT_FORMAT" -framerate "${FRAMERATE}" -video_size "${WIDTH}x${HEIGHT}" -thread_queue_size 512 -i "$VIDEO_DEV")
 
 VFILT="setpts=PTS-STARTPTS,scale=${WIDTH:-1280}:${HEIGHT:-720},format=yuv420p"
-: "${EXTRA_GAIN_DB:=6}"   # default tweakable gain
 if [[ "${USE_LOUDNORM:-false}" == "true" ]]; then
   AFILTER="highpass=f=100,loudnorm=I=-16:TP=-1.0:LRA=11,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=6,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=${EXTRA_GAIN_DB}dB,alimiter=limit=-1.0dB:attack=5:release=20"
 else
