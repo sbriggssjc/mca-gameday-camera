@@ -98,99 +98,110 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo "[diag] Listing audio devices (run: python3 tools/list_audio.py)"
-python3 tools/list_audio.py || true
+echo "[diag] Listing audio devices (run: PYTHONPATH=. python3 -m tools.list_audio)"
+PYTHONPATH=. python3 -m tools.list_audio || true
+
 
 if [[ "$AUDIO_SOURCE" == "silent" ]]; then
   AUDIO_IN=(-f lavfi -i "anullsrc=r=${AUDIO_SAMPLE_RATE}:cl=stereo")
-  SRC_INFO="anullsrc"
+  SRC="anullsrc"
 else
   if [[ "$AUDIO_SOURCE" == "auto" ]]; then
-    read AUDIO_SOURCE AUTO_MIC <<<$(python3 - <<'PY'
+    read AUDIO_SOURCE SRC <<<$(PYTHONPATH=. python3 - <<'PY'
 from tools.audio_devices import pick_audio_source
 import os
-b,s = pick_audio_source("auto", os.environ.get("MIC_PULSE_NAME"), os.environ.get("MIC_ALSA_DEVICE"))
+b, s = pick_audio_source("auto", os.environ.get("MIC_PULSE_NAME"), os.environ.get("MIC_ALSA_DEVICE"))
 if b and s:
     print(b, s)
 PY
 )
-    MIC="${MIC_OVERRIDE:-$AUTO_MIC}"
+    SRC="${MIC_OVERRIDE:-$SRC}"
   elif [[ "$AUDIO_SOURCE" == "pulse" ]]; then
-    MIC="${MIC_OVERRIDE:-${MIC_PULSE_NAME}}"
+    SRC="${MIC_OVERRIDE:-${MIC_PULSE_NAME}}"
   else
-    MIC="${MIC_OVERRIDE:-${MIC_ALSA_DEVICE}}"
+    SRC="${MIC_OVERRIDE:-${MIC_ALSA_DEVICE}}"
   fi
-  case "$AUDIO_SOURCE" in
-    pulse)
-      if [[ -z "$MIC" ]]; then
-        MIC="$(python3 -c 'from tools.audio_devices import default_pulse_source; print(default_pulse_source() or "")')"
-      fi
-      [[ -z "$MIC" ]] && { echo "No Pulse source found"; exit 1; }
-      PROBE_JSON=$(MIC_BACKEND=pulse MIC_PULSE_NAME="$MIC" AUDIO_SAMPLE_RATE="$AUDIO_SAMPLE_RATE" python3 tools/audio_probe.py)
-      ;;
-    alsa)
-      if [[ -z "$MIC" ]]; then
-        MIC="$(python3 -c 'from tools.audio_devices import default_alsa_device; print(default_alsa_device() or "")')"
-      fi
-      [[ -z "$MIC" ]] && { echo "No ALSA device found"; exit 1; }
-      PROBE_JSON=$(MIC_BACKEND=alsa MIC_ALSA_DEVICE="$MIC" AUDIO_SAMPLE_RATE="$AUDIO_SAMPLE_RATE" python3 tools/audio_probe.py)
-      ;;
-    *)
-      echo "No audio source found"; exit 1;;
-  esac
-  echo "[probe] $PROBE_JSON"
-  export PROBE="$PROBE_JSON"
-  MEAN=$(python3 - <<'PY'
-import json,os
-d=json.loads(os.environ['PROBE'])
-print(d.get('mean_db',''))
+
+  if [[ "$AUDIO_SOURCE" == "alsa" ]]; then
+    SRC="${SRC:-$(PYTHONPATH=. python3 - <<'PY'
+from tools.audio_devices import default_alsa_device
+print(default_alsa_device() or "")
 PY
-)
-  PEAK=$(python3 - <<'PY'
-import json,os
-d=json.loads(os.environ['PROBE'])
-print(d.get('peak_db',''))
-PY
-)
-  SRC_INFO="$AUDIO_SOURCE:$MIC"
-  if [[ -z "$MEAN" || "$MEAN" == "None" ]]; then
-    echo "❌ Unable to measure audio level (no mean dB)." | tee -a "$LOGFILE"
-    [[ "$ALLOW_SILENT_STREAM" == "true" ]] || exit 1
+)}"
+    [[ -z "$SRC" ]] && { echo "No ALSA device found"; exit 1; }
+    PROBE_JSON="$(MIC_BACKEND=alsa MIC_ALSA_DEVICE="$SRC" python3 tools/audio_probe.py || true)"
   else
-    python3 - <<'PY'
-import os
-m=float(os.environ['MEAN']);p=float(os.environ.get('PEAK','0'))
-print(f"🎚  Audio source: {os.environ['SRC_INFO']} (mean={m:.1f} dB, peak={p:.1f} dB)")
+    SRC="${SRC:-$(PYTHONPATH=. python3 - <<'PY'
+from tools.audio_devices import default_pulse_source
+print(default_pulse_source() or "")
 PY
+)}"
+    [[ -z "$SRC" ]] && { echo "No Pulse source found"; exit 1; }
+    PROBE_JSON="$(MIC_BACKEND=pulse MIC_PULSE_NAME="$SRC" python3 tools/audio_probe.py || true)"
+  fi
+
+  export PROBE_JSON
+  echo "[probe] $PROBE_JSON"
+
+  read -r MEAN PEAK <<<"$(python3 - <<'PY'
+import json, os, sys
+raw = os.environ.get("PROBE_JSON", "")
+try:
+    d = json.loads(raw)
+    mean = d.get("mean_db")
+    peak = d.get("peak_db")
+    if mean is None:
+        print("", "")
+    else:
+        print(mean, peak if peak is not None else "")
+except Exception:
+    print("", "")
+PY
+)"
+
+  export MEAN PEAK
+
+  if [[ -z "$MEAN" ]]; then
+    echo "❌ Unable to measure audio level (no mean dB)."
+    [[ "${ALLOW_SILENT_STREAM}" == "true" ]] || exit 1
+  else
+    printf "🎚  Audio levels: mean=%0.1f dB  peak=%s dB\n" "$MEAN" "${PEAK:-n/a}"
     python3 - <<'PY'
-import os,sys
-m=float(os.environ['MEAN'])
-sys.exit(0 if m > -60.0 else 2)
+import os, sys
+try:
+    m = float(os.environ.get("MEAN","-999"))
+    sys.exit(0 if m > -60.0 else 2)
+except:
+    sys.exit(1)
 PY
     RC=$?
-    if [[ $RC -ne 0 && "$ALLOW_SILENT_STREAM" != "true" ]]; then
-      echo "❌ Refusing to go live: audio appears silent (mean <= -60 dB). Use --audio-source and --mic to pick a device or set ALLOW_SILENT_STREAM=true to bypass (not recommended)." | tee -a "$LOGFILE"
+    if [[ $RC -ne 0 && "${ALLOW_SILENT_STREAM}" != "true" ]]; then
+      echo "❌ Refusing to go live: audio appears silent (mean <= -60 dB)."
       exit 1
     fi
   fi
-  if [[ "$AUDIO_SOURCE" == "pulse" ]]; then
-    AUDIO_IN=(-f pulse -ac 2 -ar "$AUDIO_SAMPLE_RATE" -i "$MIC")
+
+  if [[ "$AUDIO_SOURCE" == "alsa" ]]; then
+    AUDIO_IN=(-f alsa -ac 2 -ar "$AUDIO_SAMPLE_RATE" -i "$SRC")
+  elif [[ "$AUDIO_SOURCE" == "pulse" || "$AUDIO_SOURCE" == "auto" ]]; then
+    AUDIO_IN=(-f pulse -ac 2 -ar "$AUDIO_SAMPLE_RATE" -i "$SRC")
   else
-    AUDIO_IN=(-f alsa -ac 2 -ar "$AUDIO_SAMPLE_RATE" -i "$MIC")
+    AUDIO_IN=(-f lavfi -i "anullsrc=r=${AUDIO_SAMPLE_RATE}:cl=stereo")
   fi
 fi
 
+echo "🎚  Audio source: ${AUDIO_SOURCE}:${SRC} | mean=${MEAN:-n/a} dB peak=${PEAK:-n/a} dB"
 if [[ "$NO_RE" == "1" ]]; then RE=(); else RE=(-re); fi
-IN_V=("${RE[@]}" -f v4l2 -input_format "$INPUT_FORMAT" -framerate "${FRAMERATE}" -video_size "${WIDTH}x${HEIGHT}" -thread_queue_size 512 -i "$VIDEO_DEV")
+VIDEO_IN=("${RE[@]}" -f v4l2 -input_format "$INPUT_FORMAT" -framerate "${FRAMERATE}" -video_size "${WIDTH}x${HEIGHT}" -thread_queue_size 512 -i "$VIDEO_DEV")
 
 VFILT="setpts=PTS-STARTPTS,scale=${WIDTH:-1280}:${HEIGHT:-720},format=yuv420p"
 AFILTER_BASE="aresample=async=1:min_hard_comp=0.100:max_hard_comp=0.100,highpass=f=100,dynaudnorm=f=150:g=31,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=6"
 if [[ "$AUDIO_FORCE_MONO" == "true" ]]; then
-  AFILT="$AFILTER_BASE,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,alimiter=limit=0.0dB:attack=5:release=20"
+  AFILTER="$AFILTER_BASE,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,alimiter=limit=0.0dB:attack=5:release=20"
 else
-  AFILT="$AFILTER_BASE,alimiter=limit=0.0dB:attack=5:release=20"
+  AFILTER="$AFILTER_BASE,alimiter=limit=0.0dB:attack=5:release=20"
 fi
-echo "🎚  Audio chain: $AFILT" | tee -a "$LOGFILE"
+echo "🎚  Audio chain: $AFILTER" | tee -a "$LOGFILE"
 
 run_and_log() {
   local -a CMD=("$@")
@@ -212,19 +223,18 @@ run_with_rtmp_fallback() {
 }
 
 echo "🎥 Using video: ${VIDEO_DEV} (${INPUT_FORMAT} ${WIDTH}x${HEIGHT} @ ${FRAMERATE}fps)" | tee -a "$LOGFILE"
-[[ "$AUDIO_SOURCE" == "silent" ]] && echo "🔇 Audio source: anullsrc" | tee -a "$LOGFILE"
 echo "📡 Streaming to: ${STREAM_URL}" | tee -a "$LOGFILE"
 echo "📜 Log: $LOGFILE" | tee -a "$LOGFILE"
 echo "RTMP pacing: -re + setpts/asetpts + CFR enabled"
 
 FFMPEG_CMD=(ffmpeg -hide_banner -nostdin -loglevel "$LOGLEVEL" -fflags +genpts \
-  "${IN_V[@]}" \
+  "${VIDEO_IN[@]}" \
   "${AUDIO_IN[@]}" \
   -map 0:v:0 -map 1:a:0 \
   -c:v ${VIDEO_CODEC:-libx264} -pix_fmt yuv420p -vf "$VFILT" \
   -g "$GOP" -bf 0 -b:v "$VIDEO_BITRATE" -maxrate "$VIDEO_MAXRATE" -bufsize "$VIDEO_BUFSIZE" \
   -preset "${X264_PRESET:-veryfast}" -tune "${X264_TUNE:-zerolatency}" \
-  -af "$AFILT" -c:a aac -b:a "$AUDIO_BITRATE" -ar "$AUDIO_SAMPLE_RATE" -ac "$AUDIO_CHANNELS" \
+  -filter:a "$AFILTER" -c:a aac -b:a "$AUDIO_BITRATE" -ar "$AUDIO_SAMPLE_RATE" -ac "$AUDIO_CHANNELS" \
   -vsync cfr -r "$FRAMERATE" \
   -max_interleave_delta 0 -muxdelay 0 \
   -flvflags no_duration_filesize -rtmp_live live \
