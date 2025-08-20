@@ -48,8 +48,7 @@ if [[ -n "$PLAYBOOK" ]]; then
     done
     set -- "${new_args[@]}"
   else
-    echo "[playbook] ERROR: playbook $PLAYBOOK not found" >&2
-    exit 1
+    echo "[playbook] source=$PLAYBOOK"
   fi
 fi
 
