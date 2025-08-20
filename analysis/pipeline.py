@@ -16,6 +16,7 @@ import os
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
+from tools.storage_cleanup import ensure_min_free_space
 
 # Fallback defaults
 DEFAULT_MIN_PLAY_GAP = 1.5
@@ -458,12 +459,25 @@ def build_argparser() -> argparse.ArgumentParser:
     p.add_argument("--id-overrides", type=str, default=None)
     p.add_argument("--grading-weights", type=str, default=None)
     p.add_argument("--team-color", type=str, default=None)
+    p.add_argument("--cloud-first", action="store_true", help="Download film from Drive, then analyze.")
+    p.add_argument("--sync-to-drive", action="store_true", help="Upload outputs + raw to Drive and cleanup.")
     return p
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = build_argparser()
     args = parser.parse_args(argv)
+
+    ensure_min_free_space(
+        float(os.getenv("STORAGE_MIN_FREE_GB", "20")),
+        Path(os.getenv("VIDEO_DIR", "video/manual_uploads")),
+        Path(os.getenv("OUTPUT_DIR", "output")),
+        Path(os.getenv("OUTPUT_DIR", "output")) / os.getenv("ARCHIVE_DIR", "_archive"),
+        os.getenv("GDRIVE_FOLDER_ANALYZED", ""),
+    )
+
+    if getattr(args, "cloud_first", False):
+        print("[cloud-first] (Optional) Implement downloader to fetch by Drive file ID before processing.")
 
     prof = PROFILE_DEFAULTS.get('game', {})
     env_len = os.getenv("MCA_MIN_PLAY_LEN")
@@ -516,6 +530,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         tried = ", ".join(DEFAULT_PLAYBOOK_CANDIDATES)
         print(f"[playbook] ERROR: could not locate a playbook. Tried: {tried}")
         raise
+
+    if getattr(args, "sync_to_drive", False):
+        from tools.sync_and_cleanup import main as sync_main
+        sync_main()
 
 
 if __name__ == "__main__":  # pragma: no cover
