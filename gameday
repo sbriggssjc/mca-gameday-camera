@@ -5,6 +5,13 @@ USER_VIDEO_DEV="${VIDEO_DEV-}"
 USER_STREAM_URL="${STREAM_URL-}"
 USER_STREAM_KEY="${STREAM_KEY-}"
 USER_YT_RTMP_URL="${YT_RTMP_URL-}"
+if [[ -v EXTRA_GAIN_DB ]]; then
+  USER_EXTRA_GAIN_DB="$EXTRA_GAIN_DB"
+  EXTRA_GAIN_DB_SET=1
+else
+  USER_EXTRA_GAIN_DB=""
+  EXTRA_GAIN_DB_SET=0
+fi
 
 # Load .env style files (ignore malformed lines)
 load_env_file() {
@@ -30,6 +37,7 @@ done
 [[ -n "${USER_STREAM_URL-}" ]] && STREAM_URL="$USER_STREAM_URL"
 [[ -n "${USER_STREAM_KEY-}" ]] && STREAM_KEY="$USER_STREAM_KEY"
 [[ -n "${USER_YT_RTMP_URL-}" ]] && YT_RTMP_URL="$USER_YT_RTMP_URL"
+[[ "$EXTRA_GAIN_DB_SET" == "1" ]] && EXTRA_GAIN_DB="$USER_EXTRA_GAIN_DB"
 
 # Quick flags
 if [[ "${1-}" == "--devices" ]]; then
@@ -48,14 +56,24 @@ fi
 set -euo pipefail
 
 : "${YT_RTMP_URL:=rtmps://a.rtmps.youtube.com/live2}"
+: "${RTMP_URL:=}"
 : "${STREAM_KEY:=}"
-if [ -z "${STREAM_URL:-}" ]; then
-  if [ -n "$STREAM_KEY" ]; then
+: "${HPF_CUTOFF:=100}"
+
+if [[ -z "${STREAM_URL:-}" ]]; then
+  if [[ -n "$STREAM_KEY" && -n "$YT_RTMP_URL" ]]; then
     STREAM_URL="${YT_RTMP_URL%/}/$STREAM_KEY"
-  else
-    echo "ERROR: STREAM_KEY or STREAM_URL must be set"; exit 1
+  elif [[ -n "$STREAM_KEY" && -n "$RTMP_URL" ]]; then
+    STREAM_URL="${RTMP_URL%/}/$STREAM_KEY"
   fi
 fi
+STREAM_URL="${STREAM_URL:-${YT_RTMP_URL:-${RTMP_URL:-}}}"
+if [[ -z "$STREAM_URL" || ! "$STREAM_URL" =~ ^rtmps?:// ]]; then
+  echo "STREAM_URL missing or invalid"; exit 1
+fi
+INGEST_HOST="${STREAM_URL#rtmps://}"
+INGEST_HOST="${INGEST_HOST#rtmp://}"
+INGEST_HOST="${INGEST_HOST%%/*}"
 
 : "${VIDEO_DEV:=/dev/video0}"
 : "${VIDEO_INPUT_FORMAT:=mjpeg}"
@@ -68,7 +86,6 @@ fi
 : "${AUDIO_BITRATE:=160k}"
 : "${AUDIO_SAMPLE_RATE:=48000}"
 : "${AUDIO_CHANNELS:=2}"
-: "${EXTRA_GAIN_DB:=6}"
 : "${ALLOW_SILENT_STREAM:=false}"
 
 : "${NO_RE:=0}"
@@ -89,11 +106,15 @@ FRAMERATE="$VIDEO_FPS"
 
 AUDIO_SOURCE="$MIC_BACKEND"
 MIC_OVERRIDE=""
+MODE="stream"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --audio-source) AUDIO_SOURCE="$2"; shift 2;;
     --mic) MIC_OVERRIDE="$2"; shift 2;;
     --silent) AUDIO_SOURCE="silent"; shift;;
+    --dry-run) MODE="dry-run"; shift;;
+    --probe-only) MODE="probe-only"; shift;;
+    --local-preview) MODE="local-preview"; shift;;
     *) break;;
   esac
 done
@@ -181,6 +202,22 @@ PY
     fi
   fi
 
+  AUTOGAIN_DB="$(python3 - <<'PY'
+import json, os, math
+d=json.loads(os.environ.get("PROBE_JSON","{}"))
+m=d.get("mean_db")
+if m is None:
+    print("")
+else:
+    target=-16.0
+    gain=target - float(m)
+    print(str(max(-6.0, min(12.0, round(gain,1)))))
+PY
+)"
+  if [[ "$EXTRA_GAIN_DB_SET" == "0" && -n "$AUTOGAIN_DB" ]]; then EXTRA_GAIN_DB="$AUTOGAIN_DB"; fi
+  : "${EXTRA_GAIN_DB:=0}"
+  echo "🎚  Using gain=${EXTRA_GAIN_DB:-0} dB (auto from mean=${MEAN:-?} dB)" | tee -a "$LOGFILE"
+
   if [[ "$AUDIO_SOURCE" == "alsa" ]]; then
     AUDIO_IN=(-f alsa -ac 2 -ar "$AUDIO_SAMPLE_RATE" -i "$SRC")
   elif [[ "$AUDIO_SOURCE" == "pulse" || "$AUDIO_SOURCE" == "auto" ]]; then
@@ -190,22 +227,29 @@ PY
   fi
 fi
 
-echo "🎚  Audio source: ${AUDIO_SOURCE}:${SRC} | USE_LOUDNORM=${USE_LOUDNORM:-false} EXTRA_GAIN_DB=${EXTRA_GAIN_DB} | mean=${MEAN:-n/a} dB peak=${PEAK:-n/a} dB"
+echo "🎚  Audio source: ${AUDIO_SOURCE}:${SRC} | mean=${MEAN:-n/a} dB peak=${PEAK:-n/a} dB | gain=${EXTRA_GAIN_DB}dB USE_LOUDNORM=${USE_LOUDNORM:-true} HPF_CUTOFF=${HPF_CUTOFF}" | tee -a "$LOGFILE"
 if [[ "$NO_RE" == "1" ]]; then RE=(); else RE=(-re); fi
 VIDEO_IN=("${RE[@]}" -f v4l2 -input_format "$INPUT_FORMAT" -framerate "${FRAMERATE}" -video_size "${WIDTH}x${HEIGHT}" -thread_queue_size 512 -i "$VIDEO_DEV")
 
 VFILT="setpts=PTS-STARTPTS,scale=${WIDTH:-1280}:${HEIGHT:-720},format=yuv420p"
-if [[ "${USE_LOUDNORM:-false}" == "true" ]]; then
-  AFILTER="highpass=f=100,loudnorm=I=-16:TP=-1.0:LRA=11,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=6,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=${EXTRA_GAIN_DB}dB,alimiter=limit=-1.0dB:attack=5:release=20"
+if [[ "${USE_LOUDNORM:-true}" == "true" ]]; then
+  AFILTER="highpass=f=${HPF_CUTOFF},loudnorm=I=-16:TP=-1.0:LRA=11,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=6,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=${EXTRA_GAIN_DB}dB,alimiter=limit=-1.0dB:attack=5:release=20"
 else
-  AFILTER="aresample=async=1:min_hard_comp=0.100:max_hard_comp=0.100,highpass=f=100,dynaudnorm=f=150:g=31,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=6,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=${EXTRA_GAIN_DB}dB,alimiter=limit=-1.0dB:attack=5:release=20"
+  AFILTER="aresample=async=1:min_hard_comp=0.100:max_hard_comp=0.100,highpass=f=${HPF_CUTOFF},dynaudnorm=f=150:g=31,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=6,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=${EXTRA_GAIN_DB}dB,alimiter=limit=-1.0dB:attack=5:release=20"
 fi
-echo "🎚  Audio chain: $AFILTER | USE_LOUDNORM=${USE_LOUDNORM:-false} EXTRA_GAIN_DB=${EXTRA_GAIN_DB}" | tee -a "$LOGFILE"
+echo "🎚  Audio chain: $AFILTER | USE_LOUDNORM=${USE_LOUDNORM:-true} EXTRA_GAIN_DB=${EXTRA_GAIN_DB}" | tee -a "$LOGFILE"
 
 run_and_log() {
   local -a CMD=("$@")
   echo "[ffmpeg] ${CMD[*]}" | tee -a "$LOGFILE"
-  "${CMD[@]}" 2>>"$LOGFILE"
+  if "${CMD[@]}" 2>>"$LOGFILE"; then
+    return 0
+  else
+    rc=$?
+    echo "[ffmpeg] failed with code $rc. Last lines:" | tee -a "$LOGFILE"
+    tail -n 20 "$LOGFILE"
+    return $rc
+  fi
 }
 
 run_with_rtmp_fallback() {
@@ -223,21 +267,59 @@ run_with_rtmp_fallback() {
 
 echo "🎥 Using video: ${VIDEO_DEV} (${INPUT_FORMAT} ${WIDTH}x${HEIGHT} @ ${FRAMERATE}fps)" | tee -a "$LOGFILE"
 echo "📡 Streaming to: ${STREAM_URL}" | tee -a "$LOGFILE"
+echo "🌐 Ingest host: ${INGEST_HOST}" | tee -a "$LOGFILE"
+getent hosts "$INGEST_HOST" | tee -a "$LOGFILE" || true
 echo "📜 Log: $LOGFILE" | tee -a "$LOGFILE"
 echo "RTMP pacing: -re + setpts/asetpts + CFR enabled"
+if [[ "$MODE" != "probe-only" && "$MODE" != "dry-run" ]]; then
+  pkill -9 -f 'ffmpeg.*video4linux2' 2>/dev/null || true
+  if lsof "$VIDEO_DEV" >/dev/null 2>&1; then
+    echo "❌ $VIDEO_DEV appears busy" | tee -a "$LOGFILE"
+    lsof "$VIDEO_DEV" | tee -a "$LOGFILE" || true
+    exit 1
+  fi
+fi
 
-FFMPEG_CMD=(ffmpeg -hide_banner -nostdin -loglevel "$LOGLEVEL" -fflags +genpts \
-  "${VIDEO_IN[@]}" \
-  "${AUDIO_IN[@]}" \
-  -map 0:v:0 -map 1:a:0 \
-  -c:v ${VIDEO_CODEC:-libx264} -pix_fmt yuv420p -vf "$VFILT" \
-  -g "$GOP" -bf 0 -b:v "$VIDEO_BITRATE" -maxrate "$VIDEO_MAXRATE" -bufsize "$VIDEO_BUFSIZE" \
-  -preset "${X264_PRESET:-veryfast}" -tune "${X264_TUNE:-zerolatency}" \
-  -filter:a "$AFILTER" -c:a aac -b:a "${AUDIO_BITRATE:-160k}" -ar "${AUDIO_SAMPLE_RATE:-48000}" -ac "${AUDIO_CHANNELS:-2}" \
-  -vsync cfr -r "$FRAMERATE" \
-  -max_interleave_delta 0 -muxdelay 0 \
-  -flvflags no_duration_filesize -rtmp_live live \
-  -flags +global_header \
-  -f flv "$STREAM_URL")
+if [[ "$MODE" == "local-preview" ]]; then
+  mkdir -p out
+  PREVIEW_FILE="out/test_preview_$(date +%Y%m%d_%H%M%S).mp4"
+  FFMPEG_CMD=(ffmpeg -hide_banner -nostdin -loglevel "$LOGLEVEL" -fflags +genpts \
+    "${VIDEO_IN[@]}" \
+    "${AUDIO_IN[@]}" \
+    -map 0:v:0 -map 1:a:0 \
+    -c:v ${VIDEO_CODEC:-libx264} -pix_fmt yuv420p -vf "$VFILT" \
+    -g "$GOP" -bf 0 -b:v "$VIDEO_BITRATE" -maxrate "$VIDEO_MAXRATE" -bufsize "$VIDEO_BUFSIZE" \
+    -preset "${X264_PRESET:-veryfast}" -tune "${X264_TUNE:-zerolatency}" \
+    -filter:a "$AFILTER" -c:a aac -b:a "${AUDIO_BITRATE:-160k}" -ar "${AUDIO_SAMPLE_RATE:-48000}" -ac "${AUDIO_CHANNELS:-2}" \
+    -vsync cfr -r "$FRAMERATE" \
+    -max_interleave_delta 0 -muxdelay 0 \
+    -t 10 "$PREVIEW_FILE")
+else
+  FFMPEG_CMD=(ffmpeg -hide_banner -nostdin -loglevel "$LOGLEVEL" -fflags +genpts \
+    "${VIDEO_IN[@]}" \
+    "${AUDIO_IN[@]}" \
+    -map 0:v:0 -map 1:a:0 \
+    -c:v ${VIDEO_CODEC:-libx264} -pix_fmt yuv420p -vf "$VFILT" \
+    -g "$GOP" -bf 0 -b:v "$VIDEO_BITRATE" -maxrate "$VIDEO_MAXRATE" -bufsize "$VIDEO_BUFSIZE" \
+    -preset "${X264_PRESET:-veryfast}" -tune "${X264_TUNE:-zerolatency}" \
+    -filter:a "$AFILTER" -c:a aac -b:a "${AUDIO_BITRATE:-160k}" -ar "${AUDIO_SAMPLE_RATE:-48000}" -ac "${AUDIO_CHANNELS:-2}" \
+    -vsync cfr -r "$FRAMERATE" \
+    -max_interleave_delta 0 -muxdelay 0 \
+    -flvflags no_duration_filesize -rtmp_live live \
+    -flags +global_header \
+    -f flv "$STREAM_URL")
+fi
 
-run_with_rtmp_fallback "${FFMPEG_CMD[@]}" || exit $?
+case "$MODE" in
+  probe-only)
+    exit 0;;
+  dry-run)
+    echo "[dry-run] ${FFMPEG_CMD[*]}" | tee -a "$LOGFILE"
+    printf '%q ' "${FFMPEG_CMD[@]}"
+    echo
+    exit 0;;
+  local-preview)
+    run_and_log "${FFMPEG_CMD[@]}" && exit 0 || exit $?;;
+  *)
+    run_with_rtmp_fallback "${FFMPEG_CMD[@]}" || exit $?;;
+esac
