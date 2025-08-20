@@ -203,6 +203,7 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         seg_id = seg.get("id") or f"PLAY_{i:03d}"
         t0 = float(seg.get("t0", 0.0))
         t1 = float(seg.get("t1", 0.0))
+        clip_duration = float(t1 - t0)
 
         # --- read frames for tracking ---
         frames: List[np.ndarray] = []
@@ -239,7 +240,6 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         # Formation detection on first frame with player boxes
         formation_name = "Unknown"
         formation_conf = 0.0
-        formation_cands: List[Dict[str, Any]] = []
         if frames:
             bboxes = [tuple(map(int, pl["bbox"])) for pl in players]
             try:
@@ -248,7 +248,6 @@ def _run_pipeline(args: argparse.Namespace) -> None:
                 formation_name = "Unknown"
         if formation_name != "Unknown":
             formation_conf = 0.8
-        formation_cands.append({"name": formation_name, "score": formation_conf})
         print(f"[formation_detector] {seg_id}: {formation_name} conf={formation_conf:.2f}")
 
         # Playcall classification using playbook matcher
@@ -276,18 +275,6 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         else:
             print(f"[play_classifier] {seg_id}: {play_name} conf={play_conf:.2f}")
 
-        formation_dict = {
-            "name": formation_name if formation_name != "Unknown" else None,
-            "confidence": formation_conf,
-            "candidates": formation_cands,
-        }
-        prediction_rows.append({
-            "play_id": seg_id,
-            "formation": formation_dict,
-            "playcall": playcall_dict,
-            "play_family": play_family,
-        })
-
         # grades -- simple constant grade for each detected player
         for pl in players:
             pid = pl.get("id", "0")
@@ -307,7 +294,21 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         clip_out.parent.mkdir(parents=True, exist_ok=True)
         export_clip(args.video, clip_start, clip_end, clip_out, rotation)
 
-        clip_duration = float(t1 - t0)
+        play_rec = {
+            "play_id": seg_id,
+            "clip_path": str(clip_out),
+            "t0": t0,
+            "t1": t1,
+            "formation": formation_name,
+            "formation_confidence": formation_conf,
+            "playcall": playcall_dict,
+            "play_family": play_family,
+            "outcome": "",
+            "cues": {},
+            "clip_duration": clip_duration,
+        }
+        prediction_rows.append(play_rec)
+
         plays_index.append(
             {
                 "play_id": seg_id,
@@ -363,7 +364,7 @@ def _run_pipeline(args: argparse.Namespace) -> None:
 
     summary = {"formations": {}, "play_families": {}}
     for pr in prediction_rows:
-        fname = pr.get("formation", {}).get("name", "")
+        fname = pr.get("formation", "")
         summary["formations"][fname] = summary["formations"].get(fname, 0) + 1
         pfam = pr.get("play_family", "")
         summary["play_families"][pfam] = summary["play_families"].get(pfam, 0) + 1
