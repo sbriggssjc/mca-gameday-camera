@@ -45,3 +45,12 @@ def require(names):
         return user_val
 
     raise RuntimeError(msg + " Add it in .env or export it.")
+
+
+def require_or_default(name: str, default: str) -> str:
+    """Return ``name`` from the environment or ``default`` if unset."""
+
+    val = os.environ.get(name)
+    if val is None or val == "":
+        return default
+    return val
