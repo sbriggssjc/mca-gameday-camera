@@ -18,6 +18,7 @@ def _drive():
 
 
 def ensure_folder(drive, name: str, parent_id: Optional[str] = None) -> str:
+    # escape single quotes in folder names to avoid breaking the query
     q = f"mimeType='application/vnd.google-apps.folder' and name='{name.replace("'", "\\'")}' and trashed=false"
     if parent_id:
         q += f" and '{parent_id}' in parents"
