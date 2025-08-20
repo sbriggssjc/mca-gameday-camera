@@ -17,6 +17,8 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 from tools.storage_cleanup import preflight_or_abort
+from typing import Any, Dict, List, Sequence
+from tools.storage_cleanup import ensure_min_free_space
 
 # Fallback defaults
 DEFAULT_MIN_PLAY_GAP = 1.5
@@ -54,7 +56,7 @@ from . import detect_track, features, orientation, zoom
 from formation_detector import detect_formation
 from playbooks import DEFAULT_PLAYBOOK_CANDIDATES, load_offense_playbook
 from .playbook.schema import validate_playbook
-from .match.play_matcher import match_play
+from analysis.play_classifier import classify_play
 
 
 # ---------------------------------------------------------------------------
@@ -248,42 +250,30 @@ def _run_pipeline(args: argparse.Namespace) -> None:
             formation_conf = 0.8
         print(f"[formation_detector] {seg_id}: {formation_name} conf={formation_conf:.2f}")
 
-        # Playcall classification using playbook matcher
-        play_candidates: List[tuple[str, float]] = []
-        play_name: Optional[str] = None
-        play_conf = 0.0
+        play_name, play_conf = classify_play(
+            segment=None,
+            detected_formation=formation_name,
+            formation_confidence=formation_conf,
+            playbook_path=getattr(args, "playbook", None),
+        )
+        if play_name:
+            print(f"[play_classifier] {seg_id}: {play_name} conf={play_conf:.2f}")
+        else:
+            print(f"[play_classifier] {seg_id}: Unknown conf=0.00")
+
         play_family = ""
-        if not skip_play_match and pb and formation_name != "Unknown":
-            try:
-                play_candidates = match_play(pb, formation_name, {})
-            except Exception:
-                play_candidates = []
-            if play_candidates:
-                play_name, play_conf = play_candidates[0]
-                ps = pb.plays.get(play_name)
-                if ps and ps.family:
-                    play_family = ps.family
-            elif pb:
-                # fallback: surface all plays with matching formation
-                fallback = [
-                    (n, ps.family)
-                    for n, ps in pb.plays.items()
-                    if ps.formation == formation_name
-                ]
-                if fallback:
-                    play_candidates = [(n, 0.0) for n, _ in fallback]
-                    fams = [fam for _, fam in fallback if fam]
-                    if fams and not play_family:
-                        play_family = ",".join(sorted(set(fams)))
+        if play_name:
+            lname = play_name.lower()
+            if any(k in lname for k in ("reo", "leo")):
+                play_family = "Pass"
+            elif any(k in lname for k in ("rit", "lit", "rend", "lend")):
+                play_family = "Run"
+
         playcall_dict = {
             "name": play_name,
             "confidence": float(play_conf),
-            "candidates": [{"name": n, "score": s} for n, s in play_candidates],
+            "candidates": ([{"name": play_name, "score": play_conf}] if play_name else []),
         }
-        if not play_name:
-            print(f"[play_classifier] {seg_id}: Unknown conf={play_conf:.2f}")
-        else:
-            print(f"[play_classifier] {seg_id}: {play_name} conf={play_conf:.2f}")
 
         # grades -- simple constant grade for each detected player
         for pl in players:
