@@ -54,3 +54,18 @@ def require_or_default(name: str, default: str) -> str:
     if val is None or val == "":
         return default
     return val
+
+def get_env(name, default=None):
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    val = val.strip().strip('"').strip("'")
+    return val if val else default
+
+
+def resolve_stream_url():
+    for key in ("STREAM_URL", "YT_RTMP_URL", "RTMP_URL"):
+        val = get_env(key)
+        if val:
+            return val
+    return None

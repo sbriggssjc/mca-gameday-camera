@@ -495,3 +495,7 @@ For quick lint checks, install Pyflakes:
 ```
 pip install pyflakes
 ```
+
+# Add to ~/.bashrc
+alias gameday_rode='USE_LOUDNORM=true EXTRA_GAIN_DB=4 ./gameday --audio-source pulse'
+
