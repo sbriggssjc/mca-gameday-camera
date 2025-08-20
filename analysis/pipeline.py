@@ -51,7 +51,7 @@ except Exception:  # pragma: no cover
 from .segmentation import segment_video
 from . import detect_track, features, orientation, zoom
 from formation_detector import detect_formation
-from playbooks import load_offense_playbook
+from playbooks import DEFAULT_PLAYBOOK_CANDIDATES, load_offense_playbook
 from .playbook.schema import validate_playbook
 from .match.play_matcher import match_play
 
@@ -149,11 +149,10 @@ def _run_pipeline(args: argparse.Namespace) -> None:
     (run_dir / "metadata.json").write_text(json.dumps(meta, indent=2))
 
     # load playbook for playcall matching if available
-    try:
-        raw_pb: Dict[str, Any] = load_offense_playbook(getattr(args, "playbook", None))
-    except FileNotFoundError as e:
-        print(f"[playbook] {e}")
-        raw_pb = {}
+    raw_pb: Dict[str, Any] = load_offense_playbook(getattr(args, "playbook", None))
+    print(
+        f"[playbook] OK: requested playbook: {getattr(args, 'playbook', None) if getattr(args, 'playbook', None) else '<auto>'}"
+    )
     plays = []
     # Extract plays from multiple known schemas
     if isinstance(raw_pb, dict):
@@ -176,7 +175,6 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         f"[config] min_play_length={args.min_play_length} min_play_gap={args.min_play_gap} "
         f"report={args.generate_report} clips={args.generate_clips} highlights={args.generate_highlights} overlay={getattr(args, 'make_overlay', getattr(args, 'overlay', False))}"
     )
-    print(f"[playbook] source={raw_pb.get('_source_path', '<none>')}")
     print(f"[pipeline] playbook loaded with {len(plays)} plays")
     if len(plays) == 0:
         print("[pipeline] WARNING: proceeding without play names (formation-only classification).")
@@ -511,7 +509,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"report={generate_report} clips={generate_clips} highlights={generate_highlights} overlay={make_overlay}"
     )
 
-    run_pipeline(args=args)
+    try:
+        run_pipeline(args=args)
+    except FileNotFoundError:
+        tried = ", ".join(DEFAULT_PLAYBOOK_CANDIDATES)
+        print(f"[playbook] ERROR: could not locate a playbook. Tried: {tried}")
+        raise
 
 
 if __name__ == "__main__":  # pragma: no cover
