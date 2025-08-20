@@ -38,7 +38,7 @@ def backfill(run_dir: Path) -> int:
         return 0
 
     # PLAY_XXX/PLAY_XXX.mp4
-    pairs: list[tuple[int, Path]] = []
+    pairs_dict: dict[int, Path] = {}
     for play_dir in sorted(clips_root.glob("PLAY_*")):
         pid_str = play_dir.name.split("_")[-1]
         try:
@@ -47,15 +47,37 @@ def backfill(run_dir: Path) -> int:
             continue
         mp4 = play_dir / f"{play_dir.name}.mp4"
         if mp4.exists():
-            pairs.append((pid, mp4))
+            pairs_dict[pid] = mp4
+
+    legacy_file = run_dir / "plays.jsonl"
+    if legacy_file.exists():
+        for line in legacy_file.read_text().splitlines():
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            pid_raw = rec.get("play_id")
+            try:
+                pid = int(str(pid_raw).split("_")[-1])
+            except Exception:
+                continue
+            clip = rec.get("clip_path")
+            if isinstance(clip, str) and Path(clip).exists():
+                pairs_dict.setdefault(pid, Path(clip))
+
+    pairs = sorted(pairs_dict.items())
 
     if not pairs:
         print(f"[skip] no per-play folders under {clips_root}")
         return 0
 
-    # load predictions from pipeline
+    # load predictions from pipeline (plays or predictions JSONL)
     pred_map: dict[int, dict] = {}
     pred_file = run_dir / "play_predictions.jsonl"
+    if not pred_file.exists():
+        pred_file = run_dir / "plays.jsonl"
     if pred_file.exists():
         for line in pred_file.read_text().splitlines():
             if not line.strip():
@@ -127,11 +149,11 @@ def backfill(run_dir: Path) -> int:
 
             pc = pred.get("playcall") or {}
             playcall_name = pc.get("name") if isinstance(pc, dict) else None
+            play_family = playcall_name or ""
             try:
                 playcall_conf = float(pc.get("confidence") or 0.0) if isinstance(pc, dict) else 0.0
             except Exception:
                 playcall_conf = 0.0
-            play_family = pred.get("play_family", "")
 
             t0 = _none_if_blank(pred.get("t0"))
             t1 = _none_if_blank(pred.get("t1"))
@@ -151,14 +173,16 @@ def backfill(run_dir: Path) -> int:
             row_json = {
                 "play_id": pid,
                 "clip_path": str(mp4),
-                "t0": t0 if t0 is not None else "",
-                "t1": t1 if t1 is not None else "",
+                "t0": t0,
+                "t1": t1,
                 "formation": formation_name,
+                "formation_confidence": formation_conf,
                 "playcall": {
                     "name": playcall_name if playcall_name else None,
                     "confidence": playcall_conf,
                     "candidates": (pc.get("candidates") if isinstance(pc, dict) else []) or [],
                 },
+                "play_family": play_family,
                 "outcome": {
                     "yards": 0,
                     "success": False,
@@ -181,7 +205,7 @@ def backfill(run_dir: Path) -> int:
                     "clip_path": str(mp4),
                     "formation": formation_name,
                     "formation_confidence": formation_conf,
-                    "play_family": play_family or "",
+                    "play_family": play_family,
                     "playcall_confidence": playcall_conf,
                     "outcome": existing.get("outcome", ""),
                     "clip_duration": clip_duration,
