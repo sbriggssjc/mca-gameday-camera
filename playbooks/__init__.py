@@ -36,25 +36,22 @@ def _load_json(path: Path) -> Dict[str, Any]:
         raise RuntimeError(f"Failed to parse playbook at {path}: {e}") from e
 
 
-def load_offense_playbook(arg: str | None = None) -> Dict[str, Any]:
+def load_offense_playbook(playbook_path: str | None = None) -> Dict[str, Any]:
     """Load an offense playbook from an explicit path or fallback candidates."""
-    if arg:
-        r = _try_paths(arg)
-        if r:
-            pb = _load_json(r)
-            pb["_source_path"] = str(r)
+    if playbook_path:
+        resolved = _try_paths(playbook_path)
+        if resolved:
+            print(f"[playbook] source={resolved}")
+            pb = _load_json(resolved)
+            pb["_source_path"] = str(resolved)
+            print(f"[playbook] OK: loaded playbook from {resolved}")
             return pb
-        raise FileNotFoundError(
-            f"Playbook not found for arg='{arg}'. Tried as-is, repo-relative, and playbooks/. "
-            f"Known defaults: {', '.join(DEFAULT_PLAYBOOK_CANDIDATES)}"
-        )
     for cand in DEFAULT_PLAYBOOK_CANDIDATES:
-        r = _try_paths(cand)
-        if r:
-            pb = _load_json(r)
-            pb["_source_path"] = str(r)
+        resolved = _try_paths(cand)
+        if resolved:
+            pb = _load_json(resolved)
+            pb["_source_path"] = str(resolved)
+            print(f"[playbook] OK: loaded playbook from {resolved}")
             return pb
-    raise FileNotFoundError(
-        "No offense playbook found. Pass --playbook or create one of: "
-        + ", ".join(DEFAULT_PLAYBOOK_CANDIDATES)
-    )
+    tried = ", ".join(DEFAULT_PLAYBOOK_CANDIDATES)
+    raise FileNotFoundError(f"could not locate a playbook. Tried: {tried}")
