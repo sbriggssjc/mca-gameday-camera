@@ -4,6 +4,14 @@ This repository contains utilities for tracking play participation during a game
 
 Large video recordings (`.mp4`) are saved in the `video/` folder but individual recording files are ignored by Git. Use `upload_to_drive.py` to sync these videos to Google Drive instead of committing them.
 
+## Game-day one-liners
+
+```
+USE_LOUDNORM=true ./gameday --audio-source pulse          # auto-gain to ~−16 dB
+EXTRA_GAIN_DB=4 ./gameday --audio-source pulse            # manual tweak
+./gameday --dry-run | less                                # inspect command
+```
+
 ## Automated Film Analysis
 
 The `analysis` package provides a small end-to-end pipeline that ingests a
