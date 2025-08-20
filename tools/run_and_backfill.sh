@@ -2,7 +2,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Determine playbook argument for messaging
+# Determine playbook argument and ensure it exists
 PLAYBOOK=""
 prev=""
 for arg in "$@"; do
@@ -13,8 +13,44 @@ for arg in "$@"; do
   prev="$arg"
 done
 
+resolve_playbook() {
+  local pb="$1"
+  if [[ -f "$pb" ]]; then
+    printf '%s' "$pb"
+    return 0
+  fi
+  if [[ "$pb" != */* && -f "playbooks/$pb" ]]; then
+    printf '%s' "playbooks/$pb"
+    return 0
+  fi
+  return 1
+}
+
 if [[ -n "$PLAYBOOK" ]]; then
-  echo "[playbook] source=$PLAYBOOK"
+  if RESOLVED=$(resolve_playbook "$PLAYBOOK"); then
+    PLAYBOOK="$RESOLVED"
+    echo "[playbook] source=$PLAYBOOK"
+    # rebuild args so pipeline gets the resolved path
+    new_args=()
+    prev=""
+    for arg in "$@"; do
+      if [[ "$arg" == "--playbook" ]]; then
+        new_args+=("$arg")
+        prev="pb"
+        continue
+      fi
+      if [[ "$prev" == "pb" ]]; then
+        new_args+=("$PLAYBOOK")
+        prev=""
+        continue
+      fi
+      new_args+=("$arg")
+    done
+    set -- "${new_args[@]}"
+  else
+    echo "[playbook] ERROR: playbook $PLAYBOOK not found" >&2
+    exit 1
+  fi
 fi
 
 # If user passes a bare filename that doesn't exist in CWD,
