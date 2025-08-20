@@ -1,6 +1,6 @@
-import os, shutil, time
+import os, shutil, time, json, sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 GB = 1024 ** 3
 
@@ -55,6 +55,53 @@ def prune_large_files(paths: List[Path], older_than_days: int) -> List[Path]:
     return removed
 
 
+def _load_manifest(manifest_path: Path) -> Dict[str, Dict]:
+    data: Dict[str, Dict] = {}
+    if manifest_path.exists():
+        with manifest_path.open() as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                    data[rec.get("local")] = rec
+                except Exception:
+                    pass
+    return data
+
+
+def safe_delete(path: Path, manifest_path: Path) -> bool:
+    """Delete only if file/dir has verified manifest entries."""
+    manifest = _load_manifest(manifest_path)
+
+    def _verified(p: Path) -> bool:
+        rec = manifest.get(str(p))
+        return bool(rec and rec.get("status") == "verified" and rec.get("drive_id"))
+
+    if path.is_file():
+        if not _verified(path):
+            print(f"[safe-delete] skip unverified file: {path}")
+            return False
+        try:
+            path.unlink()
+            return True
+        except Exception:
+            return False
+    if path.is_dir():
+        for p in path.rglob("*"):
+            if p.is_file() and not _verified(p):
+                print(f"[safe-delete] directory has unverified file: {p}")
+                return False
+        shutil.rmtree(path, ignore_errors=True)
+        return True
+    return False
+
+
+def preflight_or_abort(min_free_gb: float) -> None:
+    free = get_free_gb()
+    if free < min_free_gb:
+        print(f"[storage] ERROR: only {free:.1f} GB free; need {min_free_gb} GB")
+        sys.exit(2)
+
+
 def tarball(path: Path, dest_dir: Path) -> Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
     archive = dest_dir / f"{path.name}.tar"
@@ -66,7 +113,7 @@ def tarball(path: Path, dest_dir: Path) -> Path:
 
 
 def ensure_min_free_space(min_free_gb: float, video_dir: Path, output_dir: Path, archive_dir: Path, gdrive_folder_analyzed: str):
-    from tools.gdrive_sync import upload_tree
+    from tools.gdrive_sync import upload_tree_with_manifest
     free = get_free_gb()
     if free >= min_free_gb:
         return
@@ -79,7 +126,8 @@ def ensure_min_free_space(min_free_gb: float, video_dir: Path, output_dir: Path,
             break
         # tar + upload + delete
         tar = tarball(r, archive_dir)
-        upload_tree(tar.parent, gdrive_folder_analyzed)  # uploads the tar sitting in archive_dir
+        manifest = archive_dir / "manifest.jsonl"
+        upload_tree_with_manifest(tar.parent, gdrive_folder_analyzed, manifest)
         try:
             shutil.rmtree(r, ignore_errors=True)
             tar.unlink(missing_ok=True)  # optional: keep tar only in Drive
@@ -92,3 +140,18 @@ def ensure_min_free_space(min_free_gb: float, video_dir: Path, output_dir: Path,
         prune_large_files([video_dir], older_than_days=_env("RETAIN_DAYS", 14, int))
 
     return removed_any
+
+
+def remove_old_runs_verified(
+    output_dir: Path, retain_latest: int, retain_days: int, manifest_path: Path
+) -> List[Path]:
+    removed: List[Path] = []
+    runs = list_runs(output_dir)
+    now = time.time()
+    for r in runs[retain_latest:]:
+        age_days = (now - r.stat().st_mtime) / (24 * 3600)
+        if age_days > retain_days:
+            if safe_delete(r, manifest_path):
+                removed.append(r)
+    return removed
+

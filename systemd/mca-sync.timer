@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Drive sync and cleanup every hour
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=60m
+Unit=mca-sync.service
+
+[Install]
+WantedBy=timers.target
+

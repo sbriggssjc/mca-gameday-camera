@@ -16,7 +16,7 @@ import os
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
-from tools.storage_cleanup import ensure_min_free_space
+from tools.storage_cleanup import preflight_or_abort
 
 # Fallback defaults
 DEFAULT_MIN_PLAY_GAP = 1.5
@@ -471,6 +471,8 @@ def build_argparser() -> argparse.ArgumentParser:
     p.add_argument("--team-color", type=str, default=None)
     p.add_argument("--cloud-first", action="store_true", help="Download film from Drive, then analyze.")
     p.add_argument("--sync-to-drive", action="store_true", help="Upload outputs + raw to Drive and cleanup.")
+    p.add_argument("--verify-drive", action="store_true")
+    p.add_argument("--purge-now", action="store_true")
     return p
 
 
@@ -478,13 +480,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser = build_argparser()
     args = parser.parse_args(argv)
 
-    ensure_min_free_space(
-        float(os.getenv("STORAGE_MIN_FREE_GB", "20")),
-        Path(os.getenv("VIDEO_DIR", "video/manual_uploads")),
-        Path(os.getenv("OUTPUT_DIR", "output")),
-        Path(os.getenv("OUTPUT_DIR", "output")) / os.getenv("ARCHIVE_DIR", "_archive"),
-        os.getenv("GDRIVE_FOLDER_ANALYZED", ""),
-    )
+    preflight_or_abort(float(os.getenv("STORAGE_MIN_FREE_GB", "20")))
 
     if getattr(args, "cloud_first", False):
         print("[cloud-first] (Optional) Implement downloader to fetch by Drive file ID before processing.")
@@ -542,7 +538,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise
 
     if getattr(args, "sync_to_drive", False):
+        import sys
         from tools.sync_and_cleanup import main as sync_main
+
+        sys.argv = [
+            "sync_and_cleanup.py",
+            *(["--verify-drive"] if args.verify_drive else []),
+            *(["--purge-now"] if args.purge_now else []),
+        ]
         sync_main()
 
 
