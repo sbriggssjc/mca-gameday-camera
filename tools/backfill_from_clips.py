@@ -2,22 +2,25 @@
 from __future__ import annotations
 import csv, json, subprocess, sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 
 def _as_name(x: Any) -> str:
     if isinstance(x, str):
         return x
     if isinstance(x, dict):
-        return (x.get("name") or x.get("id") or "").strip()
+        return x.get("name") or x.get("id") or ""
     return ""
 
 
-def _as_float(x: Any, default: float = 0.0) -> float:
-    try:
-        return float(x)
-    except Exception:
-        return default
+def _as_conf(x: Any) -> float:
+    if isinstance(x, dict):
+        c = x.get("confidence")
+        try:
+            return float(c) if c is not None else 0.0
+        except Exception:
+            return 0.0
+    return 0.0
 
 
 def ffprobe_duration(mp4: Path) -> float | None:
@@ -112,21 +115,29 @@ def backfill(run_dir: Path) -> int:
             dur = ffprobe_duration(mp4)
             pred = pred_map.get(pid, {})
             existing = existing_index.get(pid, {})
-            formation = pred.get(
-                "formation", {"name": None, "confidence": 0.0, "candidates": []}
-            )
-            playcall = pred.get(
-                "playcall", {"name": None, "confidence": 0.0, "candidates": []}
-            )
+            formation = pred.get("formation", "")
+            playcall = pred.get("playcall", {})
             play_family = pred.get("play_family", "")
+
+            formation_name = _as_name(formation)
+            formation_conf = _as_conf(formation)
+            playcall_name = _as_name(playcall)
+            playcall_conf = _as_conf(playcall)
+
+            t0 = existing.get("t0")
+            t1 = existing.get("t1")
 
             row_json = {
                 "play_id": pid,
                 "clip_path": str(mp4),
-                "t0": existing.get("t0"),
-                "t1": existing.get("t1"),
-                "formation": formation,
-                "playcall": playcall,
+                "t0": t0 if t0 is not None else "",
+                "t1": t1 if t1 is not None else "",
+                "formation": formation_name,
+                "playcall": {
+                    "name": playcall_name if playcall_name else None,
+                    "confidence": playcall_conf,
+                    "candidates": (playcall.get("candidates") if isinstance(playcall, dict) else []) or [],
+                },
                 "outcome": {
                     "yards": 0,
                     "success": False,
@@ -139,22 +150,17 @@ def backfill(run_dir: Path) -> int:
             }
             jf.write(json.dumps(row_json) + "\n")
 
-            formation_name = _as_name(formation)
-            playcall_name = _as_name(playcall)
-            formation_conf = _as_float(formation.get("confidence") if isinstance(formation, dict) else 0.0)
-            playcall_conf = _as_float(playcall.get("confidence") if isinstance(playcall, dict) else 0.0)
-
             w.writerow(
                 {
                     "play_id": pid,
-                    "t0": existing.get("t0", ""),
-                    "t1": existing.get("t1", ""),
+                    "t0": t0 if t0 is not None else "",
+                    "t1": t1 if t1 is not None else "",
                     "snap": existing.get("snap", ""),
                     "whistle": existing.get("whistle", ""),
                     "clip_path": str(mp4),
                     "formation": formation_name,
                     "formation_confidence": formation_conf,
-                    "play_family": playcall_name or "",
+                    "play_family": play_family or "",
                     "playcall_confidence": playcall_conf,
                     "outcome": existing.get("outcome", ""),
                     "clip_duration": row_json["clip_duration"],
@@ -162,7 +168,7 @@ def backfill(run_dir: Path) -> int:
             )
             print(
                 f"[backfill] play {pid}: formation={formation_name} conf={formation_conf} "
-                f"playcall={playcall_name} conf={playcall_conf}"
+                f"playcall={playcall_name or ''} conf={playcall_conf}"
             )
             total += 1
 

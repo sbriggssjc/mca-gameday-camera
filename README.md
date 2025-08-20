@@ -441,3 +441,11 @@ Tune at runtime:
 MCA_DET_CONF=0.20 MCA_DET_NMS=0.55 MCA_DET_WEIGHTS=models/player_detector/best.onnx make run-pipeline
 ```
 Use `--force-cpu` if GPU runtime is misconfigured.
+
+## Development
+
+For quick lint checks, install Pyflakes:
+
+```
+pip install pyflakes
+```
