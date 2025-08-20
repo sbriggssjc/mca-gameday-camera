@@ -1,0 +1,13 @@
+[Unit]
+Description=MCA Gameday Camera: Drive sync and cleanup
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/scott/mca-gameday-camera
+EnvironmentFile=/home/scott/mca-gameday-camera/.env
+ExecStart=/usr/bin/python3 tools/sync_and_cleanup.py --verify-drive --purge-now
+User=scott
+Group=scott
+Nice=10
+
