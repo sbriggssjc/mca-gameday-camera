@@ -151,6 +151,32 @@ VIDEO_BUFSIZE=6000k
 RECORD_MP4=1
 ```
 
+### Audio device quick start
+
+List devices:
+
+```bash
+python3 tools/list_audio.py
+```
+
+Force Pulse by name:
+
+```bash
+MIC_PULSE_NAME="alsa_input.usb-RODE-NTUSB_Pro-00.mono-fallback" ./gameday --audio-source pulse
+```
+
+Force ALSA by hw:
+
+```bash
+MIC_ALSA_DEVICE="hw:1,0" ./gameday --audio-source alsa
+```
+
+Bypass guard (not recommended):
+
+```bash
+ALLOW_SILENT_STREAM=true ./gameday
+```
+
 
 ## Requirements
 
