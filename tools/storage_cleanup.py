@@ -1,4 +1,5 @@
 import os, shutil, time, json, sys
+import traceback
 from pathlib import Path
 from typing import List, Tuple, Dict
 
@@ -112,11 +113,21 @@ def tarball(path: Path, dest_dir: Path) -> Path:
     return archive
 
 
+def _truthy_env(name: str, default: str = "0") -> bool:
+    val = os.environ.get(name, default).strip().lower()
+    return val in ("1", "true", "yes", "y", "on")
+
+
 def ensure_min_free_space(min_free_gb: float, video_dir: Path, output_dir: Path, archive_dir: Path, gdrive_folder_analyzed: str):
-    from tools.gdrive_sync import upload_tree_with_manifest
+    """
+    Ensure we have at least `min_free_gb` free. Optionally upload archived runs
+    to Drive when GOOGLE_DRIVE_SYNC=1.
+    """
     free = get_free_gb()
     if free >= min_free_gb:
         return
+
+    enable_gdrive = _truthy_env("GOOGLE_DRIVE_SYNC", "0")
 
     # Step 1: upload the oldest runs (not in the last N) as tarballs then delete
     removed_any = False
@@ -124,16 +135,28 @@ def ensure_min_free_space(min_free_gb: float, video_dir: Path, output_dir: Path,
     for r in reversed(runs):  # oldest first
         if get_free_gb() >= min_free_gb:
             break
-        # tar + upload + delete
-        tar = tarball(r, archive_dir)
-        manifest = archive_dir / "manifest.jsonl"
-        upload_tree_with_manifest(tar.parent, gdrive_folder_analyzed, manifest)
-        try:
-            shutil.rmtree(r, ignore_errors=True)
-            tar.unlink(missing_ok=True)  # optional: keep tar only in Drive
-            removed_any = True
-        except Exception:
-            pass
+        if enable_gdrive:
+            tar = tarball(r, archive_dir)
+            manifest = archive_dir / "manifest.jsonl"
+            try:
+                from tools.gdrive_sync import upload_tree_with_manifest
+                upload_tree_with_manifest(tar.parent, gdrive_folder_analyzed, manifest)
+            except Exception as e:
+                print(f"[storage_cleanup] WARNING: Google Drive upload skipped due to error: {e}")
+                traceback.print_exc()
+            try:
+                shutil.rmtree(r, ignore_errors=True)
+                tar.unlink(missing_ok=True)
+                removed_any = True
+            except Exception:
+                pass
+        else:
+            print("[storage_cleanup] Drive upload disabled (set GOOGLE_DRIVE_SYNC=1 to enable).")
+            try:
+                shutil.rmtree(r, ignore_errors=True)
+                removed_any = True
+            except Exception:
+                pass
 
     # Step 2: if still low, remove aged raw videos
     if get_free_gb() < min_free_gb:
