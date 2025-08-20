@@ -11,4 +11,7 @@ ffmpeg -version | head -n1 || true
 arecord -l || true
 v4l2-ctl --version || true
 
+echo "[+] Installing Python dependencies…"
+pip3 install -r requirements.txt
+
 echo "[+] Done. If any command above wasn't found, rerun this script or check network/apt sources."
