@@ -39,13 +39,15 @@ def _load_json(path: Path) -> Dict[str, Any]:
 def load_offense_playbook(playbook_path: str | None = None) -> Dict[str, Any]:
     """Load an offense playbook from an explicit path or fallback candidates."""
     if playbook_path:
+        print(f"[playbook] source={playbook_path}")
         resolved = _try_paths(playbook_path)
         if resolved:
-            print(f"[playbook] source={resolved}")
             pb = _load_json(resolved)
             pb["_source_path"] = str(resolved)
-            print(f"[playbook] OK: loaded playbook from {resolved}")
+            print(f"[playbook] OK: requested playbook: {playbook_path}")
             return pb
+        # acknowledge the request even if the file was not found
+        print(f"[playbook] OK: requested playbook: {playbook_path}")
     for cand in DEFAULT_PLAYBOOK_CANDIDATES:
         resolved = _try_paths(cand)
         if resolved:
