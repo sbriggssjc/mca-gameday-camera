@@ -4,6 +4,8 @@ import csv, json, subprocess, sys
 from pathlib import Path
 from typing import Any
 
+__all__ = ["_as_name"]
+
 
 def _as_name(x: Any) -> str:
     if isinstance(x, str):
@@ -13,14 +15,8 @@ def _as_name(x: Any) -> str:
     return ""
 
 
-def _as_conf(x: Any) -> float:
-    if isinstance(x, dict):
-        c = x.get("confidence")
-        try:
-            return float(c) if c is not None else 0.0
-        except Exception:
-            return 0.0
-    return 0.0
+def _none_if_blank(x):
+    return None if x in ("", None) else x
 
 
 def ffprobe_duration(mp4: Path) -> float | None:
@@ -115,17 +111,42 @@ def backfill(run_dir: Path) -> int:
             dur = ffprobe_duration(mp4)
             pred = pred_map.get(pid, {})
             existing = existing_index.get(pid, {})
-            formation = pred.get("formation", "")
-            playcall = pred.get("playcall", {})
+            formation_name = _as_name(pred.get("formation"))
+            formation_conf = 0.0
+            f_obj = pred.get("formation")
+            if isinstance(f_obj, dict):
+                try:
+                    formation_conf = float(f_obj.get("confidence") or 0.0)
+                except Exception:
+                    formation_conf = 0.0
+            elif "formation_confidence" in pred:
+                try:
+                    formation_conf = float(pred.get("formation_confidence") or 0.0)
+                except Exception:
+                    formation_conf = 0.0
+
+            pc = pred.get("playcall") or {}
+            playcall_name = pc.get("name") if isinstance(pc, dict) else None
+            try:
+                playcall_conf = float(pc.get("confidence") or 0.0) if isinstance(pc, dict) else 0.0
+            except Exception:
+                playcall_conf = 0.0
             play_family = pred.get("play_family", "")
 
-            formation_name = _as_name(formation)
-            formation_conf = _as_conf(formation)
-            playcall_name = _as_name(playcall)
-            playcall_conf = _as_conf(playcall)
+            t0 = _none_if_blank(pred.get("t0"))
+            t1 = _none_if_blank(pred.get("t1"))
+            if t0 is None:
+                t0 = existing.get("t0")
+            if t1 is None:
+                t1 = existing.get("t1")
 
-            t0 = existing.get("t0")
-            t1 = existing.get("t1")
+            clip_duration = pred.get("clip_duration")
+            try:
+                clip_duration = float(clip_duration) if clip_duration is not None else None
+            except Exception:
+                clip_duration = None
+            if clip_duration is None:
+                clip_duration = round(dur, 3) if dur is not None else None
 
             row_json = {
                 "play_id": pid,
@@ -136,7 +157,7 @@ def backfill(run_dir: Path) -> int:
                 "playcall": {
                     "name": playcall_name if playcall_name else None,
                     "confidence": playcall_conf,
-                    "candidates": (playcall.get("candidates") if isinstance(playcall, dict) else []) or [],
+                    "candidates": (pc.get("candidates") if isinstance(pc, dict) else []) or [],
                 },
                 "outcome": {
                     "yards": 0,
@@ -146,7 +167,7 @@ def backfill(run_dir: Path) -> int:
                     "penalty": False,
                 },
                 "cues": {},
-                "clip_duration": round(dur, 3) if dur is not None else None,
+                "clip_duration": clip_duration,
             }
             jf.write(json.dumps(row_json) + "\n")
 
@@ -163,7 +184,7 @@ def backfill(run_dir: Path) -> int:
                     "play_family": play_family or "",
                     "playcall_confidence": playcall_conf,
                     "outcome": existing.get("outcome", ""),
-                    "clip_duration": row_json["clip_duration"],
+                    "clip_duration": clip_duration,
                 }
             )
             print(
