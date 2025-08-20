@@ -194,13 +194,13 @@ if [[ "$NO_RE" == "1" ]]; then RE=(); else RE=(-re); fi
 VIDEO_IN=("${RE[@]}" -f v4l2 -input_format "$INPUT_FORMAT" -framerate "${FRAMERATE}" -video_size "${WIDTH}x${HEIGHT}" -thread_queue_size 512 -i "$VIDEO_DEV")
 
 VFILT="setpts=PTS-STARTPTS,scale=${WIDTH:-1280}:${HEIGHT:-720},format=yuv420p"
-: "${EXTRA_GAIN_DB:=0}"
+: "${EXTRA_GAIN_DB:=6}"   # default tweakable gain
 if [[ "${USE_LOUDNORM:-false}" == "true" ]]; then
-  AFILTER="highpass=f=100,loudnorm=I=-16:TP=-1.5:LRA=11,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=6,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=${EXTRA_GAIN_DB}dB,alimiter=limit=0.0dB:attack=5:release=20"
+  AFILTER="highpass=f=100,loudnorm=I=-16:TP=-1.0:LRA=11,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=6,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=${EXTRA_GAIN_DB}dB,alimiter=limit=-1.0dB:attack=5:release=20"
 else
-  AFILTER="aresample=async=1:min_hard_comp=0.100:max_hard_comp=0.100,highpass=f=100,dynaudnorm=f=150:g=31,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=6,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=${EXTRA_GAIN_DB}dB,alimiter=limit=0.0dB:attack=5:release=20"
+  AFILTER="aresample=async=1:min_hard_comp=0.100:max_hard_comp=0.100,highpass=f=100,dynaudnorm=f=150:g=31,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=6,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=${EXTRA_GAIN_DB}dB,alimiter=limit=-1.0dB:attack=5:release=20"
 fi
-echo "🎚  Audio chain: $AFILTER" | tee -a "$LOGFILE"
+echo "🎚  Audio chain: $AFILTER | USE_LOUDNORM=${USE_LOUDNORM:-false} EXTRA_GAIN_DB=${EXTRA_GAIN_DB}" | tee -a "$LOGFILE"
 
 run_and_log() {
   local -a CMD=("$@")
