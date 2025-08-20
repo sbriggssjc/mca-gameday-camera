@@ -32,6 +32,35 @@ python3 scripts/one_click_analyze.py \
   --date 2025-08-08
 ```
 
+## Google Drive sync & storage cleanup
+
+One-time setup:
+
+1. Create a Google Cloud service account with the Drive API enabled.
+2. Share the target Drive folders (`GDRIVE_FOLDER_RAW`, `GDRIVE_FOLDER_ANALYZED`) with the service account email.
+3. Save the JSON key locally and set `GDRIVE_CREDENTIALS_JSON` in your `.env`.
+
+Example commands:
+
+```bash
+cd ~/mca-gameday-camera
+OUT=output/IMG_4129_$(date +%Y%m%d_%H%M)
+mkdir -p "$OUT"
+
+PYTHONPATH=. python3 -m analysis.pipeline \
+  --video video/manual_uploads/IMG_4129.MP4 \
+  --team WHITE \
+  --playbook mca_full_playbook_final.json \
+  --out "$OUT" \
+  --sync-to-drive
+
+# Run sync/cleanup anytime
+python3 tools/sync_and_cleanup.py
+
+# Cloud-first flow (stubbed downloader)
+python3 tools/sync_and_cleanup.py --cloud-first
+```
+
 ## Playbook
 
 Playbooks may be authored in a legacy flat list format or using the
