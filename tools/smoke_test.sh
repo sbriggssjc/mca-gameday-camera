@@ -9,16 +9,10 @@ tools/run_and_backfill.sh --video "$VIDEO" --team WHITE \
   --min-play-gap 1.5 --min-play-length 6.0 \
   --generate-report --generate-clips --generate-highlights | tee /tmp/mca_smoke1.log
 
-grep -E "^\[playbook\] (source|OK):" /tmp/mca_smoke1.log
-
+# Extract run dir from summary
 RUN_DIR=$(grep -A3 "== Summary ==" /tmp/mca_smoke1.log | sed -n 's/^Run dir: //p' | tail -n1)
-echo "[SMOKE] RUN_DIR=$RUN_DIR"
-
-echo "[SMOKE] CSV header"
+echo "[SMOKE] check CSV header in $RUN_DIR"
 head -n1 "$RUN_DIR/plays_index.csv"
-
-echo "[SMOKE] first few rows"
-awk 'NR<=6{print}' "$RUN_DIR/plays_index.csv"
 
 echo "[SMOKE] fallback playbook"
 tools/run_and_backfill.sh --video "$VIDEO" --team WHITE \
@@ -26,5 +20,5 @@ tools/run_and_backfill.sh --video "$VIDEO" --team WHITE \
   --min-play-gap 1.5 --min-play-length 6.0 \
   --generate-report --generate-clips --generate-highlights | tee /tmp/mca_smoke2.log
 
-grep -E "^\[playbook\] (source|OK):" /tmp/mca_smoke2.log
+
 echo "[SMOKE] done"
