@@ -156,22 +156,17 @@ RECORD_MP4=1
 List devices:
 
 ```bash
-python3 tools/list_audio.py
+PYTHONPATH=. python3 -m tools.list_audio
 ```
 
-Force Pulse by name:
+Pulse explicit mic (replace with your exact pactl name from your log):
 
 ```bash
-MIC_PULSE_NAME="alsa_input.usb-RODE-NTUSB_Pro-00.mono-fallback" ./gameday --audio-source pulse
+MIC_PULSE_NAME="alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_17477F5D-00.mono-fallback" \
+  ./gameday --audio-source pulse
 ```
 
-Force ALSA by hw:
-
-```bash
-MIC_ALSA_DEVICE="hw:1,0" ./gameday --audio-source alsa
-```
-
-Bypass guard (not recommended):
+Allow-silent bypass (not recommended):
 
 ```bash
 ALLOW_SILENT_STREAM=true ./gameday
