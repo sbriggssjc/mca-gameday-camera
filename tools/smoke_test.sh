@@ -17,7 +17,7 @@ echo "[SMOKE] RUN_DIR=$RUN_DIR"
 echo "[SMOKE] CSV header"
 head -n1 "$RUN_DIR/plays_index.csv"
 
-echo "[SMOKE] a few CSV rows"
+echo "[SMOKE] first few rows"
 awk 'NR<=6{print}' "$RUN_DIR/plays_index.csv"
 
 echo "[SMOKE] fallback playbook"
