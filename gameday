@@ -65,12 +65,10 @@ fi
 : "${MIC_BACKEND:=auto}"
 : "${MIC_PULSE_NAME:=}"
 : "${MIC_ALSA_DEVICE:=}"
-: "${AUDIO_FORCE_MONO:=true}"
 : "${AUDIO_BITRATE:=160k}"
 : "${AUDIO_SAMPLE_RATE:=48000}"
 : "${AUDIO_CHANNELS:=2}"
 : "${ALLOW_SILENT_STREAM:=false}"
-: "${EXTRA_GAIN_DB:=0}"
 
 : "${NO_RE:=0}"
 
@@ -196,11 +194,11 @@ if [[ "$NO_RE" == "1" ]]; then RE=(); else RE=(-re); fi
 VIDEO_IN=("${RE[@]}" -f v4l2 -input_format "$INPUT_FORMAT" -framerate "${FRAMERATE}" -video_size "${WIDTH}x${HEIGHT}" -thread_queue_size 512 -i "$VIDEO_DEV")
 
 VFILT="setpts=PTS-STARTPTS,scale=${WIDTH:-1280}:${HEIGHT:-720},format=yuv420p"
-AFILTER_BASE="aresample=async=1:min_hard_comp=0.100:max_hard_comp=0.100,highpass=f=100,dynaudnorm=f=150:g=31,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=6"
-if [[ "$AUDIO_FORCE_MONO" == "true" ]]; then
-  AFILTER="$AFILTER_BASE,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=${EXTRA_GAIN_DB}dB,alimiter=limit=0.0dB:attack=5:release=20"
+: "${EXTRA_GAIN_DB:=0}"
+if [[ "${USE_LOUDNORM:-false}" == "true" ]]; then
+  AFILTER="highpass=f=100,loudnorm=I=-16:TP=-1.5:LRA=11,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=6,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=${EXTRA_GAIN_DB}dB,alimiter=limit=0.0dB:attack=5:release=20"
 else
-  AFILTER="$AFILTER_BASE,volume=${EXTRA_GAIN_DB}dB,alimiter=limit=0.0dB:attack=5:release=20"
+  AFILTER="aresample=async=1:min_hard_comp=0.100:max_hard_comp=0.100,highpass=f=100,dynaudnorm=f=150:g=31,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=6,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=${EXTRA_GAIN_DB}dB,alimiter=limit=0.0dB:attack=5:release=20"
 fi
 echo "🎚  Audio chain: $AFILTER" | tee -a "$LOGFILE"
 
@@ -235,7 +233,7 @@ FFMPEG_CMD=(ffmpeg -hide_banner -nostdin -loglevel "$LOGLEVEL" -fflags +genpts \
   -c:v ${VIDEO_CODEC:-libx264} -pix_fmt yuv420p -vf "$VFILT" \
   -g "$GOP" -bf 0 -b:v "$VIDEO_BITRATE" -maxrate "$VIDEO_MAXRATE" -bufsize "$VIDEO_BUFSIZE" \
   -preset "${X264_PRESET:-veryfast}" -tune "${X264_TUNE:-zerolatency}" \
-  -filter:a "$AFILTER" -c:a aac -b:a "${AUDIO_BITRATE:-160k}" -ar "$AUDIO_SAMPLE_RATE" -ac "$AUDIO_CHANNELS" \
+  -filter:a "$AFILTER" -c:a aac -b:a "${AUDIO_BITRATE:-160k}" -ar "${AUDIO_SAMPLE_RATE:-48000}" -ac "${AUDIO_CHANNELS:-2}" \
   -vsync cfr -r "$FRAMERATE" \
   -max_interleave_delta 0 -muxdelay 0 \
   -flvflags no_duration_filesize -rtmp_live live \
