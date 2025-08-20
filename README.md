@@ -40,6 +40,10 @@ One-time setup:
 2. Share the target Drive folders (`GDRIVE_FOLDER_RAW`, `GDRIVE_FOLDER_ANALYZED`) with the service account email.
 3. Save the JSON key locally and set `GDRIVE_CREDENTIALS_JSON` in your `.env`.
 
+Uploads are verified via MD5/SHA1 before any local file is removed. Each upload is
+recorded in `output/manifest.jsonl` with checksums and the Drive file ID. Use
+`--verify-drive` and `--purge-now` to require verified uploads before deletion.
+
 Example commands:
 
 ```bash
@@ -54,11 +58,29 @@ PYTHONPATH=. python3 -m analysis.pipeline \
   --out "$OUT" \
   --sync-to-drive
 
-# Run sync/cleanup anytime
-python3 tools/sync_and_cleanup.py
+# Run sync/cleanup anytime (requires verified Drive uploads)
+python3 tools/sync_and_cleanup.py --verify-drive --purge-now
 
-# Cloud-first flow (stubbed downloader)
-python3 tools/sync_and_cleanup.py --cloud-first
+# Cloud-first flow: download new Drive files since Aug 1, 2025
+python3 tools/sync_and_cleanup.py --cloud-first --since 2025-08-01
+
+# Download a specific Drive file id
+python3 tools/sync_and_cleanup.py --cloud-first --id <drive_id>
+```
+
+To automate syncing every hour via `systemd`:
+
+```bash
+sudo cp systemd/mca-sync.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now mca-sync.timer
+systemctl list-timers | grep mca-sync
+```
+
+Or add a cron entry:
+
+```
+15 * * * * cd ~/mca-gameday-camera && /usr/bin/env -S bash -lc 'source .env && python3 tools/sync_and_cleanup.py --verify-drive --purge-now' >> ~/mca-gameday-camera/logs/sync.log 2>&1
 ```
 
 ## Playbook

@@ -4,6 +4,7 @@ easyocr
 opencv-python
 torch
 schedule>=1.2.0
+# Google Drive sync
 google-api-python-client
 google-auth
 google-auth-httplib2
