@@ -7,6 +7,22 @@ cd "$REPO_DIR"
 export PYTHONUNBUFFERED=1
 export PYTHONPATH="$REPO_DIR${PYTHONPATH:+:${PYTHONPATH}}"
 
+python3 - <<'PY'
+import os, json, pathlib
+p = pathlib.Path(os.environ.get("CONFIG_PATH", "config/gameday.json"))
+raw = p.read_text(encoding="utf-8").strip() if p.exists() else ""
+if not raw:
+    print(f"[diag] config empty or missing at {p}; using {}")
+    cfg = {}
+else:
+    try:
+        cfg = json.loads(raw)
+    except json.JSONDecodeError as e:
+        print(f"[diag] invalid JSON in {p}: {e}; using {}")
+        cfg = {}
+print("[diag] config keys:", ", ".join(sorted(cfg.keys())))
+PY
+
 echo "[diag] Listing audio devices (run: PYTHONPATH=. python3 -m tools.list_audio)"
 PYTHONPATH=. python3 -m tools.list_audio || true
 
