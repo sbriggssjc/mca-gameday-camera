@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv, json, subprocess, sys
 from pathlib import Path
 from typing import Any
+from tools.json_io import iter_jsonl_safe
 
 __all__ = ["_as_name"]
 
@@ -51,13 +52,7 @@ def backfill(run_dir: Path) -> int:
 
     legacy_file = run_dir / "plays.jsonl"
     if legacy_file.exists():
-        for line in legacy_file.read_text().splitlines():
-            if not line.strip():
-                continue
-            try:
-                rec = json.loads(line)
-            except Exception:
-                continue
+        for rec in iter_jsonl_safe(legacy_file):
             pid_raw = rec.get("play_id")
             try:
                 pid = int(str(pid_raw).split("_")[-1])
@@ -79,13 +74,7 @@ def backfill(run_dir: Path) -> int:
     if not pred_file.exists():
         pred_file = run_dir / "plays.jsonl"
     if pred_file.exists():
-        for line in pred_file.read_text().splitlines():
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except Exception:
-                continue
+        for row in iter_jsonl_safe(pred_file):
             pid_raw = row.get("play_id")
             try:
                 pid_key = int(str(pid_raw).split("_")[-1])

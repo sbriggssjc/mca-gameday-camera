@@ -1,5 +1,5 @@
-import json
 from dataclasses import dataclass
+from tools.json_io import load_json_safe
 
 
 @dataclass
@@ -11,7 +11,7 @@ class PlayCall:
 
 class PlayRecognizer:
     def __init__(self, playbook_json_path: str):
-        self.pb = json.loads(open(playbook_json_path).read())
+        self.pb = load_json_safe(playbook_json_path, default={})
         # Expect schema you already use (you mentioned split_sections). Keep backward compatible.
 
     def infer_formation(self, clip_meta) -> tuple[str, float] | tuple[None, float]:

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$REPO_DIR"
 
 export PYTHONUNBUFFERED=1
-export PYTHONPATH="$REPO_DIR:${PYTHONPATH:-}"
+export PYTHONPATH="$REPO_DIR${PYTHONPATH:+:${PYTHONPATH}}"
 
 echo "[diag] Listing audio devices (run: PYTHONPATH=. python3 -m tools.list_audio)"
 PYTHONPATH=. python3 -m tools.list_audio || true
@@ -65,4 +65,4 @@ if [[ -f .env ]]; then set -a; . ./.env; set +a; fi
 export PULSE_SOURCE
 
 # Launch stream with auto-retry loop
-exec PYTHONPATH=. python3 -m tools.ffmpeg_stream
+exec env PYTHONPATH=. python3 -m tools.ffmpeg_stream "$@"

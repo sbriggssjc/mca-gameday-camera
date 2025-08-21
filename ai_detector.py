@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+import json
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 from typing import List, Tuple, Optional, Dict
 
 import cv2
 import numpy as np
+from tools.json_io import load_json_safe
 
 try:  # pragma: no cover - optional dependency
     import pytesseract
@@ -77,7 +79,6 @@ def extract_jersey_number(
     save_uncertain = result is None or best_conf < 50.0
     if save_uncertain and video_name and frame_id is not None and bbox_id is not None:
         from pathlib import Path
-        import json
 
         out_dir = Path("training/uncertain_jerseys")
         label_path = Path("training/labels/ocr_review.json")
@@ -87,12 +88,8 @@ def extract_jersey_number(
         fname = f"{video_name}_{frame_id}_{bbox_id}.jpg"
         cv2.imwrite(str(out_dir / fname), crop)
 
-        try:
-            with open(label_path, "r", encoding="utf-8") as f:
-                labels: List[Dict[str, object]] = json.load(f)
-            if not isinstance(labels, list):
-                labels = []
-        except Exception:
+        labels: List[Dict[str, object]] = load_json_safe(label_path, default=[])
+        if not isinstance(labels, list):
             labels = []
 
         labels.append(

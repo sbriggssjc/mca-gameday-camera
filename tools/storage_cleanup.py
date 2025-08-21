@@ -1,7 +1,8 @@
-import os, shutil, time, json, sys
+import os, shutil, time, sys
 import traceback
 from pathlib import Path
 from typing import List, Tuple, Dict
+from tools.json_io import iter_jsonl_safe
 
 GB = 1024 ** 3
 
@@ -58,14 +59,8 @@ def prune_large_files(paths: List[Path], older_than_days: int) -> List[Path]:
 
 def _load_manifest(manifest_path: Path) -> Dict[str, Dict]:
     data: Dict[str, Dict] = {}
-    if manifest_path.exists():
-        with manifest_path.open() as f:
-            for line in f:
-                try:
-                    rec = json.loads(line)
-                    data[rec.get("local")] = rec
-                except Exception:
-                    pass
+    for rec in iter_jsonl_safe(manifest_path):
+        data[rec.get("local")] = rec
     return data
 
 
