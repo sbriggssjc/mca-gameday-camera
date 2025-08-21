@@ -14,6 +14,9 @@ BAD_PLAYBOOK=${BAD_PLAYBOOK:-does_not_exist.json}
 
 EXPECTED_HEADER="play_id,t0,t1,snap,whistle,clip_path,formation,formation_confidence,play_family,playcall_confidence,outcome,clip_duration"
 
+# Normalize headers: remove CRs and trailing spaces for strict compare
+EXPECTED_HEADER_NORM=$(printf "%s" "$EXPECTED_HEADER" | tr -d '\r' | sed 's/[[:space:]]*$//')
+
 pass_count=0
 fail_count=0
 warn_count=0
@@ -66,11 +69,18 @@ RUN_DIR_A="$(find_run_dir_from_log "$TMPLOG_A" || true)"
 if [[ -z "${RUN_DIR_A:-}" ]] || [[ ! -d "$RUN_DIR_A" ]]; then
   log_fail "A2: Could not resolve RUN_DIR from log"
 else
-  HEAD_A=$(head -n1 "$RUN_DIR_A/plays_index.csv" 2>/dev/null || true)
-  if [[ "$HEAD_A" == "$EXPECTED_HEADER" ]]; then
+  # Normalize headers: remove CRs and trailing spaces for strict compare
+  HEAD_A=$(head -n1 "$RUN_DIR_A/plays_index.csv" 2>/dev/null | tr -d '\r' | sed 's/[[:space:]]*$//' || true)
+  if [[ "$HEAD_A" == "$EXPECTED_HEADER_NORM" ]]; then
     log_pass "A2: CSV header matches expected schema"
   else
     log_fail "A2: CSV header mismatch. Got: '$HEAD_A'"
+    echo "---- EXPECTED (hex) ----"
+    printf "%s" "$EXPECTED_HEADER_NORM" | xxd -p
+    echo
+    echo "----   ACTUAL (hex) ----"
+    printf "%s" "$HEAD_A" | xxd -p
+    echo
   fi
 
   ROWS_A=$(tail -n +2 "$RUN_DIR_A/plays_index.csv" 2>/dev/null | wc -l | tr -d ' ')
@@ -133,11 +143,18 @@ RUN_DIR_B="$(find_run_dir_from_log "$TMPLOG_B" || true)"
 if [[ -z "${RUN_DIR_B:-}" ]] || [[ ! -d "$RUN_DIR_B" ]]; then
   log_fail "B3: Could not resolve RUN_DIR for fallback case"
 else
-  HEAD_B=$(head -n1 "$RUN_DIR_B/plays_index.csv" 2>/dev/null || true)
-  if [[ "$HEAD_B" == "$EXPECTED_HEADER" ]]; then
+  # Normalize headers: remove CRs and trailing spaces for strict compare
+  HEAD_B=$(head -n1 "$RUN_DIR_B/plays_index.csv" 2>/dev/null | tr -d '\r' | sed 's/[[:space:]]*$//' || true)
+  if [[ "$HEAD_B" == "$EXPECTED_HEADER_NORM" ]]; then
     log_pass "B3: Fallback CSV header matches expected schema"
   else
     log_fail "B3: Fallback CSV header mismatch. Got: '$HEAD_B'"
+    echo "---- EXPECTED (hex) ----"
+    printf "%s" "$EXPECTED_HEADER_NORM" | xxd -p
+    echo
+    echo "----   ACTUAL (hex) ----"
+    printf "%s" "$HEAD_B" | xxd -p
+    echo
   fi
 fi
 
