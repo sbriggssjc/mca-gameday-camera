@@ -4,13 +4,24 @@ set -euo pipefail
 
 # Determine playbook argument and ensure it exists
 PLAYBOOK=""
+OUT_DIR="output"
 prev=""
 for arg in "$@"; do
   if [[ "$prev" == "--playbook" ]]; then
     PLAYBOOK="$arg"
-    break
+    prev=""
+    continue
   fi
-  prev="$arg"
+  if [[ "$prev" == "--out" ]]; then
+    OUT_DIR="$arg"
+    prev=""
+    continue
+  fi
+  case "$arg" in
+    --playbook|--out)
+      prev="$arg"
+      ;;
+  esac
 done
 
 resolve_playbook() {
@@ -58,14 +69,13 @@ fi
 # Pass all args to the pipeline
 python3 -m analysis.pipeline "$@"
 
-OUT_DIR="output"
-RUN_DIR="$(ls -td "${OUT_DIR}/games/"* | head -n1 || true)"
+RUN_DIR="$(ls -td "${OUT_DIR}/games/"* 2>/dev/null | head -n1 || true)"
 if [[ -z "${RUN_DIR}" || ! -d "${RUN_DIR}" ]]; then
   echo "[error] could not locate newest run dir under ${OUT_DIR}/games"
   exit 1
 fi
 
-python3 tools/backfill_from_clips.py "${RUN_DIR}"
+python3 -m tools.backfill_from_clips "${RUN_DIR}"
 
 echo
 echo "== Summary =="
