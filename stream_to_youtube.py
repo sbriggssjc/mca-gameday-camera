@@ -39,13 +39,6 @@ from config import StreamConfig, load_config
 load_env()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-# Try both the old and new env var names
-YOUTUBE_URL = (
-    os.environ.get("YT_RTMP_URL")
-    or os.environ.get("YOUTUBE_RTMP_URL")
-    or require(["YT_RTMP_URL", "YOUTUBE_RTMP_URL"])
-)
-
 
 def _pick_encoder():
     preferred = os.environ.get("PREFERRED_ENCODERS")
@@ -616,6 +609,22 @@ def validate_rtmp_url(url: str) -> bool:
     return parsed.scheme in {"rtmp", "rtmps"} and bool(parsed.netloc) and bool(parsed.path)
 
 
+def normalize_youtube_url(url_or_key: str) -> str:
+    """Return a canonical YouTube RTMP(S) ingest URL.
+
+    ``url_or_key`` may be a full URL or just the stream key.
+    """
+    parsed = urlparse(url_or_key)
+    if parsed.scheme in {"rtmp", "rtmps"}:
+        key = parsed.path.rsplit("/", 1)[-1]
+        scheme = parsed.scheme
+    else:
+        key = url_or_key
+        scheme = "rtmps"
+    host = "a.rtmps.youtube.com" if scheme == "rtmps" else "a.rtmp.youtube.com"
+    return f"{scheme}://{host}/live2/{key}"
+
+
 def mask_stream_url(url: str) -> str:
     """Return the stream URL with the secret key portion hidden."""
     return re.sub(r"/[^/]+$", "/<hidden>", url)
@@ -877,15 +886,6 @@ def launch_ffmpeg(
     log_fp = log_file.open("w", encoding="utf-8", errors="replace")
 
     extra = ["-fflags", "nobuffer", "-flush_packets", "1"]
-    if not retry:
-        extra += [
-            "-reconnect",
-            "1",
-            "-reconnect_streamed",
-            "1",
-            "-reconnect_delay_max",
-            "2",
-        ]
     ffmpeg_command = build_ffmpeg_args(
         video_source="-",
         audio_device=mic_input,
@@ -1183,10 +1183,18 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    stream_url = args.stream_key or cfg.stream_key or os.getenv("YOUTUBE_STREAM_KEY")
+    stream_url = (
+        args.stream_key
+        or cfg.stream_key
+        or os.getenv("YT_RTMP_URL")
+        or os.getenv("YOUTUBE_RTMP_URL")
+        or os.getenv("YOUTUBE_STREAM_KEY")
+    )
 
     if not stream_url:
         raise ValueError("❌ Stream URL is missing or invalid. Aborting stream.")
+
+    stream_url = normalize_youtube_url(stream_url)
 
     logging.info(f"[DEBUG] Using stream URL: {stream_url}")
     global RTMP_URL, RTMP_REACHABLE
