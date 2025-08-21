@@ -24,12 +24,12 @@ def build_ffmpeg_cmd(
     # Audio filter chain:
     #  - aformat to s16:48k
     #  - channelmap: if mono, duplicate to stereo
-    #  - compand: light compression to lift quiet speech
+    #  - acompressor: light compression to lift quiet speech
     #  - alimiter: prevent clipping at 0dBFS
     af = [
         "aformat=sample_fmts=s16:sample_rates=48000",
         "channelmap=channel_layout=stereo",
-        "compand=attack=0.01:decay=0.2:points=-80/-80|-30/-10|-10/-4|0/-2",
+        "acompressor=threshold=-18dB:ratio=3:attack=10:release=200:makeup=6",
         "alimiter=limit=0.9",
     ]
 
@@ -114,11 +114,10 @@ def stream_loop(pulse_source, rtmp_url, video_input=None, max_retries=100, backo
     tries = 0
     while True:
         cmd = build_ffmpeg_cmd(pulse_source, rtmp_url, video_input)
-        print(
-            f"[ffmpeg] launching: {' '.join(shlex.quote(c) for c in cmd)}"
-        )
+        cmd_str = " ".join(shlex.quote(c) for c in cmd)
+        print(f"[ffmpeg] launching: {cmd_str}")
         try:
-            rc = subprocess.call(cmd)
+            rc = subprocess.call(cmd_str, shell=True)
         except FileNotFoundError:
             rc = 1
             print("[ffmpeg] executable not found")
@@ -132,9 +131,9 @@ def stream_loop(pulse_source, rtmp_url, video_input=None, max_retries=100, backo
 def _normalize_youtube_url(url_or_key: str) -> str:
     """Return a canonical YouTube RTMP(S) ingest URL."""
     parsed = urlparse(url_or_key)
-    if parsed.scheme in {"rtmp", "rtmps"}:
+    scheme = parsed.scheme.lower()
+    if scheme in {"rtmp", "rtmps"}:
         key = parsed.path.rsplit("/", 1)[-1]
-        scheme = parsed.scheme
     else:
         key = url_or_key
         scheme = "rtmps"
