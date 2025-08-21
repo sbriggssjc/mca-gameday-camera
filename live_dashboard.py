@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
+
+from tools.json_io import load_json_safe, dump_json_safe
 
 from flask import Flask, jsonify, render_template, request
 
@@ -16,17 +17,13 @@ OPPONENT = os.environ.get("OPPONENT_NAME", "Victory Christian")
 
 
 def load_scouting() -> list[dict]:
-    try:
-        with SCOUTING_PATH.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                return [d for d in data if isinstance(d, dict)]
-            if isinstance(data, dict):
-                pats = data.get("patterns", [])
-                if isinstance(pats, list):
-                    return [d for d in pats if isinstance(d, dict)]
-    except Exception:
-        pass
+    data = load_json_safe(SCOUTING_PATH, default=[])
+    if isinstance(data, list):
+        return [d for d in data if isinstance(d, dict)]
+    if isinstance(data, dict):
+        pats = data.get("patterns", [])
+        if isinstance(pats, list):
+            return [d for d in pats if isinstance(d, dict)]
     return []
 
 app = Flask(__name__)
@@ -35,29 +32,21 @@ SCOUTING_PATTERNS = load_scouting()
 
 
 def load_plays() -> list[dict]:
-    try:
-        with LOG_PATH.open("r", encoding="utf-8") as f:
-            plays = json.load(f)
-            if isinstance(plays, list):
-                return plays
-    except Exception:
-        pass
+    plays = load_json_safe(LOG_PATH, default=[])
+    if isinstance(plays, list):
+        return plays
     return []
 
 
 def load_score() -> dict:
-    try:
-        with SCORE_PATH.open("r", encoding="utf-8") as f:
-            score = json.load(f)
-            if isinstance(score, dict):
-                return {"MCA": int(score.get("MCA", 0)), "Opp": int(score.get("Opp", 0))}
-    except Exception:
-        pass
+    score = load_json_safe(SCORE_PATH, default={})
+    if isinstance(score, dict):
+        return {"MCA": int(score.get("MCA", 0)), "Opp": int(score.get("Opp", 0))}
     return {"MCA": 0, "Opp": 0}
 
 
 def save_score(score: dict) -> None:
-    SCORE_PATH.write_text(json.dumps(score), encoding="utf-8")
+    dump_json_safe(SCORE_PATH, score)
 
 
 @app.route("/")
