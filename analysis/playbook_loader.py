@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 from typing import Dict, Any, List, Tuple
+from tools.json_io import load_json_safe
 
 
 def _try_paths(p: str) -> List[Path]:
@@ -34,10 +35,9 @@ def load_playbook(playbook_path: str) -> Tuple[Dict[str, Any], List[Dict[str, An
         print(f"[playbook] ERROR: not found: {playbook_path} (also tried playbooks/ variants)")
         return {}, []
     pb_path = candidates[0]
-    try:
-        raw = json.loads(pb_path.read_text())
-    except Exception as e:  # pragma: no cover - defensive
-        print(f"[playbook] ERROR: failed to parse JSON at {pb_path}: {e}")
+    raw = load_json_safe(pb_path)
+    if raw is None:
+        print(f"[playbook] ERROR: failed to parse JSON at {pb_path}")
         return {}, []
 
     plays: List[Dict[str, Any]] = []

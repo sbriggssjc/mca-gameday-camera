@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 from typing import Any, Dict, Tuple
+from tools.json_io import load_json_safe
 
 # Cache playbook-derived buckets
 _PLAY_FAMILIES: Dict[str, set[str]] | None = None
@@ -27,11 +28,9 @@ def _load_play_buckets(playbook_path: str | None) -> Dict[str, set[str]]:
     data = None
     for p in paths:
         if p and p.exists():
-            try:
-                data = json.loads(p.read_text())
+            data = load_json_safe(p)
+            if data is not None:
                 break
-            except Exception:
-                pass
     buckets: Dict[str, set[str]] = {
         "reo_leo": set(),     # pass‑leaning
         "rit_lit": set(),     # run‑leaning

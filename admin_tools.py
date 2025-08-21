@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import json
 from datetime import datetime
 from pathlib import Path
 import zipfile
+from tools.json_io import load_json_safe
 
 
 TRAINING_DIR = Path("training")
@@ -78,12 +78,7 @@ def summary() -> None:
     play_types_path = LABELS_DIR / "confirmed_play_types.json"
 
     def count_json(path: Path) -> int:
-        if not path.exists():
-            return 0
-        try:
-            return len(json.loads(path.read_text()))
-        except json.JSONDecodeError:
-            return 0
+        return len(load_json_safe(path, default=[]))
 
     jersey_count = count_json(jerseys_path)
     play_type_count = count_json(play_types_path)
