@@ -2,17 +2,16 @@ import json
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List
+from tools.json_io import iter_jsonl_safe
 
 
 def _topk(out: Path, k: int) -> List[Dict[str, Any]]:
     rp = out / "review" / "review_rankings.jsonl"
-    if not rp.exists():
-        return []
     rows = []
-    for i, line in enumerate(rp.open()):
+    for i, rec in enumerate(iter_jsonl_safe(rp)):
         if i >= k:
             break
-        rows.append(json.loads(line))
+        rows.append(rec)
     return rows
 
 

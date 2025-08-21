@@ -1,4 +1,5 @@
-import json, csv, argparse, pathlib
+import csv, argparse, pathlib
+from tools.json_io import load_json_safe
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--plays-dir", default="plays")
@@ -13,11 +14,9 @@ plays_rows = []
 player_rows = []
 
 for play_json in sorted(plays_dir.glob('*/play.json')):
-    play_data = json.loads(play_json.read_text())
+    play_data = load_json_safe(play_json, default={})
     grades_path = play_json.parent / 'grades.json'
-    grades = []
-    if grades_path.exists():
-        grades = json.loads(grades_path.read_text())
+    grades = load_json_safe(grades_path, default=[])
     plays_rows.append({
         "play_id": play_data.get("play_id"),
         "formation": play_data.get("formation", {}).get("name"),

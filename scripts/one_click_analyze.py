@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from tools.json_io import load_json_safe
 import logging
 import subprocess
 import sys
@@ -343,11 +344,7 @@ def main(argv: List[str] | None = None) -> int:
     render_pdf_reportlab(out_dir)
 
     # ---------------------------------------------------------------- summary
-    summary = {}
-    try:
-        summary = json.loads(dashboard.read_text())
-    except Exception:
-        pass
+    summary = load_json_safe(dashboard, default={}) or {}
     wins = summary.get("wins", 0)
     corrections = summary.get("corrections", 0)
     print("Output:", out_dir)

@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict
 from datetime import datetime
+from tools.json_io import load_json_safe
 
 
 def ensure_dir(path: Path) -> None:
@@ -62,7 +63,7 @@ def write_metadata(outdir: Path, meta: Dict[str, Any]):
 
 def load_metadata(outdir: Path) -> Dict[str, Any] | None:
     f = outdir / "metadata.json"
-    return json.loads(f.read_text()) if f.exists() else None
+    return load_json_safe(f)
 
 
 __all__ = [
