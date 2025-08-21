@@ -4,6 +4,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 from typing import List, Dict, Tuple
+from tools.json_io import load_json_safe
 
 try:
     from fpdf import FPDF  # type: ignore
@@ -75,9 +76,8 @@ def load_patterns(opponent: str) -> List[str]:
     path = Path("analysis") / f"{safe}_scouting_report.json"
     if not path.exists():
         return []
-    try:
-        data = json.loads(path.read_text())
-    except Exception:
+    data = load_json_safe(path, default={})
+    if not isinstance(data, dict):
         return []
     lines: List[str] = []
     for p in data.get("patterns", []):

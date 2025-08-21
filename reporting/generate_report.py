@@ -5,10 +5,11 @@ import json
 from pathlib import Path
 from typing import List, Dict, Any
 import statistics as stats
+from tools.json_io import iter_jsonl_safe
 
 
 def _load_jsonl(fp: Path) -> List[Dict[str, Any]]:
-    return [json.loads(l) for l in fp.read_text().splitlines() if l.strip()] if fp.exists() else []
+    return list(iter_jsonl_safe(fp))
 
 
 def build_join(out_dir: Path) -> List[Dict[str, Any]]:

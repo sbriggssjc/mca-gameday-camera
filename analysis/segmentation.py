@@ -34,13 +34,13 @@ def segment_video(
     spanning the entire video duration (via ``ffprobe``).
     """
     if cv2 is None:
-        import subprocess, json
+        import subprocess, json as json_module
         try:
             out = subprocess.check_output([
                 "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                 "stream=duration", "-of", "json", path
             ])
-            dur = float(json.loads(out)["streams"][0].get("duration", 0.0))
+            dur = float(json_module.loads(out)["streams"][0].get("duration", 0.0))
         except Exception:
             dur = 0.0
         return [{"id": "PLAY_001", "t0": 0.0, "t1": max(10.0, dur)}]

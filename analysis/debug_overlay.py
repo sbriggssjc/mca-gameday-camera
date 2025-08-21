@@ -2,6 +2,7 @@ from __future__ import annotations
 import json, math, subprocess, shutil
 from pathlib import Path
 from typing import List, Dict, Any
+from tools.json_io import iter_jsonl_safe
 
 
 def _sec_from_frame(f: int, fps: float) -> float:
@@ -27,14 +28,9 @@ def _load_grades(grades_path: Path, n_segments: int) -> Dict[int, Dict[str, Any]
     sequential lines. Falls back to index order if play_index missing.
     """
     out: Dict[int, Dict[str, Any]] = {}
-    if not grades_path.exists():
-        return out
-    lines = [ln for ln in grades_path.read_text().splitlines() if ln.strip()]
-    for i, ln in enumerate(lines[:n_segments]):
-        try:
-            o = json.loads(ln)
-        except Exception:
-            continue
+    for i, o in enumerate(iter_jsonl_safe(grades_path)):
+        if i >= n_segments:
+            break
         idx = o.get("play_index")
         if isinstance(idx, int) and 0 <= idx < n_segments:
             k = idx
