@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from tools.json_io import load_json_safe
 
 from mca_film.analyze import analyze_game
 from mca_film.export import export_coach_summary, export_highlights, export_player_clips
@@ -19,7 +20,7 @@ def _make_video(path: Path) -> None:
 def test_pipeline_smoke(tmp_path):
     video = tmp_path / "clip.mp4"
     _make_video(video)
-    roster = json.loads(Path("config/roster.json").read_text())
+    roster = load_json_safe(Path("config/roster.json"), default={})
     import yaml
 
     settings = yaml.safe_load(Path("config/settings.yaml").read_text())

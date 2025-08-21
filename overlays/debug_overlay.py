@@ -1,11 +1,11 @@
 from pathlib import Path
 import json, cv2
+from pathlib import Path
+from tools.json_io import iter_jsonl_safe, load_json_safe
 
 
 def _load_jsonl(fp: Path):
-    if not fp.exists():
-        return []
-    return [json.loads(l) for l in fp.read_text().splitlines() if l.strip()]
+    return list(iter_jsonl_safe(fp))
 
 
 def render_overlays_for_out_dir(out_dir: Path):
@@ -18,11 +18,7 @@ def render_overlays_for_out_dir(out_dir: Path):
     """
     plays = _load_jsonl(out_dir / "plays.jsonl")
     tracking = _load_jsonl(out_dir / "tracking.jsonl")
-    meta = (
-        json.loads((out_dir / "metadata.json").read_text())
-        if (out_dir / "metadata.json").exists()
-        else {}
-    )
+    meta = load_json_safe(out_dir / "metadata.json", default={})
     video_path = meta.get("video_path") or meta.get("video") or meta.get("input_video")
 
     if not video_path or not Path(video_path).exists():

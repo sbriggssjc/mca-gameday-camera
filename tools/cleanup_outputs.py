@@ -1,7 +1,8 @@
 from __future__ import annotations
-import argparse, json, os, shutil, hashlib
+import argparse, os, shutil, hashlib
 from pathlib import Path, PurePath
 from typing import List, Tuple
+from tools.json_io import load_json_safe
 
 
 
@@ -28,13 +29,6 @@ def hardlink_or_copy(src: Path, dst: Path):
         os.link(src, dst)
     except Exception:
         shutil.copy2(src, dst)
-
-def load_json_if_exists(p: Path):
-    try:
-        return json.loads(p.read_text())
-    except Exception:
-        return None
-
 def is_legacy_run_dir(d: Path) -> bool:
     if not d.is_dir():
         return False
@@ -49,7 +43,7 @@ def is_legacy_run_dir(d: Path) -> bool:
     return has_media or has_json
 
 def infer_film_stem(run_dir: Path) -> str:
-    meta = load_json_if_exists(run_dir / "metadata.json")
+    meta = load_json_safe(run_dir / "metadata.json")
     if meta and meta.get("video_path"):
         return Path(meta["video_path"]).stem
     # fallback: peel likely stem before timestamp suffix, e.g. IMG_4129_20250811_0913 → IMG_4129

@@ -1,6 +1,8 @@
 from pathlib import Path
 import json
+from pathlib import Path
 from typing import Any, Dict, List
+from tools.json_io import load_json_safe
 
 # Keep old names for backward compatibility, but prefer the current file first.
 DEFAULT_PLAYBOOK_CANDIDATES: List[str] = [
@@ -30,10 +32,10 @@ def _try_paths(rel_or_base: str) -> Path | None:
 
 
 def _load_json(path: Path) -> Dict[str, Any]:
-    try:
-        return json.loads(path.read_text())
-    except Exception as e:  # pragma: no cover - diagnostics
-        raise RuntimeError(f"Failed to parse playbook at {path}: {e}") from e
+    data = load_json_safe(path)
+    if data is None:
+        raise RuntimeError(f"Failed to parse playbook at {path}")
+    return data
 
 
 def load_offense_playbook(playbook_path: str | None = None) -> Dict[str, Any]:

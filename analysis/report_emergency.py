@@ -3,6 +3,7 @@ import pathlib
 import shutil
 import subprocess
 import statistics
+from tools.json_io import load_json_safe, iter_jsonl_safe
 
 from reporting.generate_report import build_join, summarize, timeline_rows
 
@@ -12,17 +13,11 @@ def build_emergency_report(out_dir: pathlib.Path):
     meta = {}
     pmeta = out / "metadata.json"
     if pmeta.exists():
-        try:
-            meta = json.loads(pmeta.read_text())
-        except Exception:
-            pass
+        meta = load_json_safe(pmeta, default={}) or {}
     else:
         proot = pathlib.Path("metadata.json")
         if proot.exists():
-            try:
-                meta = json.loads(proot.read_text())
-            except Exception:
-                pass
+            meta = load_json_safe(proot, default={}) or {}
 
     joined = build_join(out)
     play_counts, avg_grade, _median_conf, unknown_count, _ungradables, total = summarize(joined)
@@ -31,28 +26,21 @@ def build_emergency_report(out_dir: pathlib.Path):
 
     gpath = out / "grades.jsonl"
     defense_grades = []
-    if gpath.exists():
-        try:
-            for line in gpath.read_text().splitlines():
-                if not line.strip():
-                    continue
-                play = json.loads(line)
-                val = next(
-                    (
-                        play.get(k)
-                        for k in [
-                            "overall_defense",
-                            "overall",
-                            "defense_overall",
-                        ]
-                        if isinstance(play.get(k), (int, float))
-                    ),
-                    None,
-                )
-                if isinstance(val, (int, float)):
-                    defense_grades.append(val)
-        except Exception:
-            pass
+    for play in iter_jsonl_safe(gpath):
+        val = next(
+            (
+                play.get(k)
+                for k in [
+                    "overall_defense",
+                    "overall",
+                    "defense_overall",
+                ]
+                if isinstance(play.get(k), (int, float))
+            ),
+            None,
+        )
+        if isinstance(val, (int, float)):
+            defense_grades.append(val)
 
     avg_defense = (
         statistics.mean(defense_grades) if defense_grades else None

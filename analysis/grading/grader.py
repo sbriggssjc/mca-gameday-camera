@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json, pathlib
 from typing import Dict, Any, List
+from tools.json_io import load_json_safe
 
 DEFAULT_WEIGHTS = {
     "assignment": 0.4,
@@ -16,7 +17,7 @@ def load_weights(path: str | None) -> Dict[str,float]:
     if p.suffix.lower() in (".yaml",".yml"):
         import yaml
         return {**DEFAULT_WEIGHTS, **yaml.safe_load(p.read_text())}
-    return {**DEFAULT_WEIGHTS, **json.loads(p.read_text())}
+    return {**DEFAULT_WEIGHTS, **load_json_safe(p, default={})}
 
 def grade_players(per_play_feats: Dict[str, Any], weights: Dict[str,float]) -> List[Dict[str,Any]]:
     grades = []
