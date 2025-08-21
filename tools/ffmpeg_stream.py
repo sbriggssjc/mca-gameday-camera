@@ -22,15 +22,19 @@ def build_ffmpeg_cmd(
     """
 
     # Audio filter chain:
+    #  - highpass: roll off low-frequency rumble
+    #  - volume: reduce overall level before compression
+    #  - acompressor: gentle compression to lift quiet speech
     #  - aformat to s16:48k
     #  - channelmap: if mono, duplicate to stereo
-    #  - acompressor: light compression to lift quiet speech
-    #  - alimiter: prevent clipping at 0dBFS
+    #  - alimiter: prevent clipping below full scale
     af = [
+        "highpass=f=100",
+        "volume=-3dB",
+        "acompressor=threshold=-22dB:ratio=2.5:attack=12:release=250:makeup=3",
         "aformat=sample_fmts=s16:sample_rates=48000",
         "channelmap=channel_layout=stereo",
-        "acompressor=threshold=-18dB:ratio=3:attack=10:release=200:makeup=6",
-        "alimiter=limit=0.9",
+        "alimiter=limit=0.8",
     ]
 
     audio_in = [
