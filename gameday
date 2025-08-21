@@ -65,4 +65,8 @@ if [[ -f .env ]]; then set -a; . ./.env; set +a; fi
 export PULSE_SOURCE
 
 # Launch stream with auto-retry loop
+
 exec env PYTHONPATH=. python3 -m tools.ffmpeg_stream "$@"
+
+exec env PYTHONPATH=. python3 -m tools.ffmpeg_stream
+
