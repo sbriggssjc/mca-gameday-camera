@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse, csv, json, subprocess
 from pathlib import Path
+from tools.json_io import iter_jsonl_safe
 
 POSITIVE_WORDS = {
   "generic": {"WIN","SUCCESS","POSITIVE","TD","TOUCHDOWN","INT","INTERCEPTION","PICK","TAKEAWAY",
@@ -11,15 +12,8 @@ POSITIVE_WORDS = {
 }
 NEGATIVE_WORDS = {"CORRECTION","ERROR","MISSED","BUST","FLAG","PENALTY","TURNOVER","ALLOW","ALLOWED"}
 
-def read_jsonl(p:Path):
-    if not p.exists(): return []
-    out=[]
-    for ln in p.read_text().splitlines():
-        ln=ln.strip()
-        if not ln: continue
-        try: out.append(json.loads(ln))
-        except: pass
-    return out
+def read_jsonl(p: Path):
+    return list(iter_jsonl_safe(p))
 
 def fnum(x):
     try: return float(x)

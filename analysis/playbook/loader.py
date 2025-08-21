@@ -2,6 +2,7 @@ from __future__ import annotations
 import json, pathlib
 from typing import Any, Dict
 from .schema import validate_playbook, PlaybookIndex
+from tools.json_io import load_json_safe
 
 def load_playbook(path: str) -> PlaybookIndex:
     p = pathlib.Path(path)
@@ -11,5 +12,5 @@ def load_playbook(path: str) -> PlaybookIndex:
         import yaml  # optional dependency
         pb = yaml.safe_load(p.read_text())
     else:
-        pb = json.loads(p.read_text())
+        pb = load_json_safe(p, default={})
     return validate_playbook(pb)

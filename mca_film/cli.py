@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from tools.json_io import load_json_safe
 
 from .analyze import analyze_game
 from .export import export_coach_summary, export_highlights, export_player_clips
@@ -35,7 +36,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd == "analyze":
         import yaml
 
-        roster = json.loads(Path(args.roster).read_text())
+        roster = load_json_safe(Path(args.roster), default={})
         settings = yaml.safe_load(Path(args.settings).read_text())
         analyses = analyze_game(args.video, args.side, roster, settings)
         out_dir = Path("out") / "json"
@@ -59,7 +60,7 @@ def main(argv: list[str] | None = None) -> None:
         analyses = []
         if Path("out/json").exists():
             for jf in sorted(Path("out/json").glob("play_*.json")):
-                data = json.loads(jf.read_text())
+                data = load_json_safe(jf, default={})
                 analyses.append(
                     analyze_play_from_dict(data)
                 )

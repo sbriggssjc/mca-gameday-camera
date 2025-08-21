@@ -3,18 +3,10 @@ import argparse, json, math, statistics
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple, Optional, DefaultDict
 from collections import defaultdict
+from tools.json_io import iter_jsonl_safe
 
 def read_jsonl(p: Path) -> Iterable[Dict[str, Any]]:
-    if not p.exists():
-        return []
-    with p.open() as f:
-        for line in f:
-            line=line.strip()
-            if not line: continue
-            try:
-                yield json.loads(line)
-            except Exception:
-                continue
+    return iter_jsonl_safe(p)
 
 def safe_get(d: Dict[str, Any], key: str, default=None):
     return d.get(key, default) if isinstance(d, dict) else default
