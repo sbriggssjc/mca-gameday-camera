@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+cd "$(dirname "$0")"
+export PYTHONPATH=.
+
+echo "[preflight] Checking executables..."
+chmod +x gameday || true
+
+echo "[preflight] Listing audio..."
+PYTHONPATH=. python3 -m tools.list_audio || true
+
+SRC=$(PYTHONPATH=. python3 -m tools.select_audio || true)
+echo "[preflight] Selected source: ${SRC:-<none>}"
+if [[ -n "${SRC:-}" ]]; then
+  python3 -m tools.probe_audio "${SRC}"
+fi
+
+echo "[preflight] OK"

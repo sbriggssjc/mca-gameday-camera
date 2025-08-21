@@ -1,325 +1,79 @@
 #!/usr/bin/env bash
+set -Eeuo pipefail
 
-# Preserve user overrides before loading .env
-USER_VIDEO_DEV="${VIDEO_DEV-}"
-USER_STREAM_URL="${STREAM_URL-}"
-USER_STREAM_KEY="${STREAM_KEY-}"
-USER_YT_RTMP_URL="${YT_RTMP_URL-}"
-if [[ -v EXTRA_GAIN_DB ]]; then
-  USER_EXTRA_GAIN_DB="$EXTRA_GAIN_DB"
-  EXTRA_GAIN_DB_SET=1
-else
-  USER_EXTRA_GAIN_DB=""
-  EXTRA_GAIN_DB_SET=0
+# --- repo root
+cd "$(dirname "$0")"
+
+# --- env
+if [[ -f .env ]]; then
+  set -a; source .env; set +a
 fi
 
-# Load .env style files (ignore malformed lines)
-load_env_file() {
-  local file="$1"
-  local line key value
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
-    if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
-      key="${line%%=*}"
-      value="${line#*=}"
-      export "$key=$value"
-    else
-      echo "Ignoring malformed env line in $file: $line" >&2
-    fi
-  done < "$file"
-}
-for f in ".env" ".env.local" ".env.production"; do
-  [[ -f "$f" ]] && load_env_file "$f"
-done
+RTMP_URL="${RTMP_URL:-rtmp://a.rtmp.youtube.com/live2}"
+STREAM_KEY="${STREAM_KEY:?Set STREAM_KEY in .env}"
+VIDEO_DEV="${VIDEO_DEV:-/dev/video0}"
+VIDEO_SIZE="${VIDEO_SIZE:-1920x1080}"
+FRAMERATE="${FRAMERATE:-30}"
+VBR="${VBR:-4500k}"
 
-# Restore user overrides
-[[ -n "${USER_VIDEO_DEV-}" ]] && VIDEO_DEV="$USER_VIDEO_DEV"
-[[ -n "${USER_STREAM_URL-}" ]] && STREAM_URL="$USER_STREAM_URL"
-[[ -n "${USER_STREAM_KEY-}" ]] && STREAM_KEY="$USER_STREAM_KEY"
-[[ -n "${USER_YT_RTMP_URL-}" ]] && YT_RTMP_URL="$USER_YT_RTMP_URL"
-[[ "$EXTRA_GAIN_DB_SET" == "1" ]] && EXTRA_GAIN_DB="$USER_EXTRA_GAIN_DB"
+# Ensure Python sees 'tools'
+export PYTHONPATH=.
 
-# Quick flags
-if [[ "${1-}" == "--devices" ]]; then
-  echo "Video nodes:"; ls -l /dev/video* 2>/dev/null || true
-  echo; echo "/dev/v4l/by-id:"; ls -l /dev/v4l/by-id 2>/dev/null || true
-  echo; echo "ALSA capture devices:"; arecord -l 2>/dev/null || true
-  exit 0
+# --- audio selection
+PULSE_SOURCE="$(python3 -m tools.select_audio || true)"
+if [[ -z "${PULSE_SOURCE}" ]]; then
+  echo "[gameday] ERROR: no Pulse source found"; exit 2
 fi
-if [[ "${1-}" == "--free-video" ]]; then
-  echo "🔧 Releasing holders of /dev/video* ..."
-  sudo fuser -k /dev/video* || true
-  exit 0
-fi
+echo "[gameday] Using Pulse source: ${PULSE_SOURCE}"
 
-# --- begin: env normalization & dirs ---
-set -euo pipefail
-
-: "${YT_RTMP_URL:=rtmps://a.rtmps.youtube.com/live2}"
-: "${RTMP_URL:=}"
-: "${STREAM_KEY:=}"
-: "${HPF_CUTOFF:=100}"
-
-if [[ -z "${STREAM_URL:-}" ]]; then
-  if [[ -n "$STREAM_KEY" && -n "$YT_RTMP_URL" ]]; then
-    STREAM_URL="${YT_RTMP_URL%/}/$STREAM_KEY"
-  elif [[ -n "$STREAM_KEY" && -n "$RTMP_URL" ]]; then
-    STREAM_URL="${RTMP_URL%/}/$STREAM_KEY"
-  fi
-fi
-STREAM_URL="${STREAM_URL:-${YT_RTMP_URL:-${RTMP_URL:-}}}"
-if [[ -z "$STREAM_URL" || ! "$STREAM_URL" =~ ^rtmps?:// ]]; then
-  echo "STREAM_URL missing or invalid"; exit 1
-fi
-INGEST_HOST="${STREAM_URL#rtmps://}"
-INGEST_HOST="${INGEST_HOST#rtmp://}"
-INGEST_HOST="${INGEST_HOST%%/*}"
-
-: "${VIDEO_DEV:=/dev/video0}"
-: "${VIDEO_INPUT_FORMAT:=mjpeg}"
-: "${VIDEO_SIZE:=1280x720}"
-: "${VIDEO_FPS:=30}"
-
-: "${MIC_BACKEND:=auto}"
-: "${MIC_PULSE_NAME:=}"
-: "${MIC_ALSA_DEVICE:=}"
-: "${AUDIO_BITRATE:=160k}"
-: "${AUDIO_SAMPLE_RATE:=48000}"
-: "${AUDIO_CHANNELS:=2}"
-: "${ALLOW_SILENT_STREAM:=false}"
-
-: "${NO_RE:=0}"
-
-: "${VIDEO_BITRATE:=2800k}"
-: "${VIDEO_MAXRATE:=3000k}"
-: "${VIDEO_BUFSIZE:=5000k}"
-: "${GOP:=60}"
-
-mkdir -p livestream_logs recordings
-LOGFILE="livestream_logs/$(date +%Y%m%d_%H%M%S).log"
-# --- end: env normalization & dirs ---
-
-IFS='x' read -r WIDTH HEIGHT <<<"$VIDEO_SIZE"
-INPUT_FORMAT="$VIDEO_INPUT_FORMAT"
-FRAMERATE="$VIDEO_FPS"
-: "${LOGLEVEL:=info}"
-
-AUDIO_SOURCE="$MIC_BACKEND"
-MIC_OVERRIDE=""
-MODE="stream"
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --audio-source) AUDIO_SOURCE="$2"; shift 2;;
-    --mic) MIC_OVERRIDE="$2"; shift 2;;
-    --silent) AUDIO_SOURCE="silent"; shift;;
-    --dry-run) MODE="dry-run"; shift;;
-    --probe-only) MODE="probe-only"; shift;;
-    --local-preview) MODE="local-preview"; shift;;
-    *) break;;
-  esac
-done
-
-echo "[diag] Listing audio devices (run: PYTHONPATH=. python3 -m tools.list_audio)"
-PYTHONPATH=. python3 -m tools.list_audio || true
-
-
-if [[ "$AUDIO_SOURCE" == "silent" ]]; then
-  AUDIO_IN=(-f lavfi -i "anullsrc=r=${AUDIO_SAMPLE_RATE}:cl=stereo")
-  SRC="anullsrc"
-else
-  if [[ "$AUDIO_SOURCE" == "auto" ]]; then
-    read AUDIO_SOURCE SRC <<<$(PYTHONPATH=. python3 - <<'PY'
-from tools.audio_devices import pick_audio_source
-import os
-b, s = pick_audio_source("auto", os.environ.get("MIC_PULSE_NAME"), os.environ.get("MIC_ALSA_DEVICE"))
-if b and s:
-    print(b, s)
+# --- probe & plan gain
+PROBE_JSON="$(python3 -m tools.probe_audio "${PULSE_SOURCE}" || true)"
+MEAN_DB="$(python3 - <<'PY'
+import json,os,sys
+d=json.loads(os.environ['PROBE_JSON'])
+print(d.get('mean_db') if d.get('mean_db') is not None else "")
 PY
+)"
+if [[ -z "${MEAN_DB}" ]]; then
+  echo "[gameday] WARN: probe failed or mean_db missing; continuing with default filters"
+  AFILT_BASE="aformat=sample_fmts=fltp:channel_layouts=stereo,pan=stereo|c0=c0|c1=c0,highpass=f=80,lowpass=f=12000,compand=attacks=0.3:decays=1:points=-80/-900|-35/-6|-10/-3|0/-2,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=async=1:min_hard_comp=0.100:first_pts=0"
+else
+  export MEAN_DB
+  VOL_GAIN="$(python3 -m tools.plan_gain "${MEAN_DB}")"
+  AFILT_BASE="${VOL_GAIN},aformat=sample_fmts=fltp:channel_layouts=stereo,pan=stereo|c0=c0|c1=c0,highpass=f=80,lowpass=f=12000,compand=attacks=0.3:decays=1:points=-80/-900|-35/-6|-10/-3|0/-2,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=async=1:min_hard_comp=0.100:first_pts=0"
+fi
+echo "[gameday] Audio mean=${MEAN_DB:-n/a} dB; filters=${AFILT_BASE}"
+
+# --- log setup
+mkdir -p logs
+LOG_FILE="logs/ffmpeg_$(date +%Y%m%d_%H%M%S).log"
+
+# --- build ffmpeg
+FFV_OPTS=(
+  -f v4l2 -framerate "${FRAMERATE}" -video_size "${VIDEO_SIZE}" -i "${VIDEO_DEV}"
 )
-    SRC="${MIC_OVERRIDE:-$SRC}"
-  elif [[ "$AUDIO_SOURCE" == "pulse" ]]; then
-    SRC="${MIC_OVERRIDE:-${MIC_PULSE_NAME}}"
-  else
-    SRC="${MIC_OVERRIDE:-${MIC_ALSA_DEVICE}}"
-  fi
-
-  if [[ "$AUDIO_SOURCE" == "alsa" ]]; then
-    SRC="${SRC:-$(PYTHONPATH=. python3 - <<'PY'
-from tools.audio_devices import default_alsa_device
-print(default_alsa_device() or "")
-PY
-)}"
-    [[ -z "$SRC" ]] && { echo "No ALSA device found"; exit 1; }
-    PROBE_JSON="$(MIC_BACKEND=alsa MIC_ALSA_DEVICE="$SRC" python3 tools/audio_probe.py || true)"
-  else
-    SRC="${SRC:-$(PYTHONPATH=. python3 - <<'PY'
-from tools.audio_devices import default_pulse_source
-print(default_pulse_source() or "")
-PY
-)}"
-    [[ -z "$SRC" ]] && { echo "No Pulse source found"; exit 1; }
-    PROBE_JSON="$(MIC_BACKEND=pulse MIC_PULSE_NAME="$SRC" python3 tools/audio_probe.py || true)"
-  fi
-
-  export PROBE_JSON
-  echo "[probe] $PROBE_JSON"
-
-  read -r MEAN PEAK <<<"$(python3 - <<'PY'
-import json, os, sys
-raw = os.environ.get("PROBE_JSON", "")
-try:
-    d = json.loads(raw)
-    mean = d.get("mean_db")
-    peak = d.get("peak_db")
-    if mean is None:
-        print("", "")
-    else:
-        print(mean, peak if peak is not None else "")
-except Exception:
-    print("", "")
-PY
-)"
-
-  export MEAN PEAK
-
-  if [[ -z "$MEAN" ]]; then
-    echo "❌ Unable to measure audio level (no mean dB)."
-    [[ "${ALLOW_SILENT_STREAM}" == "true" ]] || exit 1
-  else
-    printf "🎚  Audio levels: mean=%0.1f dB  peak=%s dB\n" "$MEAN" "${PEAK:-n/a}"
-    python3 - <<'PY'
-import os, sys
-try:
-    m = float(os.environ.get("MEAN","-999"))
-    sys.exit(0 if m > -60.0 else 2)
-except:
-    sys.exit(1)
-PY
-    RC=$?
-    if [[ $RC -ne 0 && "${ALLOW_SILENT_STREAM}" != "true" ]]; then
-      echo "❌ Refusing to go live: audio appears silent (mean <= -60 dB)."
-      exit 1
-    fi
-  fi
-
-  AUTOGAIN_DB="$(python3 - <<'PY'
-import json, os, math
-d=json.loads(os.environ.get("PROBE_JSON","{}"))
-m=d.get("mean_db")
-if m is None:
-    print("")
-else:
-    target=-16.0
-    gain=target - float(m)
-    print(str(max(-6.0, min(12.0, round(gain,1)))))
-PY
-)"
-  if [[ "$EXTRA_GAIN_DB_SET" == "0" && -n "$AUTOGAIN_DB" ]]; then EXTRA_GAIN_DB="$AUTOGAIN_DB"; fi
-  : "${EXTRA_GAIN_DB:=0}"
-  echo "🎚  Using gain=${EXTRA_GAIN_DB:-0} dB (auto from mean=${MEAN:-?} dB)" | tee -a "$LOGFILE"
-
-  if [[ "$AUDIO_SOURCE" == "alsa" ]]; then
-    AUDIO_IN=(-f alsa -ac 2 -ar "$AUDIO_SAMPLE_RATE" -i "$SRC")
-  elif [[ "$AUDIO_SOURCE" == "pulse" || "$AUDIO_SOURCE" == "auto" ]]; then
-    AUDIO_IN=(-f pulse -ac 2 -ar "$AUDIO_SAMPLE_RATE" -i "$SRC")
-  else
-    AUDIO_IN=(-f lavfi -i "anullsrc=r=${AUDIO_SAMPLE_RATE}:cl=stereo")
-  fi
-fi
-
-echo "🎚  Audio source: ${AUDIO_SOURCE}:${SRC} | mean=${MEAN:-n/a} dB peak=${PEAK:-n/a} dB | gain=${EXTRA_GAIN_DB}dB USE_LOUDNORM=${USE_LOUDNORM:-true} HPF_CUTOFF=${HPF_CUTOFF}" | tee -a "$LOGFILE"
-if [[ "$NO_RE" == "1" ]]; then RE=(); else RE=(-re); fi
-VIDEO_IN=("${RE[@]}" -f v4l2 -input_format "$INPUT_FORMAT" -framerate "${FRAMERATE}" -video_size "${WIDTH}x${HEIGHT}" -thread_queue_size 512 -i "$VIDEO_DEV")
-
-VFILT="setpts=PTS-STARTPTS,scale=${WIDTH:-1280}:${HEIGHT:-720},format=yuv420p"
-if [[ "${USE_LOUDNORM:-true}" == "true" ]]; then
-  AFILTER="highpass=f=${HPF_CUTOFF},loudnorm=I=-16:TP=-1.0:LRA=11,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=6,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=${EXTRA_GAIN_DB}dB,alimiter=limit=-1.0dB:attack=5:release=20"
+FFA_OPTS=(
+  -f pulse -channels 2 -i "${PULSE_SOURCE}"
+  -filter:a "${AFILT_BASE}" -c:a aac -b:a 160k -ar 48000
+)
+# Prefer hardware encoder when present; fallback to libx264
+if ffmpeg -hide_banner -encoders 2>/dev/null | grep -q 'h264_nvenc'; then
+  VENC=(-c:v h264_nvenc -preset p5 -b:v "${VBR}" -maxrate "${VBR}" -bufsize 2M -g $((FRAMERATE*2)))
 else
-  AFILTER="aresample=async=1:min_hard_comp=0.100:max_hard_comp=0.100,highpass=f=${HPF_CUTOFF},dynaudnorm=f=150:g=31,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250:makeup=6,pan=stereo|c0=0.5*FL+0.5*FR|c1=0.5*FL+0.5*FR,volume=${EXTRA_GAIN_DB}dB,alimiter=limit=-1.0dB:attack=5:release=20"
-fi
-echo "🎚  Audio chain: $AFILTER | USE_LOUDNORM=${USE_LOUDNORM:-true} EXTRA_GAIN_DB=${EXTRA_GAIN_DB}" | tee -a "$LOGFILE"
-
-run_and_log() {
-  local -a CMD=("$@")
-  echo "[ffmpeg] ${CMD[*]}" | tee -a "$LOGFILE"
-  if "${CMD[@]}" 2>>"$LOGFILE"; then
-    return 0
-  else
-    rc=$?
-    echo "[ffmpeg] failed with code $rc. Last lines:" | tee -a "$LOGFILE"
-    tail -n 20 "$LOGFILE"
-    return $rc
-  fi
-}
-
-run_with_rtmp_fallback() {
-  local -a CMD=("$@")
-  if run_and_log "${CMD[@]}"; then
-    return 0
-  fi
-  if [[ "$STREAM_URL" =~ ^rtmps://a\.rtmps\.youtube\.com ]]; then
-    echo "[warn] RTMPS failed; retrying with RTMP (no TLS) once..." | tee -a "$LOGFILE"
-    local RTMP_URL="${STREAM_URL/rtmps:\/\/a.rtmps.youtube.com/rtmp:\/\/a.rtmp.youtube.com}"
-    CMD[-1]="$RTMP_URL"
-    run_and_log "${CMD[@]}"
-  fi
-}
-
-echo "🎥 Using video: ${VIDEO_DEV} (${INPUT_FORMAT} ${WIDTH}x${HEIGHT} @ ${FRAMERATE}fps)" | tee -a "$LOGFILE"
-echo "📡 Streaming to: ${STREAM_URL}" | tee -a "$LOGFILE"
-echo "🌐 Ingest host: ${INGEST_HOST}" | tee -a "$LOGFILE"
-getent hosts "$INGEST_HOST" | tee -a "$LOGFILE" || true
-echo "📜 Log: $LOGFILE" | tee -a "$LOGFILE"
-echo "RTMP pacing: -re + setpts/asetpts + CFR enabled"
-if [[ "$MODE" != "probe-only" && "$MODE" != "dry-run" ]]; then
-  pkill -9 -f 'ffmpeg.*video4linux2' 2>/dev/null || true
-  if lsof "$VIDEO_DEV" >/dev/null 2>&1; then
-    echo "❌ $VIDEO_DEV appears busy" | tee -a "$LOGFILE"
-    lsof "$VIDEO_DEV" | tee -a "$LOGFILE" || true
-    exit 1
-  fi
+  VENC=(-c:v libx264 -preset veryfast -tune zerolatency -b:v "${VBR}" -maxrate "${VBR}" -bufsize 2M -g $((FRAMERATE*2)))
 fi
 
-if [[ "$MODE" == "local-preview" ]]; then
-  mkdir -p out
-  PREVIEW_FILE="out/test_preview_$(date +%Y%m%d_%H%M%S).mp4"
-  FFMPEG_CMD=(ffmpeg -hide_banner -nostdin -loglevel "$LOGLEVEL" -fflags +genpts \
-    "${VIDEO_IN[@]}" \
-    "${AUDIO_IN[@]}" \
-    -map 0:v:0 -map 1:a:0 \
-    -c:v ${VIDEO_CODEC:-libx264} -pix_fmt yuv420p -vf "$VFILT" \
-    -g "$GOP" -bf 0 -b:v "$VIDEO_BITRATE" -maxrate "$VIDEO_MAXRATE" -bufsize "$VIDEO_BUFSIZE" \
-    -preset "${X264_PRESET:-veryfast}" -tune "${X264_TUNE:-zerolatency}" \
-    -filter:a "$AFILTER" -c:a aac -b:a "${AUDIO_BITRATE:-160k}" -ar "${AUDIO_SAMPLE_RATE:-48000}" -ac "${AUDIO_CHANNELS:-2}" \
-    -vsync cfr -r "$FRAMERATE" \
-    -max_interleave_delta 0 -muxdelay 0 \
-    -t 10 "$PREVIEW_FILE")
-else
-  FFMPEG_CMD=(ffmpeg -hide_banner -nostdin -loglevel "$LOGLEVEL" -fflags +genpts \
-    "${VIDEO_IN[@]}" \
-    "${AUDIO_IN[@]}" \
-    -map 0:v:0 -map 1:a:0 \
-    -c:v ${VIDEO_CODEC:-libx264} -pix_fmt yuv420p -vf "$VFILT" \
-    -g "$GOP" -bf 0 -b:v "$VIDEO_BITRATE" -maxrate "$VIDEO_MAXRATE" -bufsize "$VIDEO_BUFSIZE" \
-    -preset "${X264_PRESET:-veryfast}" -tune "${X264_TUNE:-zerolatency}" \
-    -filter:a "$AFILTER" -c:a aac -b:a "${AUDIO_BITRATE:-160k}" -ar "${AUDIO_SAMPLE_RATE:-48000}" -ac "${AUDIO_CHANNELS:-2}" \
-    -vsync cfr -r "$FRAMERATE" \
-    -max_interleave_delta 0 -muxdelay 0 \
-    -flvflags no_duration_filesize -rtmp_live live \
-    -flags +global_header \
-    -f flv "$STREAM_URL")
-fi
+COMMON=(-pix_fmt yuv420p -f flv "${RTMP_URL}/${STREAM_KEY}")
 
-case "$MODE" in
-  probe-only)
-    exit 0;;
-  dry-run)
-    echo "[dry-run] ${FFMPEG_CMD[*]}" | tee -a "$LOGFILE"
-    printf '%q ' "${FFMPEG_CMD[@]}"
-    echo
-    exit 0;;
-  local-preview)
-    run_and_log "${FFMPEG_CMD[@]}" && exit 0 || exit $?;;
-  *)
-    run_with_rtmp_fallback "${FFMPEG_CMD[@]}" || exit $?;;
-esac
+# --- tmux runner with reconnect
+TMUX_SESSION="gameday"
+tmux has-session -t "${TMUX_SESSION}" 2>/dev/null && tmux kill-session -t "${TMUX_SESSION}" || true
+tmux new-session -d -s "${TMUX_SESSION}" \
+  "echo '[gameday] starting ffmpeg...'; \
+   until ffmpeg -hide_banner -loglevel info ${FFV_OPTS[@]} ${FFA_OPTS[@]} ${VENC[@]} -map 0:v:0 -map 1:a:0 -shortest ${COMMON[@]} 2>&1 | tee -a '${LOG_FILE}'; do \
+     echo '[gameday] ffmpeg exited; retrying in 3s...' | tee -a '${LOG_FILE}'; sleep 3; \
+   done"
+
+echo "[gameday] tailing log: ${LOG_FILE}"
+tmux new-window -t "${TMUX_SESSION}" "tail -f '${LOG_FILE}'"
+tmux attach -t "${TMUX_SESSION}"

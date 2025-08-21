@@ -507,3 +507,14 @@ pip install pyflakes
 # Add to ~/.bashrc
 alias gameday_rode='USE_LOUDNORM=true EXTRA_GAIN_DB=4 ./gameday --audio-source pulse'
 
+
+## Gameday
+cp .env.example .env
+# put your STREAM_KEY
+
+./preflight
+./gameday    # launches tmux with ffmpeg + log tail
+
+# If you need to detach:
+Ctrl-b d   # (tmux detach)
+tmux attach -t gameday
