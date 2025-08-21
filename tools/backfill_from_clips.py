@@ -5,10 +5,11 @@ from pathlib import Path
 from typing import Any
 from tools.json_io import iter_jsonl_safe
 
-__all__ = ["_as_name"]
+__all__ = ["_as_name", "_as_conf"]
 
 
 def _as_name(x: Any) -> str:
+    """Return a string name from either a str or {name:.., id:..} dict; else ''."""
     if isinstance(x, str):
         return x
     if isinstance(x, dict):
@@ -16,7 +17,20 @@ def _as_name(x: Any) -> str:
     return ""
 
 
+def _as_conf(x: Any) -> float:
+    """Return float confidence from either float/int or dict with 'confidence'; else 0.0."""
+    if isinstance(x, (int, float)):
+        return float(x)
+    if isinstance(x, dict):
+        try:
+            return float(x.get("confidence") or 0.0)
+        except Exception:
+            return 0.0
+    return 0.0
+
+
 def _none_if_blank(x):
+    """Internal normalization for CSV row generation."""
     return None if x in ("", None) else x
 
 
@@ -122,34 +136,23 @@ def backfill(run_dir: Path) -> int:
             dur = ffprobe_duration(mp4)
             pred = pred_map.get(pid, {})
             existing = existing_index.get(pid, {})
-            formation_name = _as_name(pred.get("formation"))
-            formation_conf = 0.0
-            f_obj = pred.get("formation")
-            if isinstance(f_obj, dict):
-                try:
-                    formation_conf = float(f_obj.get("confidence") or 0.0)
-                except Exception:
-                    formation_conf = 0.0
-            elif "formation_confidence" in pred:
-                try:
-                    formation_conf = float(pred.get("formation_confidence") or 0.0)
-                except Exception:
-                    formation_conf = 0.0
+            formation = pred.get("formation", "")
+            formation_name = _as_name(formation)
+            formation_conf = _as_conf(
+                formation if isinstance(formation, dict) else pred.get("formation_confidence", 0.0)
+            )
 
-            pc = pred.get("playcall") or {}
-            playcall_name = pc.get("name") if isinstance(pc, dict) else None
-            play_family = playcall_name or ""
-            try:
-                playcall_conf = float(pc.get("confidence") or 0.0) if isinstance(pc, dict) else 0.0
-            except Exception:
-                playcall_conf = 0.0
+            playcall = pred.get("playcall", {}) or {}
+            playcall_name = playcall.get("name") if isinstance(playcall, dict) else None
+            play_family = (pred.get("play_family") or playcall_name or "")
+            playcall_conf = float((playcall.get("confidence") or 0.0)) if isinstance(playcall, dict) else 0.0
 
             t0 = _none_if_blank(pred.get("t0"))
             t1 = _none_if_blank(pred.get("t1"))
             if t0 is None:
-                t0 = existing.get("t0")
+                t0 = _none_if_blank(existing.get("t0"))
             if t1 is None:
-                t1 = existing.get("t1")
+                t1 = _none_if_blank(existing.get("t1"))
 
             clip_duration = pred.get("clip_duration")
             try:
@@ -157,19 +160,19 @@ def backfill(run_dir: Path) -> int:
             except Exception:
                 clip_duration = None
             if clip_duration is None:
-                clip_duration = round(dur, 3) if dur is not None else None
+                clip_duration = round(dur, 3) if dur is not None else 0.0
 
             row_json = {
                 "play_id": pid,
                 "clip_path": str(mp4),
-                "t0": t0,
-                "t1": t1,
+                "t0": t0 if t0 is not None else "",
+                "t1": t1 if t1 is not None else "",
                 "formation": formation_name,
-                "formation_confidence": formation_conf,
+                "formation_confidence": float(formation_conf),
                 "playcall": {
                     "name": playcall_name if playcall_name else None,
-                    "confidence": playcall_conf,
-                    "candidates": (pc.get("candidates") if isinstance(pc, dict) else []) or [],
+                    "confidence": float(playcall_conf),
+                    "candidates": (playcall.get("candidates") if isinstance(playcall, dict) else []) or [],
                 },
                 "play_family": play_family,
                 "outcome": {
@@ -193,9 +196,9 @@ def backfill(run_dir: Path) -> int:
                     "whistle": existing.get("whistle", ""),
                     "clip_path": str(mp4),
                     "formation": formation_name,
-                    "formation_confidence": formation_conf,
+                    "formation_confidence": float(formation_conf),
                     "play_family": play_family,
-                    "playcall_confidence": playcall_conf,
+                    "playcall_confidence": float(playcall_conf),
                     "outcome": existing.get("outcome", ""),
                     "clip_duration": clip_duration,
                 }

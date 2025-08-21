@@ -1,5 +1,4 @@
 import os, shutil, time, sys
-import traceback
 from pathlib import Path
 from typing import List, Tuple, Dict
 from tools.json_io import iter_jsonl_safe
@@ -123,8 +122,13 @@ def ensure_min_free_space(min_free_gb: float, video_dir: Path, output_dir: Path,
         return
 
     enable_gdrive = _truthy_env("GOOGLE_DRIVE_SYNC", "0")
+    upload_tree_with_manifest = None
     if enable_gdrive:
-        from tools.gdrive_sync import upload_tree_with_manifest
+        try:
+            from tools.gdrive_sync import upload_tree_with_manifest  # type: ignore
+        except Exception as e:
+            print(f"[gdrive] WARNING: failed to import gdrive_sync: {e}")
+            upload_tree_with_manifest = None
     else:
         print("[storage] Google Drive sync disabled (set GOOGLE_DRIVE_SYNC=1 to enable)")
 
@@ -134,14 +138,13 @@ def ensure_min_free_space(min_free_gb: float, video_dir: Path, output_dir: Path,
     for r in reversed(runs):  # oldest first
         if get_free_gb() >= min_free_gb:
             break
-        if enable_gdrive:
+        if enable_gdrive and upload_tree_with_manifest:
             tar = tarball(r, archive_dir)
             manifest = archive_dir / "manifest.jsonl"
             try:
                 upload_tree_with_manifest(tar.parent, gdrive_folder_analyzed, manifest)
             except Exception as e:
-                print(f"[storage_cleanup] WARNING: Google Drive upload skipped due to error: {e}")
-                traceback.print_exc()
+                print(f"[gdrive] WARNING: upload failed: {e}")
             try:
                 shutil.rmtree(r, ignore_errors=True)
                 tar.unlink(missing_ok=True)
