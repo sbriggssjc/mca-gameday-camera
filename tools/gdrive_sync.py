@@ -29,13 +29,13 @@ def _drive():
 
 
 def _build_folder_query(name: str, parent_id: Optional[str] = None) -> str:
-    esc = name.replace("'", "\\'")
+    safe = name.replace("'", "\\'")
     base = (
-        "mimeType='application/vnd.google-apps.folder' and "
-        "name='{name}' and trashed=false"
-    ).format(name=esc)
+        "mimeType='application/vnd.google-apps.folder' "
+        f"and name='{safe}' and trashed=false"
+    )
     if parent_id:
-        base += " and '{pid}' in parents".format(pid=parent_id)
+        base += f" and '{parent_id}' in parents"
     return base
 
 
