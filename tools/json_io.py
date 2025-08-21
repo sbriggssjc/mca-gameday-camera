@@ -1,6 +1,6 @@
+from __future__ import annotations
 
 """Utilities for robust JSON and JSONL reading."""
-from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -12,13 +12,13 @@ PathLike = Union[str, Path]
 def load_json_safe(path: PathLike, default: Any | None = None) -> Any:
     """Load JSON from *path*, returning *default* on any failure.
 
-    This helper will return *default* if the file does not exist, is empty, or
+    This helper returns *default* if the file does not exist, is empty, or
     contains invalid JSON. It never raises ``FileNotFoundError`` or
     ``json.JSONDecodeError``.
     """
     p = Path(path)
     try:
-        text = p.read_text()
+        text = p.read_text(encoding="utf-8")
     except FileNotFoundError:
         return default
     if not text.strip():
@@ -37,7 +37,7 @@ def iter_jsonl_safe(path: PathLike) -> Iterator[Any]:
     """
     p = Path(path)
     try:
-        with p.open() as f:
+        with p.open(encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -49,34 +49,9 @@ def iter_jsonl_safe(path: PathLike) -> Iterator[Any]:
     except FileNotFoundError:
         return
 
-from __future__ import annotations
-import json, io, os
-from typing import Any
 
-
-def load_json_safe(path: str | os.PathLike, default: Any = None) -> Any:
-    """
-    Load JSON from `path`. If file is missing, empty, or invalid, return `default` (or {}).
-    Logs a short warning to stdout so launchers can continue.
-    """
-    if default is None:
-        default = {}
-    try:
-        with io.open(path, "r", encoding="utf-8") as f:
-            data = f.read().strip()
-            if not data:
-                print(f"[warn] Empty JSON file: {path} -> using default")
-                return default
-            return json.loads(data)
-    except FileNotFoundError:
-        print(f"[warn] JSON file not found: {path} -> using default")
-        return default
-    except json.JSONDecodeError as e:
-        print(f"[warn] Invalid JSON in {path}: {e} -> using default")
-        return default
-
-
-def dump_json_safe(path: str | os.PathLike, obj: Any) -> None:
-    with io.open(path, "w", encoding="utf-8") as f:
+def dump_json_safe(path: PathLike, obj: Any) -> None:
+    """Serialize *obj* as JSON to *path* with UTF-8 encoding."""
+    p = Path(path)
+    with p.open("w", encoding="utf-8") as f:
         json.dump(obj, f, indent=2, ensure_ascii=False)
-
