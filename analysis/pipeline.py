@@ -151,8 +151,20 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         meta["rotation_deg"] = 0
     (run_dir / "metadata.json").write_text(json.dumps(meta, indent=2))
 
-    # load playbook for playcall matching if available
-    raw_pb: Dict[str, Any] = load_offense_playbook(getattr(args, "playbook", None))
+    # Playbook logging + source/fallback
+    print(f"[playbook] source={getattr(args, 'playbook', '')}")
+    playbook_path = Path(getattr(args, "playbook", "") or "")
+    requested = getattr(args, "playbook", "") or ""
+    if playbook_path and playbook_path.exists():
+        raw_pb: Dict[str, Any] = load_offense_playbook(playbook_path)
+        print(f"[playbook] OK: loaded playbook from {playbook_path}")
+        print(f"[playbook] OK: requested playbook: {requested or playbook_path}")
+    else:
+        raw_pb = load_offense_playbook(Path("playbooks/mca_5th_playbook.json"))
+        print(f"[playbook] OK: loaded playbook from playbooks/mca_5th_playbook.json")
+        print(
+            f"[playbook] OK: requested playbook: {requested or 'playbooks/mca_5th_playbook.json'}"
+        )
     plays = []
     # Extract plays from multiple known schemas
     if isinstance(raw_pb, dict):
@@ -269,12 +281,6 @@ def _run_pipeline(args: argparse.Namespace) -> None:
             "candidates": [],
         }
 
-        formation_dict = {
-            "name": formation_name if formation_name else None,
-            "confidence": float(formation_conf or 0.0),
-            "candidates": [],
-        }
-
         # grades -- simple constant grade for each detected player
         for pl in players:
             pid = pl.get("id", "0")
@@ -297,13 +303,19 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         play_rec = {
             "play_id": seg_id,
             "clip_path": str(clip_out),
-            "t0": t0,
-            "t1": t1,
-            "formation": formation_dict,
-            "formation_confidence": formation_conf,
+            "t0": "",
+            "t1": "",
+            "formation": formation_name,
+            "formation_confidence": float(formation_conf),
             "playcall": playcall_dict,
             "play_family": play_family,
-            "outcome": "",
+            "outcome": {
+                "yards": 0,
+                "success": False,
+                "explosive": False,
+                "turnover": False,
+                "penalty": False,
+            },
             "cues": {},
             "clip_duration": float(clip_duration),
         }
