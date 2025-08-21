@@ -12,13 +12,13 @@ import os, json, pathlib
 p = pathlib.Path(os.environ.get("CONFIG_PATH", "config/gameday.json"))
 raw = p.read_text(encoding="utf-8").strip() if p.exists() else ""
 if not raw:
-    print(f"[diag] config empty or missing at {p}; using {}")
+    print(f"[diag] config empty or missing at {p}; using {{}}")
     cfg = {}
 else:
     try:
         cfg = json.loads(raw)
     except json.JSONDecodeError as e:
-        print(f"[diag] invalid JSON in {p}: {e}; using {}")
+        print(f"[diag] invalid JSON in {p}: {e}; using {{}}")
         cfg = {}
 print("[diag] config keys:", ", ".join(sorted(cfg.keys())))
 PY
