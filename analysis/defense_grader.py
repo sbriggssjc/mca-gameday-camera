@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Dict, List, Sequence
+import json
+from tools.json_io import load_json_safe
 
 from .segmentation import Segment
 
@@ -11,11 +13,10 @@ DEFAULT_WEIGHTS = {"contain": 0.35, "interior": 0.35, "coverage": 0.30}
 
 
 def _load_weights(path: str | None) -> Dict[str, float]:
-    if path and Path(path).exists():
-        try:
-            return json.loads(Path(path).read_text())
-        except Exception:
-            pass
+    if path:
+        data = load_json_safe(Path(path))
+        if isinstance(data, dict):
+            return data  # type: ignore[return-value]
     return DEFAULT_WEIGHTS
 
 

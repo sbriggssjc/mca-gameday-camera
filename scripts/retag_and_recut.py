@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
 import argparse, csv, json, subprocess
 from pathlib import Path
+from tools.json_io import iter_jsonl_safe
 
-def load_jsonl(p:Path):
-    if not p.exists(): return []
-    out=[]
-    for ln in p.read_text().splitlines():
-        ln=ln.strip()
-        if not ln: continue
-        try: out.append(json.loads(ln))
-        except: pass
-    return out
+def load_jsonl(p: Path):
+    return list(iter_jsonl_safe(p))
 
 def pick_time(d, *keys):
     for k in keys:
