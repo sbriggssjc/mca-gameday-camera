@@ -1,12 +1,13 @@
 import json
 from pathlib import Path
 from typing import Any, Dict, List
+from pathlib import Path
+import json
+from tools.json_io import iter_jsonl_safe
 
 
 def _load_jsonl(path: Path) -> List[Dict[str, Any]]:
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.open()]
+    return list(iter_jsonl_safe(path))
 
 
 def _score_clip(play: Dict[str, Any], feat: Dict[str, Any], pb) -> Dict[str, Any]:

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from tools import gdrive_sync, storage_cleanup
+from tools.json_io import iter_jsonl_safe
 
 
 class FakeDrive:
@@ -47,7 +48,7 @@ def test_upload_and_remove_verified(tmp_path, monkeypatch):
 
     gdrive_sync.upload_tree_with_manifest(tmp_path, "parent", manifest)
 
-    lines = [json.loads(l) for l in manifest.read_text().strip().splitlines()]
+    lines = list(iter_jsonl_safe(manifest))
     rec = next(r for r in lines if r["local"].endswith("sample.txt"))
     assert rec["status"] == "verified"
     assert rec["drive_id"]

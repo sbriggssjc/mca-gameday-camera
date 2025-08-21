@@ -38,6 +38,7 @@ import subprocess
 import csv
 import json
 import logging
+from tools.json_io import iter_jsonl_safe, load_json_safe
 import math
 def detect_encoder():
     ffmpeg = shutil.which("ffmpeg")
@@ -127,20 +128,11 @@ def _soften_tokens(text, max_run=80):
 def read_jsonl(path: Path) -> List[Dict[str, Any]]:
     """Read a ``.jsonl`` file and return a list of dictionaries."""
 
-    items: List[Dict[str, Any]] = []
-    if not path.exists():
+    items: List[Dict[str, Any]] = list(iter_jsonl_safe(path))
+    if not items and not path.exists():
         logging.warning("%s missing", path)
-        return items
-    with path.open("r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                items.append(json.loads(line))
-            except json.JSONDecodeError as exc:
-                logging.debug("Skipping bad JSON line in %s: %s", path, exc)
-    logging.debug("Loaded %d rows from %s", len(items), path)
+    else:
+        logging.debug("Loaded %d rows from %s", len(items), path)
     return items
 
 
@@ -687,9 +679,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # metadata
     metadata_path = out_dir / "metadata.json"
-    metadata: Dict[str, Any] = {}
-    if metadata_path.exists():
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata: Dict[str, Any] = load_json_safe(metadata_path, default={})
     if args.team:
         metadata["team_us"] = args.team
     if args.opponent:

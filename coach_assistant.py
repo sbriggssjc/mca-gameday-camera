@@ -1,5 +1,5 @@
 import argparse
-import json
+import json as json_module
 import os
 from pathlib import Path
 from typing import List
@@ -111,7 +111,10 @@ def listen_and_respond() -> None:
         while True:
             data = stream.read(4000, exception_on_overflow=False)
             if recognizer.AcceptWaveform(data):
-                result = json.loads(recognizer.Result())
+                try:
+                    result = json_module.loads(recognizer.Result())
+                except Exception:
+                    result = {}
                 text = result.get("text", "")
                 if text:
                     answer = answer_question(text)
