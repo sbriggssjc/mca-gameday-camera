@@ -1,7 +1,7 @@
 import os, shutil, time, sys
 from pathlib import Path
 from typing import List, Tuple, Dict
-from tools.json_io import iter_jsonl_safe
+from .json_io import iter_jsonl_safe
 
 GB = 1024 ** 3
 
