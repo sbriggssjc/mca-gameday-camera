@@ -10,6 +10,7 @@ def build_ffmpeg_cmd(
     width=1280,
     height=720,
     fps=30,
+    input_format="mjpeg",
     vbitrate="2500k",
     maxrate="3000k",
     bufsize="3000k",
@@ -50,12 +51,13 @@ def build_ffmpeg_cmd(
         pulse_source,
     ]
 
-    # Video: if we have a v4l2 device or x11grab, add it; otherwise stream
-    # audio-only with a black color source
+    # Prefer a real video device; fall back to a generated black frame
     if video_input:
         video_in = [
             "-f",
             "v4l2",
+            "-input_format",
+            input_format,
             "-framerate",
             str(fps),
             "-video_size",
@@ -114,10 +116,29 @@ def build_ffmpeg_cmd(
     ] + audio_in + video_in + out
 
 
-def stream_loop(pulse_source, rtmp_url, video_input=None, max_retries=100, backoff=5):
+def stream_loop(
+    pulse_source,
+    rtmp_url,
+    video_input=None,
+    *,
+    width=1280,
+    height=720,
+    fps=30,
+    input_format="mjpeg",
+    max_retries=100,
+    backoff=5,
+):
     tries = 0
     while True:
-        cmd = build_ffmpeg_cmd(pulse_source, rtmp_url, video_input)
+        cmd = build_ffmpeg_cmd(
+            pulse_source,
+            rtmp_url,
+            video_input,
+            width=width,
+            height=height,
+            fps=fps,
+            input_format=input_format,
+        )
         cmd_str = " ".join(shlex.quote(c) for c in cmd)
         print(f"[ffmpeg] launching: {cmd_str}")
         try:
@@ -171,10 +192,38 @@ if __name__ == "__main__":
         or os.environ.get("YT_RTMP_URL")
         or os.environ.get("YOUTUBE_STREAM_KEY")
     )
-    vid = os.environ.get("VIDEO_INPUT")  # optional, e.g., /dev/video0
+    # Prefer a real V4L2 device; fallback to black frame if missing
+    dev = (
+        os.environ.get("VIDEO_DEV")
+        or os.environ.get("VIDEO_INPUT")
+        or "/dev/video0"
+    )
+    if os.path.exists(dev):
+        vid = dev
+    else:
+        print(f"[warn] {dev} not found; using black frame")
+        vid = None
+
+    # Resolution/FPS can be overridden via env (RES=WIDTHxHEIGHT, FPS=30)
+    res = os.environ.get("RES", "1280x720")
+    try:
+        width_str, height_str = res.split("x", 1)
+        width_val, height_val = int(width_str), int(height_str)
+    except ValueError:
+        width_val, height_val = 1280, 720
+    fps_val = int(os.environ.get("FPS", "30"))
+    fmt_val = os.environ.get("V4L2_FMT", "mjpeg")
     if not url_env:
         print("Missing YOUTUBE_RTMP_URL/YT_RTMP_URL/YOUTUBE_STREAM_KEY", file=sys.stderr)
         sys.exit(2)
     url = _normalize_youtube_url(url_env)
     src = _ensure_pulse_source(src_env)
-    stream_loop(src, url, vid)
+    stream_loop(
+        src,
+        url,
+        vid,
+        width=width_val,
+        height=height_val,
+        fps=fps_val,
+        input_format=fmt_val,
+    )
