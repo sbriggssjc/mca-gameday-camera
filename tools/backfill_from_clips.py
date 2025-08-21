@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv, json, subprocess, sys
 from pathlib import Path
 from typing import Any
-from tools.json_io import iter_jsonl_safe
+from .json_io import iter_jsonl_safe
 
 __all__ = ["_as_name", "_as_conf"]
 
@@ -214,7 +214,7 @@ def backfill(run_dir: Path) -> int:
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
-        print("Usage: python tools/backfill_from_clips.py <run_dir> [<run_dir> ...]")
+        print("Usage: python -m tools.backfill_from_clips <run_dir> [<run_dir> ...]")
         return 2
     total = 0
     for rd in argv[1:]:
