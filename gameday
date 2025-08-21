@@ -1,79 +1,68 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -euo pipefail
 
-# --- repo root
-cd "$(dirname "$0")"
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$REPO_DIR"
 
-# --- env
-if [[ -f .env ]]; then
-  set -a; source .env; set +a
-fi
+export PYTHONUNBUFFERED=1
+export PYTHONPATH="$REPO_DIR:${PYTHONPATH:-}"
 
-RTMP_URL="${RTMP_URL:-rtmp://a.rtmp.youtube.com/live2}"
-STREAM_KEY="${STREAM_KEY:?Set STREAM_KEY in .env}"
-VIDEO_DEV="${VIDEO_DEV:-/dev/video0}"
-VIDEO_SIZE="${VIDEO_SIZE:-1920x1080}"
-FRAMERATE="${FRAMERATE:-30}"
-VBR="${VBR:-4500k}"
+echo "[diag] Listing audio devices (run: PYTHONPATH=. python3 -m tools.list_audio)"
+PYTHONPATH=. python3 -m tools.list_audio || true
 
-# Ensure Python sees 'tools'
-export PYTHONPATH=.
-
-# --- audio selection
-PULSE_SOURCE="$(python3 -m tools.select_audio || true)"
+# Choose Pulse source via Python so logic stays in one place
+PULSE_SOURCE="$(python3 - <<'PY'
+from tools.audio_devices import list_pulse_sources, choose_best_pulse_source
+sources=list_pulse_sources()
+print(choose_best_pulse_source(sources) or "")
+PY
+)"
 if [[ -z "${PULSE_SOURCE}" ]]; then
-  echo "[gameday] ERROR: no Pulse source found"; exit 2
+  echo "[gameday] ERROR: No Pulse sources found." >&2
+  exit 3
 fi
 echo "[gameday] Using Pulse source: ${PULSE_SOURCE}"
 
-# --- probe & plan gain
-PROBE_JSON="$(python3 -m tools.probe_audio "${PULSE_SOURCE}" || true)"
-MEAN_DB="$(python3 - <<'PY'
-import json,os,sys
-d=json.loads(os.environ['PROBE_JSON'])
-print(d.get('mean_db') if d.get('mean_db') is not None else "")
+# Probe levels (non-fatal)
+PROBE_JSON="$(python3 - <<PY
+import json
+from tools.audio_probe import probe_pulse_source
+print(json.dumps(probe_pulse_source("${PULSE_SOURCE}", seconds=2)))
 PY
 )"
-if [[ -z "${MEAN_DB}" ]]; then
-  echo "[gameday] WARN: probe failed or mean_db missing; continuing with default filters"
-  AFILT_BASE="aformat=sample_fmts=fltp:channel_layouts=stereo,pan=stereo|c0=c0|c1=c0,highpass=f=80,lowpass=f=12000,compand=attacks=0.3:decays=1:points=-80/-900|-35/-6|-10/-3|0/-2,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=async=1:min_hard_comp=0.100:first_pts=0"
-else
-  export MEAN_DB
-  VOL_GAIN="$(python3 -m tools.plan_gain "${MEAN_DB}")"
-  AFILT_BASE="${VOL_GAIN},aformat=sample_fmts=fltp:channel_layouts=stereo,pan=stereo|c0=c0|c1=c0,highpass=f=80,lowpass=f=12000,compand=attacks=0.3:decays=1:points=-80/-900|-35/-6|-10/-3|0/-2,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=async=1:min_hard_comp=0.100:first_pts=0"
-fi
-echo "[gameday] Audio mean=${MEAN_DB:-n/a} dB; filters=${AFILT_BASE}"
+MEAN="$(python3 - <<'PY'
+import json, os
+j=json.loads(os.environ.get("PROBE_JSON","{}"))
+print(j.get("mean_db") if j else "")
+PY
+)"
+PEAK="$(python3 - <<'PY'
+import json, os
+j=json.loads(os.environ.get("PROBE_JSON","{}"))
+print(j.get("peak_db") if j else "")
+PY
+)"
+export PROBE_JSON  # for logs only
+PROBE_JSON="${PROBE_JSON:-{}}"
 
-# --- log setup
-mkdir -p logs
-LOG_FILE="logs/ffmpeg_$(date +%Y%m%d_%H%M%S).log"
+echo "${PROBE_JSON}" | python3 - <<'PY' || true
+import json,sys
+j=json.load(sys.stdin)
+mean=j.get("mean_db"); peak=j.get("peak_db")
+print(f"🎚  Audio levels: mean={mean} dB  peak={peak} dB")
+PY
 
-# --- build ffmpeg
-FFV_OPTS=(
-  -f v4l2 -framerate "${FRAMERATE}" -video_size "${VIDEO_SIZE}" -i "${VIDEO_DEV}"
-)
-FFA_OPTS=(
-  -f pulse -channels 2 -i "${PULSE_SOURCE}"
-  -filter:a "${AFILT_BASE}" -c:a aac -b:a 160k -ar 48000
-)
-# Prefer hardware encoder when present; fallback to libx264
-if ffmpeg -hide_banner -encoders 2>/dev/null | grep -q 'h264_nvenc'; then
-  VENC=(-c:v h264_nvenc -preset p5 -b:v "${VBR}" -maxrate "${VBR}" -bufsize 2M -g $((FRAMERATE*2)))
-else
-  VENC=(-c:v libx264 -preset veryfast -tune zerolatency -b:v "${VBR}" -maxrate "${VBR}" -bufsize 2M -g $((FRAMERATE*2)))
+# Warn on very low input but do not abort
+if [[ -n "${MEAN}" ]]; then
+  awk -v m="${MEAN}" 'BEGIN{ if (m+0 < -30) { exit 1 } }' || echo "[gameday] WARNING: Input seems quiet (mean < -30 dB). Continuing with compand/limiter."
 fi
 
-COMMON=(-pix_fmt yuv420p -f flv "${RTMP_URL}/${STREAM_KEY}")
+# Require RTMP URL
+if [[ -f .env ]]; then set -a; . ./.env; set +a; fi
+: "${YOUTUBE_RTMP_URL:?Set YOUTUBE_RTMP_URL=rtmp://a.rtmp.youtube.com/live2/<stream_key> in .env}"
 
-# --- tmux runner with reconnect
-TMUX_SESSION="gameday"
-tmux has-session -t "${TMUX_SESSION}" 2>/dev/null && tmux kill-session -t "${TMUX_SESSION}" || true
-tmux new-session -d -s "${TMUX_SESSION}" \
-  "echo '[gameday] starting ffmpeg...'; \
-   until ffmpeg -hide_banner -loglevel info ${FFV_OPTS[@]} ${FFA_OPTS[@]} ${VENC[@]} -map 0:v:0 -map 1:a:0 -shortest ${COMMON[@]} 2>&1 | tee -a '${LOG_FILE}'; do \
-     echo '[gameday] ffmpeg exited; retrying in 3s...' | tee -a '${LOG_FILE}'; sleep 3; \
-   done"
+# Optional VIDEO_INPUT (e.g., /dev/video0) can be set in .env
+export PULSE_SOURCE
 
-echo "[gameday] tailing log: ${LOG_FILE}"
-tmux new-window -t "${TMUX_SESSION}" "tail -f '${LOG_FILE}'"
-tmux attach -t "${TMUX_SESSION}"
+# Launch stream with auto-retry loop
+exec PYTHONPATH=. python3 -m tools.ffmpeg_stream

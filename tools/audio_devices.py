@@ -1,54 +1,54 @@
-import subprocess, json, re
+import json
+import subprocess
 
 
 def list_pulse_sources():
     try:
-        out = subprocess.check_output(["pactl", "list", "sources", "short"], text=True)
-        rows = []
-        for line in out.strip().splitlines():
-            parts = line.split("\t")
-            if len(parts) >= 2:
-                rows.append({"index": parts[0], "name": parts[1]})
-        return rows
-    except Exception:
+        out = subprocess.run(
+            ["pactl", "list", "short", "sources"],
+            check=True, capture_output=True, text=True
+        ).stdout.strip().splitlines()
+    except (subprocess.CalledProcessError, FileNotFoundError):
         return []
-
-
-def default_pulse_source():
-    candidates = [r for r in list_pulse_sources() if "monitor" not in r["name"]]
-    return candidates[0]["name"] if candidates else None
+    sources = [line.split("\t")[1] for line in out]
+    return sources
 
 
 def list_alsa_devices():
+    # Parse `arecord -l` into hw:card,device list
     try:
-        out = subprocess.check_output(["arecord", "-l"], text=True, stderr=subprocess.STDOUT)
-    except Exception:
+        out = subprocess.run(["arecord", "-l"], capture_output=True, text=True).stdout
+    except (subprocess.CalledProcessError, FileNotFoundError):
         return []
-    cards = []
+    hw = []
     for line in out.splitlines():
-        m = re.search(r"card (\d+): ([^,]+), device (\d+): ([^\[]+)", line)
-        if m:
-            card, cardname, dev, devname = m.groups()
-            cards.append({"card": card, "device": dev, "hint": f"hw:{card},{dev}"})
-    return cards
+        # card 2: ..., device 0:
+        if "card " in line and "device " in line:
+            parts = line.replace(":", "").split()
+            c = parts[parts.index("card")+1]
+            d = parts[parts.index("device")+1]
+            hw.append(f"hw:{c},{d}")
+    return hw
 
 
-def default_alsa_device():
-    devs = list_alsa_devices()
-    return devs[0]["hint"] if devs else None
+def choose_best_pulse_source(sources):
+    # Prefer real mic; avoid *.monitor unless nothing else.
+    preferred = [s for s in sources if ".monitor" not in s]
+    return preferred[0] if preferred else (sources[0] if sources else None)
 
 
-def pick_audio_source(backend, pulse_name, alsa_dev):
-    if backend in (None, "", "auto"):
-        pulse = pulse_name or default_pulse_source()
-        if pulse:
-            return ("pulse", pulse)
-        alsa = alsa_dev or default_alsa_device()
-        if alsa:
-            return ("alsa", alsa)
-        return (None, None)
-    if backend == "pulse":
-        return ("pulse", pulse_name or default_pulse_source())
-    if backend == "alsa":
-        return ("alsa", alsa_dev or default_alsa_device())
-    return (None, None)
+def diag():
+    return {
+        "pulse": list_pulse_sources(),
+        "alsa": list_alsa_devices()
+    }
+
+
+if __name__ == "__main__":
+    info = diag()
+    print("Pulse sources:")
+    for s in info["pulse"]:
+        print(f"  - {s}")
+    print("\nALSA devices:")
+    for d in info["alsa"]:
+        print(f"  - {d}")
