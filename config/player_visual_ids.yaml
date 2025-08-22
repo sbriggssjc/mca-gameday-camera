@@ -1,0 +1,18 @@
+team: WHITE
+players:
+  - id: "QB1"
+    name: "Evan"
+    cues:
+      cleats: "bright red"
+      socks: "striped"
+      body:
+        height_band: "tall"
+        build: "slim"
+  - id: "RB1"
+    name: "Noah"
+    cues:
+      cleats: "all black"
+      socks: "white"
+      body:
+        height_band: "medium"
+        build: "stocky"
