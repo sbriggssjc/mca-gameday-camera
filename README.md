@@ -563,3 +563,38 @@ Adds large input queues and stable timestamps to reduce V4L2/DTS hiccups.
 
 Retries on transient RTMPS/TLS failures.
 
+
+## Acceptance tests
+
+```bash
+# A) Strip pass: no min_comp/max_comp left
+! grep -RInE '\b(min_comp|max_comp)\b' --exclude='*strip_aresample_opts.sh' --exclude README.md . || (echo "FAIL: found min/max_comp" && exit 1)
+
+# B) Test pattern to YouTube (use real key; hold for 60–90s)
+export YOUTUBE_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/xxxx-xxxx-xxxx-xxxx-xxxx'
+./gameday-testsrc
+
+# C) Live devices to YouTube (use real key)
+export VIDEO_DEV=/dev/video0
+export PULSE_DEV='alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_17477F5D-00.mono-fallback'
+export VIDEO_SIZE=1280x720
+export FPS=30
+export VIDEO_BITRATE=3500k
+export VIDEO_MAXRATE=4000k
+export VIDEO_BUFSIZE=6000k
+./gameday
+
+# D) RTMP vs RTMPS
+export YOUTUBE_RTMP_URL='rtmps://b.rtmps.youtube.com/live2/xxxx-xxxx-xxxx-xxxx-xxxx'
+./gameday-testsrc
+```
+
+## Notes for operators
+
+- **Keys:** Reusable keys and scheduled events use different keys. Always paste the exact key for the stream you are monitoring in Live Control Room.
+- **Latency:** Keep `-g` ≈ 2s (e.g., 60 for 30 fps). Set Low/Normal latency in YouTube unless chasing Ultra‑Low.
+- **Bitrate tips:** 720p30 works well at 3500k target / 4000k max.
+- **Devices busy:** If `/dev/video0` is busy:
+  - `pkill -9 -f 'cheese|guvcview|nvarguscamerasrc|nvargus-daemon|ffmpeg.*video4linux2|gst-launch'`
+  - `sudo systemctl stop nvargus-daemon` (harmless if unused).
+- **Mic mono vs stereo:** We send mono with `-ac 1`. If you truly want stereo, change to `-ac 2`.

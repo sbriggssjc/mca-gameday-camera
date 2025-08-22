@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+YOUTUBE_RTMP_URL="${YOUTUBE_RTMP_URL:-rtmp://a.rtmp.youtube.com/live2/REPLACE_ME}"
+VBR="${VIDEO_BITRATE:-3500k}"
+MAXRATE="${VIDEO_MAXRATE:-4000k}"
+BUFSIZE="${VIDEO_BUFSIZE:-6000k}"
+FPS="${FPS:-30}"
+GOP="$(( FPS * 2 ))"
+
+echo "[gameday-testsrc] Out=${YOUTUBE_RTMP_URL} ${VBR}/${MAXRATE}/${BUFSIZE} @ ${FPS}fps" >&2
+
+if [[ "$YOUTUBE_RTMP_URL" == *REPLACE_ME* ]] || [[ -z "$YOUTUBE_RTMP_URL" ]]; then
+  echo "[gameday-testsrc] ERROR: set YOUTUBE_RTMP_URL to your exact key." >&2
+  exit 2
+fi
+
+# -re to simulate realtime; only used for synthetic test pattern
+exec ffmpeg -hide_banner -loglevel info -re \
+  -f lavfi -i testsrc2=size=1280x720:rate="${FPS}" \
+  -f lavfi -i sine=frequency=1000:sample_rate=48000 \
+  -c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p \
+  -b:v "${VBR}" -maxrate "${MAXRATE}" -bufsize "${BUFSIZE}" -g "${GOP}" -r "${FPS}" \
+  -c:a aac -b:a 128k -ar 48000 -ac 1 \
+  -flvflags no_duration_filesize \
+  -f flv "${YOUTUBE_RTMP_URL}"
