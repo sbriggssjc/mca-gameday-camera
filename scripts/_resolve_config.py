@@ -25,7 +25,8 @@ def list_pulse_sources():
 
 def choose_pulse_source(desired):
     sources = list_pulse_sources()
-    if desired and any(desired in s for s in sources):
+    # Honor an explicit override even if we cannot query Pulse for sources
+    if desired and (not sources or any(desired in s for s in sources)):
         return desired
     # Prefer RØDE if present
     for s in sources:
@@ -63,7 +64,8 @@ def main():
     if not ok:
         sys.exit(2)
 
-    sys.stdout.write(
+    # stdout must contain **only** the compact JSON blob used by the launcher.
+    print(
         json.dumps(
             {
                 "rtmp_url": rtmp,
