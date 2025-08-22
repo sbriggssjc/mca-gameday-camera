@@ -1,5 +1,5 @@
 .RECIPEPREFIX := >
-.PHONY: deps diag preflight audit fix-logging
+.PHONY: deps diag preflight audit fix-logging run testsrc audio fmt
 deps:
 >scripts/install_deps.sh
 diag:
@@ -11,8 +11,6 @@ audit:
 fix-logging:
 >python -m tools.auto_instrument_logging
 
-run:
->./scripts/run_game.sh $(VIDEO)
 
 probe-detector:
 >PYTHONPATH=. python3 tools/probe_detector.py
@@ -51,3 +49,15 @@ build-features:
 >   --stride $(STRIDE) \
 >   --max-per-seg $(MAXPER) \
 >   --verbose
+
+run:
+>./gameday
+
+testsrc:
+>TESTSRC=1 ./gameday
+
+audio:
+>PYTHONPATH=. python3 -m tools.list_audio
+
+fmt:
+>@echo "no-op"
