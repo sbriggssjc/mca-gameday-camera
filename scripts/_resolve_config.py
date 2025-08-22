@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import json, os, sys, subprocess, shlex, re, pathlib
-import sys
 
 CFG_PATH = os.environ.get("GAMEDAY_CFG", "config/gameday.json")
 
@@ -57,16 +56,24 @@ def main():
     if not os.path.exists(vdev):
         print(f"[gameday] ERROR: Video device {vdev} not found.", file=sys.stderr); ok=False
 
-    print(f"[gameday] Launch -> video={vdev} {vsize}@{fps} | pulse={pdev} | rtmp={'set' if bool(rtmp) else 'MISSING'}", file=sys.stderr)
-    if not ok: sys.exit(2)
+    print(
+        f"[gameday] Launch -> video={vdev} {vsize}@{fps} | pulse={pdev} | rtmp={'set' if bool(rtmp) else 'MISSING'}",
+        file=sys.stderr,
+    )
+    if not ok:
+        sys.exit(2)
 
-    print(json.dumps({
-        "rtmp_url": rtmp,
-        "video_dev": vdev,
-        "pulse_source": pdev,
-        "video_size": vsize,
-        "fps": fps
-    }))
+    sys.stdout.write(
+        json.dumps(
+            {
+                "rtmp_url": rtmp,
+                "video_dev": vdev,
+                "pulse_source": pdev,
+                "video_size": vsize,
+                "fps": fps,
+            }
+        )
+    )
 
 if __name__ == "__main__":
     main()
