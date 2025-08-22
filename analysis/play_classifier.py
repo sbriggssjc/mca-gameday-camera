@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import json
 from typing import Any, Dict, Tuple
 from tools.json_io import load_json_safe
 
@@ -15,22 +14,10 @@ def _load_play_buckets(playbook_path: str | None) -> Dict[str, set[str]]:
     global _PLAY_FAMILIES
     if _PLAY_FAMILIES is not None:
         return _PLAY_FAMILIES
-    # Default candidates (keep in sync with playbooks/__init__.py)
-    candidates = [
-        "playbooks/mca_5th_playbook.json",
-        "mca_5th_playbook.json",
-        "playbooks/mca_5th_v2.json",
-        "playbooks/mca_full_playbook_final.json",
-        "mca_5th_v2.json",
-        "mca_full_playbook_final.json",
-    ]
-    paths = [Path(playbook_path)] if playbook_path else [Path(p) for p in candidates]
-    data = None
-    for p in paths:
-        if p and p.exists():
-            data = load_json_safe(p)
-            if data is not None:
-                break
+    p = Path(playbook_path) if playbook_path else Path("playbooks/mca_5th_playbook.json")
+    if not p.is_absolute():
+        p = Path(__file__).resolve().parents[1] / p
+    data = load_json_safe(p) if p.exists() else None
     buckets: Dict[str, set[str]] = {
         "reo_leo": set(),     # pass‑leaning
         "rit_lit": set(),     # run‑leaning

@@ -2,71 +2,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Determine playbook argument and ensure it exists
-PLAYBOOK=""
+# Determine output directory for later summary
 OUT_DIR="output"
 prev=""
 for arg in "$@"; do
-  if [[ "$prev" == "--playbook" ]]; then
-    PLAYBOOK="$arg"
-    prev=""
-    continue
-  fi
   if [[ "$prev" == "--out" ]]; then
     OUT_DIR="$arg"
     prev=""
     continue
   fi
-  case "$arg" in
-    --playbook|--out)
-      prev="$arg"
-      ;;
-  esac
+  [[ "$arg" == "--out" ]] && prev="--out"
 done
 
-resolve_playbook() {
-  local pb="$1"
-  if [[ -f "$pb" ]]; then
-    printf '%s' "$pb"
-    return 0
-  fi
-  if [[ "$pb" != */* && -f "playbooks/$pb" ]]; then
-    printf '%s' "playbooks/$pb"
-    return 0
-  fi
-  return 1
-}
-
-if [[ -n "$PLAYBOOK" ]]; then
-  if RESOLVED=$(resolve_playbook "$PLAYBOOK"); then
-    PLAYBOOK="$RESOLVED"
-    echo "[playbook] source=$PLAYBOOK"
-    # rebuild args so pipeline gets the resolved path
-    new_args=()
-    prev=""
-    for arg in "$@"; do
-      if [[ "$arg" == "--playbook" ]]; then
-        new_args+=("$arg")
-        prev="pb"
-        continue
-      fi
-      if [[ "$prev" == "pb" ]]; then
-        new_args+=("$PLAYBOOK")
-        prev=""
-        continue
-      fi
-      new_args+=("$arg")
-    done
-    set -- "${new_args[@]}"
-  else
-    echo "[playbook] source=$PLAYBOOK"
-  fi
-fi
-
-# If user passes a bare filename that doesn't exist in CWD,
-# pipeline will still try playbooks/<name> and defaults.
-# Here we only forward what the user gave us.
-# Pass all args to the pipeline
+# Pass all args to the pipeline (defaults to playbooks/mca_5th_playbook.json)
 python3 -m analysis.pipeline "$@"
 
 RUN_DIR="$(ls -td "${OUT_DIR}/games/"* 2>/dev/null | head -n1 || true)"
