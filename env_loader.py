@@ -1,4 +1,6 @@
 import os
+import json
+import subprocess
 from pathlib import Path
 
 
@@ -69,3 +71,59 @@ def resolve_stream_url():
         if val:
             return val
     return None
+
+
+def load_gameday_config():
+    """Return streaming config merging environment variables and config file.
+
+    Environment variables override values from ``config/gameday.json``. If a
+    Pulse audio source isn't specified, the function attempts to pick a sensible
+    default by inspecting available PulseAudio sources.
+    """
+
+    cfg_path = os.environ.get("GAMEDAY_CFG", "config/gameday.json")
+
+    def read_json(p):
+        try:
+            with open(p, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def list_pulse_sources():
+        try:
+            out = subprocess.check_output(
+                ["pactl", "list", "sources", "short"], text=True
+            )
+            return [ln.split("\t", 1)[1] for ln in out.strip().splitlines() if ln.strip()]
+        except Exception:
+            return []
+
+    def choose_pulse_source(desired):
+        sources = list_pulse_sources()
+        if desired and any(desired in s for s in sources):
+            return desired
+        for s in sources:
+            if "VideoMic_GO_II" in s or "RODE" in s or "R__DE" in s:
+                return s.split("\t")[0] if "\t" in s else s
+        for s in sources:
+            if "monitor" not in s.lower():
+                return s.split("\t")[0] if "\t" in s else s
+        return None
+
+    cfg = read_json(cfg_path)
+    rtmp = os.environ.get("YOUTUBE_RTMP_URL") or cfg.get("rtmp_url") or ""
+    vdev = os.environ.get("VIDEO_DEV") or cfg.get("video_dev") or "/dev/video0"
+    pdev = os.environ.get("PULSE_DEV") or cfg.get("pulse_source") or ""
+    vsize = os.environ.get("VIDEO_SIZE") or cfg.get("video_size") or "1280x720"
+    fps = int(os.environ.get("FPS") or cfg.get("fps") or 30)
+
+    pdev = choose_pulse_source(pdev)
+
+    return {
+        "rtmp_url": rtmp,
+        "video_dev": vdev,
+        "pulse_source": pdev,
+        "video_size": vsize,
+        "fps": fps,
+    }
