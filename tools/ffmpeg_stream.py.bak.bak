@@ -74,7 +74,7 @@ def build_ffmpeg_cmd(
         "acompressor=threshold=-22dB:ratio=2.5:attack=12:release=250:makeup=2,"
         "aformat=sample_fmts=s16:sample_rates=48000,"
         "alimiter=limit=0.85,"
-        "aresample=async=1:first_pts=0,"
+        "aresample=async=1:min_comp=0.001:max_comp=0.05:first_pts=0,"
         "asetpts=N/SR/TB[a]"
     )
 
