@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+echo "[diag] Listing audio devices (Pulse + ALSA)" >&2
+PYTHONPATH=. python3 -m tools.list_audio || true
+echo "[diag] Resolved config JSON:" >&2
+scripts/_resolve_config.py 1> /tmp/cfg.json
+cat /tmp/cfg.json
+python3 - <<'PY' /tmp/cfg.json
+import json,sys
+print("[diag] Parsed video_dev:", json.load(open(sys.argv[1]))["video_dev"], file=sys.stderr)
+PY
