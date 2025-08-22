@@ -27,25 +27,17 @@ def build_ffmpeg_cmd(
     #  - highpass: roll off low-frequency rumble
     #  - volume: reduce overall level before compression
     #  - acompressor: gentle compression to lift quiet speech
-    #  - aformat to s16:48k
-    #  - channelmap: if mono, duplicate to stereo
     #  - alimiter: prevent clipping below full scale
     af = [
         "highpass=f=100",
         "volume=-3dB",
-        # slightly less makeup and a touch more limiter headroom
         "acompressor=threshold=-22dB:ratio=2.5:attack=12:release=250:makeup=2",
-        "aformat=sample_fmts=s16:sample_rates=48000",
-        "channelmap=channel_layout=stereo",
         "alimiter=limit=0.85",
     ]
 
-    # Align timestamps and raise queues for stability
     audio_in = [
         "-thread_queue_size",
-        "1024",
-        "-use_wallclock_as_timestamps",
-        "1",
+        "4096",
         "-f",
         "pulse",
         "-ac",
@@ -59,14 +51,12 @@ def build_ffmpeg_cmd(
     # Prefer a real video device; fall back to a generated black frame
     if video_input:
         video_in = [
-            "-itsoffset",
-            str(video_delay),
             "-thread_queue_size",
-            "2048",
-            "-use_wallclock_as_timestamps",
-            "1",
+            "4096",
             "-f",
             "v4l2",
+            "-rtbufsize",
+            "256M",
             "-input_format",
             input_format,
             "-framerate",
@@ -84,11 +74,22 @@ def build_ffmpeg_cmd(
             f"color=size={width}x{height}:rate={fps}:color=black",
         ]
 
+    filter_complex = (
+        f"[1:v]setpts=PTS+{video_delay}/TB[v];"
+        "[0:a]aresample=async=1:first_pts=0,asetpts=N/SR/TB[a]"
+    )
+
     out = [
+        "-filter_complex",
+        filter_complex,
         "-map",
-        "1:v:0",
+        "[v]",
         "-map",
-        "0:a:0",
+        "[a]",
+        "-r",
+        str(fps),
+        "-vsync",
+        "cfr",
         # Encode
         "-c:v",
         "libx264",
@@ -128,6 +129,8 @@ def build_ffmpeg_cmd(
         "-nostats",
         "-loglevel",
         "warning",
+        "-fflags",
+        "+genpts",
     ] + audio_in + video_in + out
 
 
@@ -229,7 +232,9 @@ if __name__ == "__main__":
     except ValueError:
         width_val, height_val = 1280, 720
     fps_val = int(os.environ.get("FPS", "30"))
+    # Camera format (try yuyv422 if MJPEG is unstable; use h264 if supported)
     fmt_val = os.environ.get("V4L2_FMT", "mjpeg")
+    # Delay video to let audio "catch up" (tune in 0.05s steps)
     vid_delay_val = float(os.environ.get("VID_DELAY", "0.25"))
     if not url_env:
         print("Missing YOUTUBE_RTMP_URL/YT_RTMP_URL/YOUTUBE_STREAM_KEY", file=sys.stderr)
