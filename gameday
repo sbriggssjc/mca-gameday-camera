@@ -4,6 +4,18 @@ set -Eeuo pipefail
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$REPO_DIR"
 
+# Load environment variables early
+set -a
+[ -f .env ] && . .env
+set +a
+
+# Validate stream URL early
+if [ -z "${YOUTUBE_RTMP_URL:-}" ]; then
+  echo "Set YOUTUBE_RTMP_URL=rtmps://a.rtmps.youtube.com/live2/<stream_key> in .env" >&2
+  exit 1
+fi
+YT_URL="$YOUTUBE_RTMP_URL"
+
 export PYTHONUNBUFFERED=1
 export PYTHONPATH="$REPO_DIR${PYTHONPATH:+:${PYTHONPATH}}"
 
@@ -24,23 +36,23 @@ echo "[diag] Listing audio devices (run: PYTHONPATH=. python3 -m tools.list_audi
 PYTHONPATH=. python3 -m tools.list_audio || true
 
 # Choose Pulse source via Python so logic stays in one place
-PULSE_SOURCE="$(python3 - <<'PY'
+PULSE_DEV="$(python3 - <<'PY'
 from tools.audio_devices import list_pulse_sources, choose_best_pulse_source
 sources=list_pulse_sources()
 print(choose_best_pulse_source(sources) or "")
 PY
 )"
-if [[ -z "${PULSE_SOURCE}" ]]; then
+if [[ -z "${PULSE_DEV}" ]]; then
   echo "[gameday] ERROR: No Pulse sources found." >&2
   exit 3
 fi
-echo "[gameday] Using Pulse source: ${PULSE_SOURCE}"
+echo "[gameday] Using Pulse source: ${PULSE_DEV}"
 
 # Probe levels (non-fatal)
 PROBE_JSON="$(python3 - <<PY
 import json
 from tools.audio_probe import probe_pulse_source
-print(json.dumps(probe_pulse_source("${PULSE_SOURCE}", seconds=2)))
+print(json.dumps(probe_pulse_source("${PULSE_DEV}", seconds=2)))
 PY
 )"
 MEAN="$(python3 - <<'PY'
@@ -58,10 +70,14 @@ PY
 export PROBE_JSON  # for logs only
 PROBE_JSON="${PROBE_JSON:-{}}"
 
-echo "${PROBE_JSON}" | python3 - <<'PY' || true
-import json,sys
-j=json.load(sys.stdin)
-mean=j.get("mean_db"); peak=j.get("peak_db")
+python3 - <<'PY' || true
+import json, os
+try:
+    j = json.loads(os.environ.get("PROBE_JSON", "{}"))
+except json.JSONDecodeError:
+    j = {}
+mean = j.get("mean_db")
+peak = j.get("peak_db")
 print(f"🎚  Audio levels: mean={mean} dB  peak={peak} dB")
 PY
 
@@ -70,16 +86,17 @@ if [[ -n "${MEAN}" ]]; then
   awk -v m="${MEAN}" 'BEGIN{ if (m+0 < -30) { exit 1 } }' || echo "[gameday] WARNING: Input seems quiet (mean < -30 dB). Continuing with compand/limiter."
 fi
 
-# Require RTMP URL
-if [[ -f .env ]]; then set -a; . ./.env; set +a; fi
-: "${YOUTUBE_RTMP_URL:?Set YOUTUBE_RTMP_URL=rtmp://a.rtmp.youtube.com/live2/<stream_key> in .env}"
-
 # Optional VIDEO_INPUT (e.g., /dev/video0) can be set in .env
-export PULSE_SOURCE
+export PULSE_DEV
 
-# Launch stream with auto-retry loop
-
-exec env PYTHONPATH=. python3 -m tools.ffmpeg_stream "$@"
-
-exec env PYTHONPATH=. python3 -m tools.ffmpeg_stream
+# Launch stream
+exec ffmpeg -hide_banner -nostats -loglevel warning -fflags +genpts \
+  -thread_queue_size 8192 -use_wallclock_as_timestamps 1 -f pulse -ac 2 -ar 48000 -i "$PULSE_DEV" \
+  -thread_queue_size 8192 -use_wallclock_as_timestamps 1 -f v4l2 -rtbufsize 512M -input_format "${V4L2_FMT:-mjpeg}" -framerate "${FPS:-30}" -video_size "${RES:-1280x720}" -i "${VIDEO_DEV:-/dev/video0}" \
+  -filter_complex "[1:v]setpts=PTS+${VID_DELAY:-0.25}/TB,format=yuv420p[v];[0:a]highpass=f=100,volume=-4dB,acompressor=threshold=-22dB:ratio=2.5:attack=12:release=250:makeup=2,aformat=sample_fmts=s16:sample_rates=48000,alimiter=limit=0.85,aresample=async=1:min_comp=0.001:max_comp=0.05:first_pts=0,asetpts=N/SR/TB[a]" \
+  -map "[v]" -map "[a]" -r "${FPS:-30}" -vsync cfr \
+  -c:v libx264 -preset veryfast -b:v 2500k -maxrate 3000k -bufsize 3000k -g 60 \
+  -c:a aac -b:a 160k -ar 48000 \
+  -tune zerolatency -flvflags no_duration_filesize \
+  -f flv "$YT_URL"
 
