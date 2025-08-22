@@ -11,6 +11,7 @@ def build_ffmpeg_cmd(
     height=720,
     fps=30,
     input_format="mjpeg",
+    video_delay=0.0,
     vbitrate="2500k",
     maxrate="3000k",
     bufsize="3000k",
@@ -32,17 +33,21 @@ def build_ffmpeg_cmd(
     af = [
         "highpass=f=100",
         "volume=-3dB",
-        "acompressor=threshold=-22dB:ratio=2.5:attack=12:release=250:makeup=3",
+        # slightly less makeup and a touch more limiter headroom
+        "acompressor=threshold=-22dB:ratio=2.5:attack=12:release=250:makeup=2",
         "aformat=sample_fmts=s16:sample_rates=48000",
         "channelmap=channel_layout=stereo",
-        "alimiter=limit=0.8",
+        "alimiter=limit=0.85",
     ]
 
+    # Align timestamps and raise queues for stability
     audio_in = [
-        "-f",
-        "pulse",
         "-thread_queue_size",
         "1024",
+        "-use_wallclock_as_timestamps",
+        "1",
+        "-f",
+        "pulse",
         "-ac",
         "2",
         "-ar",
@@ -54,6 +59,12 @@ def build_ffmpeg_cmd(
     # Prefer a real video device; fall back to a generated black frame
     if video_input:
         video_in = [
+            "-itsoffset",
+            str(video_delay),
+            "-thread_queue_size",
+            "2048",
+            "-use_wallclock_as_timestamps",
+            "1",
             "-f",
             "v4l2",
             "-input_format",
@@ -74,6 +85,10 @@ def build_ffmpeg_cmd(
         ]
 
     out = [
+        "-map",
+        "1:v:0",
+        "-map",
+        "0:a:0",
         # Encode
         "-c:v",
         "libx264",
@@ -120,6 +135,7 @@ def stream_loop(
     pulse_source,
     rtmp_url,
     video_input=None,
+    video_delay=0.0,
     *,
     width=1280,
     height=720,
@@ -138,6 +154,7 @@ def stream_loop(
             height=height,
             fps=fps,
             input_format=input_format,
+            video_delay=video_delay,
         )
         cmd_str = " ".join(shlex.quote(c) for c in cmd)
         print(f"[ffmpeg] launching: {cmd_str}")
@@ -213,6 +230,7 @@ if __name__ == "__main__":
         width_val, height_val = 1280, 720
     fps_val = int(os.environ.get("FPS", "30"))
     fmt_val = os.environ.get("V4L2_FMT", "mjpeg")
+    vid_delay_val = float(os.environ.get("VID_DELAY", "0.25"))
     if not url_env:
         print("Missing YOUTUBE_RTMP_URL/YT_RTMP_URL/YOUTUBE_STREAM_KEY", file=sys.stderr)
         sys.exit(2)
@@ -222,6 +240,7 @@ if __name__ == "__main__":
         src,
         url,
         vid,
+        video_delay=vid_delay_val,
         width=width_val,
         height=height_val,
         fps=fps_val,
