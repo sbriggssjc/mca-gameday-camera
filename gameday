@@ -1,3 +1,61 @@
 #!/usr/bin/env bash
 set -euo pipefail
-exec scripts/gameday_launcher.sh "$@"
+
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$SELF_DIR"
+STRIP_ONCE_FLAG="${ROOT}/.aresample_stripped"
+
+if [[ ! -f "$STRIP_ONCE_FLAG" ]]; then
+  bash "$ROOT/tools/strip_aresample_opts.sh" || true
+  touch "$STRIP_ONCE_FLAG"
+fi
+
+DRY_RUN="${1:-}"
+CFG_JSON="$(mktemp)"
+if ! "$ROOT/scripts/_resolve_config.py" 1>"$CFG_JSON"; then
+  echo "[gameday] config resolution failed" >&2
+  rm -f "$CFG_JSON"
+  exit 2
+fi
+
+read_cfg () { python3 - "$CFG_JSON" "$1" <<'PY'
+import json,sys
+cfg=json.load(open(sys.argv[1]))
+print(cfg[sys.argv[2]], end="")
+PY
+}
+
+VDEV="$(read_cfg video_dev)"
+PSRC="$(read_cfg pulse_source)"
+RTMP="$(read_cfg rtmp_url)"
+VSIZE="$(read_cfg video_size)"
+FPS="$(read_cfg fps)"
+
+FFMPEG=ffmpeg
+
+CMD=(
+  "$FFMPEG" -hide_banner -loglevel info -fflags +genpts -use_wallclock_as_timestamps 1
+  -thread_queue_size 4096 -f video4linux2 -input_format mjpeg -video_size "$VSIZE" -framerate "$FPS" -i "$VDEV"
+  -thread_queue_size 1024 -f pulse -i "$PSRC"
+  -map 0:v:0 -map 1:a:0
+  -c:v copy
+  -c:a aac -b:a 128k -ar 48000 -ac 1
+  -vsync 1 -g 60
+  -pix_fmt yuv420p
+  -f flv "$RTMP"
+)
+
+if [[ "$DRY_RUN" == "--dry-run" ]]; then
+  printf "[gameday] would exec: %q " "${CMD[@]}" >&2; echo >&2
+  rm -f "$CFG_JSON"
+  exit 0
+fi
+
+set -x
+"${CMD[@]}" || {
+  code=$?
+  echo "[gameday] ffmpeg failed (exit $code). Check network (RTMPS), key, and device busy conflicts." >&2
+  rm -f "$CFG_JSON"
+  exit $code
+}
+rm -f "$CFG_JSON"
