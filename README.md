@@ -23,6 +23,29 @@ export PULSE_DEV='alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_17477F5D-00.mono-fal
 scripts/gameday_launcher.sh
 ```
 
+## Gameday Quick Start
+
+- Port 443 via RTMPS is preferred; port 1935 may be blocked.
+- List audio devices: `./gameday --diag`
+- Push a generated test card + tone (no devices needed): `./gameday --test-pattern`
+- Set your stream key:
+
+```bash
+export YOUTUBE_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/xxxxxxxxxxxxxxxxxxxx'
+```
+
+### Troubleshooting
+
+If YouTube shows *No data* or a tiny bitrate, check:
+
+- Time sync: `timedatectl status` (enable NTP)
+- CA bundles installed/updated
+- Key has no `< >` or spaces
+- Nothing else is using `/dev/video0` or the Pulse source:
+  - `fuser -v /dev/video0`
+  - `pactl list short source-outputs`
+- Try `b.rtmps.youtube.com` if `a.rtmps` is flaky.
+
 ## Automated Film Analysis
 
 The `analysis` package provides a small end-to-end pipeline that ingests a
