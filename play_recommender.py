@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
-PLAYBOOK_PATH = Path("plays/playbook.json")
+PLAYBOOK_PATH = Path("playbooks/mca_5th_playbook.json")
 
 
 def _load_playbook() -> List[Dict[str, Any]]:
@@ -16,10 +16,8 @@ def _load_playbook() -> List[Dict[str, Any]]:
     try:
         with PLAYBOOK_PATH.open("r", encoding="utf-8") as f:
             data = json.load(f)
-        if isinstance(data, list):
-            return [d for d in data if isinstance(d, dict)]
-        if isinstance(data, dict):
-            return [dict(name=k, **v) for k, v in data.items() if isinstance(v, dict)]
+        if isinstance(data, dict) and isinstance(data.get("plays"), list):
+            return [d for d in data["plays"] if isinstance(d, dict)]
     except Exception:
         pass
     return []
