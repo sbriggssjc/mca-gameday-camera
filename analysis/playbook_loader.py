@@ -3,17 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-import json
 from typing import Dict, Any, List, Tuple
 from tools.json_io import load_json_safe
-
-
-def _try_paths(p: str) -> List[Path]:
-    cand = [Path(p)]
-    # common fallbacks
-    cand.append(Path("playbooks") / p)
-    cand.append(Path("playbooks") / Path(p).name)
-    return [c for c in cand if c.exists()]
 
 
 def load_playbook(playbook_path: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
@@ -30,11 +21,12 @@ def load_playbook(playbook_path: str) -> Tuple[Dict[str, Any], List[Dict[str, An
         Nested sections variant.
     """
 
-    candidates = _try_paths(playbook_path)
-    if not candidates:
-        print(f"[playbook] ERROR: not found: {playbook_path} (also tried playbooks/ variants)")
+    pb_path = Path(playbook_path)
+    if not pb_path.is_absolute():
+        pb_path = Path(__file__).resolve().parents[1] / pb_path
+    if not pb_path.exists():
+        print(f"[playbook] ERROR: not found: {pb_path}")
         return {}, []
-    pb_path = candidates[0]
     raw = load_json_safe(pb_path)
     if raw is None:
         print(f"[playbook] ERROR: failed to parse JSON at {pb_path}")
@@ -57,7 +49,7 @@ def load_playbook(playbook_path: str) -> Tuple[Dict[str, Any], List[Dict[str, An
         keys = list(raw.keys()) if isinstance(raw, dict) else type(raw)
         print(f"[playbook] WARNING: 0 plays parsed from {pb_path}. Top-level keys: {keys}")
     else:
-        print(f"[playbook] OK: loaded {len(plays)} plays from {pb_path.name}")
+        print(f"[playbook] OK: loaded {len(plays)} plays from {pb_path}")
     return raw, plays
 
 
