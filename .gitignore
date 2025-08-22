@@ -15,4 +15,9 @@ livestream_logs/
 output/
 !output/.gitkeep
 config/credentials.json
-credentials.json
+credentials.json# Google/GCP service account keys (never commit these)
+*.sa.json
+*.gcp.json
+*service-account*.json
+*credentials*.json
+modular-conduit-*-*.json
