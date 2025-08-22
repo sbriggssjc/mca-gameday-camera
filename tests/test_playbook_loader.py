@@ -1,6 +1,7 @@
 import pytest
 
 from analysis import assignments, assignments_schema
+from pathlib import Path
 
 @pytest.fixture
 def minimal():
@@ -25,8 +26,12 @@ def test_normalise_variants(minimal, split_sections, flat_lists):
         assert set(canon.keys()) == {"offense", "defense"}
         assert isinstance(canon["offense"]["plays"], list)
 
-def test_offense_playbook_loads():
+def test_offense_playbook_loads(capsys):
     from playbooks import load_offense_playbook
     pb = load_offense_playbook()
-    assert pb.get("metadata", {}).get("phase") == "offense"
+    out = capsys.readouterr().out
+    expected = Path("playbooks/mca_5th_playbook.json").resolve()
+    assert pb.get("team") == "Metro Christian Academy 5th"
     assert isinstance(pb.get("plays"), list) and pb["plays"]
+    assert f"[playbook] source={expected}" in out
+    assert "ERROR" not in out

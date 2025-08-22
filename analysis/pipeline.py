@@ -54,7 +54,8 @@ except Exception:  # pragma: no cover
 from .segmentation import segment_video
 from . import detect_track, features, orientation, zoom
 from formation_detector import detect_formation
-from playbooks import DEFAULT_PLAYBOOK_CANDIDATES, load_offense_playbook
+from fnmatch import fnmatch
+from playbooks import load_offense_playbook
 from .playbook.schema import validate_playbook
 from analysis.play_classifier import classify_play
 
@@ -151,38 +152,30 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         meta["rotation_deg"] = 0
     (run_dir / "metadata.json").write_text(json.dumps(meta, indent=2))
 
-    # Playbook logging + source/fallback
-    print(f"[playbook] source={getattr(args, 'playbook', '')}")
-    playbook_path = Path(getattr(args, "playbook", "") or "")
-    requested = getattr(args, "playbook", "") or ""
-    if playbook_path and playbook_path.exists():
-        raw_pb: Dict[str, Any] = load_offense_playbook(playbook_path)
-        print(f"[playbook] OK: loaded playbook from {playbook_path}")
-        print(f"[playbook] OK: requested playbook: {requested or playbook_path}")
+    raw_pb: Dict[str, Any] = load_offense_playbook(args.playbook)
+    defaults_pb = raw_pb.get("defaults", {})
+    if getattr(args, "min_play_length", None) in (None, 0):
+        args.min_play_length = float(defaults_pb.get("min_play_length_sec", DEFAULT_MIN_PLAY_LEN))
+    if getattr(args, "min_play_gap", None) in (None, 0):
+        args.min_play_gap = float(defaults_pb.get("min_play_gap_sec", DEFAULT_MIN_PLAY_GAP))
+    if getattr(args, "clip_pre", None) is None:
+        args.clip_pre = float(defaults_pb.get("clip_pad_pre_sec", 0.5))
+    if getattr(args, "clip_post", None) is None:
+        args.clip_post = float(defaults_pb.get("clip_pad_post_sec", 0.5))
+    abs_video = str(Path(args.video).resolve())
+    selected_profile = None
+    for vp in raw_pb.get("video_profiles", []):
+        if fnmatch(abs_video, vp.get("match", "")):
+            selected_profile = vp
+            break
+    if selected_profile:
+        print(f"[video_profile] {selected_profile.get('description', '')}")
+        meta["video_profile"] = selected_profile
     else:
-        raw_pb = load_offense_playbook(Path("playbooks/mca_5th_playbook.json"))
-        print(f"[playbook] OK: loaded playbook from playbooks/mca_5th_playbook.json")
-        print(
-            f"[playbook] OK: requested playbook: {requested or 'playbooks/mca_5th_playbook.json'}"
-        )
-    plays = []
-    # Extract plays from multiple known schemas
-    if isinstance(raw_pb, dict):
-        if isinstance(raw_pb.get("plays"), list):
-            plays = raw_pb["plays"]
-        elif isinstance(raw_pb.get("offense"), dict) and isinstance(raw_pb["offense"].get("plays"), list):
-            plays = raw_pb["offense"]["plays"]
-        elif isinstance(raw_pb.get("sections"), dict):
-            off = raw_pb["sections"].get("offense") or raw_pb["sections"].get("Offense")
-            if isinstance(off, dict) and isinstance(off.get("plays"), list):
-                plays = off["plays"]
-    pb = None
-    if plays:
-        try:
-            canonical_pb = {"plays": plays, "formations": raw_pb.get("formations", [])}
-            pb = validate_playbook(canonical_pb)
-        except Exception:
-            pb = None
+        print("[video_profile] none")
+    plays = raw_pb.get("plays", [])
+    pb = validate_playbook({"plays": plays, "formations": raw_pb.get("formations", [])}) if plays else None
+    name_to_family = {p.name: p.family or p.name for p in pb.plays.values()} if pb else {}
     print(
         f"[config] min_play_length={args.min_play_length} min_play_gap={args.min_play_gap} "
         f"report={args.generate_report} clips={args.generate_clips} highlights={args.generate_highlights} overlay={getattr(args, 'make_overlay', getattr(args, 'overlay', False))}"
@@ -272,8 +265,7 @@ def _run_pipeline(args: argparse.Namespace) -> None:
             print(f"[play_classifier] {seg_id}: {play_name} conf={play_conf:.2f}")
         else:
             print(f"[play_classifier] {seg_id}: Unknown conf=0.00")
-
-        play_family = play_name or ""
+        play_family = name_to_family.get(play_name, play_name or "")
 
         playcall_dict = {
             "name": play_name if play_name else None,
@@ -490,19 +482,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         print("[cloud-first] (Optional) Implement downloader to fetch by Drive file ID before processing.")
 
     prof = PROFILE_DEFAULTS.get('game', {})
-    env_len = os.getenv("MCA_MIN_PLAY_LEN")
-    env_gap = os.getenv("MCA_MIN_PLAY_GAP")
-
-    min_play_length = (
-        args.min_play_length if getattr(args, 'min_play_length', None) not in (None, 0)
-        else float(env_len) if env_len
-        else float(prof.get('min_play_length', DEFAULT_MIN_PLAY_LEN))
-    )
-    min_play_gap = (
-        args.min_play_gap if getattr(args, 'min_play_gap', None) not in (None, 0)
-        else float(env_gap) if env_gap
-        else float(prof.get('min_play_gap', DEFAULT_MIN_PLAY_GAP))
-    )
 
     generate_report = prof.get('generate_report', True) if getattr(args, 'generate_report', None) is None else args.generate_report
     generate_clips = prof.get('generate_clips', True) if getattr(args, 'generate_clips', None) is None else args.generate_clips
@@ -513,11 +492,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     overwrite = prof.get('overwrite', False) if getattr(args, 'overwrite', None) is None else args.overwrite
     auto_draw = prof.get('auto_draw', False) if getattr(args, 'auto_draw', None) is None else args.auto_draw
 
-    clip_pre = args.clip_pre if args.clip_pre is not None else 1.0
-    clip_post = args.clip_post if args.clip_post is not None else 1.0
-
-    args.min_play_length = min_play_length
-    args.min_play_gap = min_play_gap
     args.generate_report = generate_report
     args.generate_clips = generate_clips
     args.generate_highlights = generate_highlights
@@ -526,20 +500,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     args.auto_zoom = auto_zoom
     args.overwrite = overwrite
     args.auto_draw = auto_draw
-    args.clip_pre = clip_pre
-    args.clip_post = clip_post
 
-    print(
-        f"[config] min_play_length={min_play_length} min_play_gap={min_play_gap} "
-        f"report={generate_report} clips={generate_clips} highlights={generate_highlights} overlay={make_overlay}"
-    )
-
-    try:
-        run_pipeline(args=args)
-    except FileNotFoundError:
-        tried = ", ".join(DEFAULT_PLAYBOOK_CANDIDATES)
-        print(f"[playbook] ERROR: could not locate a playbook. Tried: {tried}")
-        raise
+    run_pipeline(args=args)
 
     if getattr(args, "sync_to_drive", False):
         gsync = os.getenv("GOOGLE_DRIVE_SYNC", "").strip().lower()
