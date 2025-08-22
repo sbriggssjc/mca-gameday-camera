@@ -529,3 +529,28 @@ cp .env.example .env
 # If you need to detach:
 Ctrl-b d   # (tmux detach)
 tmux attach -t gameday
+
+### Gameday quick start
+
+```bash
+# Optional: override via env
+export YOUTUBE_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/<your-key>'
+export VIDEO_DEV=/dev/video0
+export PULSE_DEV='alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_17477F5D-00.mono-fallback'
+# If MJPEG is flaky:
+# export INPUT_FORMAT=yuyv422
+
+# Launch
+./gameday
+```
+
+The launcher:
+
+Auto-picks the RØDE if present.
+
+Uses a robust audio chain (no min/max_comp).
+
+Adds large input queues and stable timestamps to reduce V4L2/DTS hiccups.
+
+Retries on transient RTMPS/TLS failures.
+
