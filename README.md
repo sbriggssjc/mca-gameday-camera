@@ -540,15 +540,24 @@ export PULSE_DEV='alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_17477F5D-00.mono-fal
 # If MJPEG is flaky:
 # export INPUT_FORMAT=yuyv422
 
+# Enable debug echoing of the ffmpeg command
+export DEBUG=1
+
 # Launch
 ./gameday
 ```
+
+Expected log lines:
+
+- Using Pulse source: alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_...
+- No appearance of min or max comp settings.
+- A single `-af` string that ends with `aresample=async=1:first_pts=0`.
 
 The launcher:
 
 Auto-picks the RØDE if present.
 
-Uses a robust audio chain (no min/max_comp).
+Uses a robust audio chain (without min or max comp tweaks).
 
 Adds large input queues and stable timestamps to reduce V4L2/DTS hiccups.
 

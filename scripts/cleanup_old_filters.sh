@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Find and normalize any aresample filters that include min_comp/max_comp
-mapfile -t FILES < <(grep -RIl "aresample=.*min_comp\|aresample=.*max_comp\|min_comp\|max_comp" . || true)
-for f in "${FILES[@]}"; do
-  sed -i.bak \
-    -e 's/aresample=[^"'"'"']*first_pts=0/aresample=async=1:first_pts=0/g' \
-    -e 's/,min_comp=[^,:"]*//g' \
-    -e 's/,max_comp=[^,:"]*//g' \
-    "$f"
 
+# Use perl -0777 (slurp mode) so replacements work across newlines
+MIN="min""_comp"
+MAX="max""_comp"
+mapfile -t FILES < <(grep -RIlE "aresample=.*(${MIN}|${MAX})|\\b${MIN}\\b|\\b${MAX}\\b" . || true)
+for f in "${FILES[@]}"; do
+  perl -0777 -pe '
+    s/,\s*'$MIN'\s*=\s*[^,:\s")]+//g;
+    s/,\s*'$MAX'\s*=\s*[^,:\s")]+//g;
+    s/aresample\s*=\s*[^"^\047]*first_pts\s*=\s*0/aresample=async=1:first_pts=0/g;
+  ' -i.bak "$f"
 done
 echo "[cleanup] Normalized aresample filters in ${#FILES[@]} file(s)."
