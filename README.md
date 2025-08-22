@@ -621,3 +621,39 @@ export YOUTUBE_RTMP_URL='rtmps://b.rtmps.youtube.com/live2/xxxx-xxxx-xxxx-xxxx-x
   - `pkill -9 -f 'cheese|guvcview|nvarguscamerasrc|nvargus-daemon|ffmpeg.*video4linux2|gst-launch'`
   - `sudo systemctl stop nvargus-daemon` (harmless if unused).
 - **Mic mono vs stereo:** We send mono with `-ac 1`. If you truly want stereo, change to `-ac 2`.
+
+## Gameday Quick Start
+
+```bash
+# 0) Install deps
+sudo apt-get update && sudo apt-get install -y ffmpeg jq ca-certificates
+sudo timedatectl set-ntp true
+sudo systemctl restart systemd-timesyncd || true
+sudo update-ca-certificates
+
+# 1) Pick devices
+export VIDEO_DEV=/dev/video0
+export PULSE_DEV='alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_XXXXXXXX-00.mono-fallback'
+
+# 2) Put your YouTube key (no spaces, no angle brackets)
+export YOUTUBE_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/xxxx-xxxx-xxxx-xxxx-xxxx'
+
+# 3) Test YouTube ingest with synthetic pattern
+TESTSRC=1 ./gameday   # stop with Ctrl+C, confirm "Excellent" in YouTube Studio
+
+# 4) Go live from camera + mic
+./gameday
+```
+
+### Tips
+
+If port 1935 is blocked, always use rtmps://...:443 (default here).
+
+If you see “device busy”, stop any apps using /dev/video0 and nvargus-daemon if CSI sensors are present:
+
+```
+pkill -9 -f 'cheese|guvcview|nvargus|video4linux2|opencv|gst-launch|ffmpeg'
+sudo systemctl stop nvargus-daemon || true
+```
+
+If Studio shows “low bitrate”, increase -b:v/-maxrate/-bufsize in gameday.
