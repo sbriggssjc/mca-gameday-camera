@@ -93,7 +93,7 @@ export PULSE_DEV
 exec ffmpeg -hide_banner -nostats -loglevel warning -fflags +genpts \
   -thread_queue_size 8192 -use_wallclock_as_timestamps 1 -f pulse -ac 2 -ar 48000 -i "$PULSE_DEV" \
   -thread_queue_size 8192 -use_wallclock_as_timestamps 1 -f v4l2 -rtbufsize 512M -input_format "${V4L2_FMT:-mjpeg}" -framerate "${FPS:-30}" -video_size "${RES:-1280x720}" -i "${VIDEO_DEV:-/dev/video0}" \
-  -filter_complex "[1:v]setpts=PTS+${VID_DELAY:-0.25}/TB,format=yuv420p[v];[0:a]highpass=f=100,volume=-4dB,acompressor=threshold=-22dB:ratio=2.5:attack=12:release=250:makeup=2,aformat=sample_fmts=s16:sample_rates=48000,alimiter=limit=0.85,aresample=async=1:first_pts=0,asetpts=N/SR/TB[a]" \
+  -filter_complex "[1:v]setpts=PTS+${VID_DELAY:-0.25}/TB,format=yuv420p[v];[0:a]highpass=f=100,volume=-4dB,acompressor=threshold=-22dB:ratio=2.5:attack=12:release=250:makeup=2,aformat=sample_fmts=s16:sample_rates=48000,alimiter=limit=0.85,aresample=async=1:min_comp=0.001:max_comp=0.05:first_pts=0,asetpts=N/SR/TB[a]" \
   -map "[v]" -map "[a]" -r "${FPS:-30}" -vsync cfr \
   -c:v libx264 -preset veryfast -b:v 2500k -maxrate 3000k -bufsize 3000k -g 60 \
   -c:a aac -b:a 160k -ar 48000 \
