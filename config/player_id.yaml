@@ -1,8 +1,0 @@
-reid_backbone: "clip_vit_b32"
-tracker: "bytetrack"
-w_emb: 0.65
-w_attr: 0.30
-w_size: 0.05
-confidence_threshold: 0.72
-min_labels_per_player: 5
-ui_max_uncertain: 12
