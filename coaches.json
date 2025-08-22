@@ -1,0 +1,6 @@
+{
+  "coaches": [
+    {"name": "Coach A", "email": "coachA@example.com", "phone": "+155555501"},
+    {"name": "Coach B", "email": "coachB@example.com", "phone": "+155555502"}
+  ]
+}
