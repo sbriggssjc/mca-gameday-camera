@@ -1,0 +1,6 @@
+{
+  "patterns": [
+    {"formation": "Trips", "quarter": 2, "play": "Jet Sweep", "rate": 0.6},
+    {"formation": "I-Formation", "quarter": 1, "play": "Dive", "rate": 0.5}
+  ]
+}

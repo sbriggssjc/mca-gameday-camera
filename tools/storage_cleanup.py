@@ -1,0 +1,180 @@
+import os, shutil, time, sys
+from pathlib import Path
+from typing import List, Tuple, Dict
+from .json_io import iter_jsonl_safe
+
+GB = 1024 ** 3
+
+
+def _env(name, default=None, cast=str):
+    v = os.getenv(name, default)
+    return cast(v) if (v is not None and cast is not str) else v
+
+
+def get_free_gb(path: Path = Path("/")) -> float:
+    stat = shutil.disk_usage(str(path))
+    return stat.free / GB
+
+
+def list_runs(output_dir: Path) -> List[Path]:
+    if not output_dir.exists(): return []
+    # Treat each immediate child folder as a "run"
+    return sorted([p for p in output_dir.iterdir() if p.is_dir()], key=lambda p: p.stat().st_mtime, reverse=True)
+
+
+def prune_runs(output_dir: Path, retain_latest: int, retain_days: int) -> List[Path]:
+    """
+    Returns a list of paths that were removed.
+    Policy: keep last N runs regardless of age; older than retain_days are candidates for deletion.
+    """
+    removed = []
+    runs = list_runs(output_dir)
+    now = time.time()
+    keep = set(runs[:retain_latest])
+    for r in runs[retain_latest:]:
+        age_days = (now - r.stat().st_mtime) / (24*3600)
+        if age_days > retain_days:
+            shutil.rmtree(r, ignore_errors=True)
+            removed.append(r)
+    return removed
+
+
+def prune_large_files(paths: List[Path], older_than_days: int) -> List[Path]:
+    removed = []
+    now = time.time()
+    for base in paths:
+        if not base.exists(): continue
+        for p in base.rglob("*"):
+            if p.is_file():
+                age_days = (now - p.stat().st_mtime) / (24*3600)
+                if age_days > older_than_days:
+                    try:
+                        p.unlink()
+                        removed.append(p)
+                    except Exception:
+                        pass
+    return removed
+
+
+def _load_manifest(manifest_path: Path) -> Dict[str, Dict]:
+    data: Dict[str, Dict] = {}
+    for rec in iter_jsonl_safe(manifest_path):
+        data[rec.get("local")] = rec
+    return data
+
+
+def safe_delete(path: Path, manifest_path: Path) -> bool:
+    """Delete only if file/dir has verified manifest entries."""
+    manifest = _load_manifest(manifest_path)
+
+    def _verified(p: Path) -> bool:
+        rec = manifest.get(str(p))
+        return bool(rec and rec.get("status") == "verified" and rec.get("drive_id"))
+
+    if path.is_file():
+        if not _verified(path):
+            print(f"[safe-delete] skip unverified file: {path}")
+            return False
+        try:
+            path.unlink()
+            return True
+        except Exception:
+            return False
+    if path.is_dir():
+        for p in path.rglob("*"):
+            if p.is_file() and not _verified(p):
+                print(f"[safe-delete] directory has unverified file: {p}")
+                return False
+        shutil.rmtree(path, ignore_errors=True)
+        return True
+    return False
+
+
+def preflight_or_abort(min_free_gb: float) -> None:
+    free = get_free_gb()
+    if free < min_free_gb:
+        print(f"[storage] ERROR: only {free:.1f} GB free; need {min_free_gb} GB")
+        sys.exit(2)
+
+
+def tarball(path: Path, dest_dir: Path) -> Path:
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    archive = dest_dir / f"{path.name}.tar"
+    # Write uncompressed TAR to reduce CPU; Drive will handle storage
+    import tarfile
+    with tarfile.open(archive, "w") as tf:
+        tf.add(str(path), arcname=path.name)
+    return archive
+
+
+def _truthy_env(name: str, default: str = "0") -> bool:
+    val = os.environ.get(name, default).strip().lower()
+    return val in ("1", "true", "yes", "y", "on")
+
+
+def ensure_min_free_space(min_free_gb: float, video_dir: Path, output_dir: Path, archive_dir: Path, gdrive_folder_analyzed: str):
+    """
+    Ensure we have at least `min_free_gb` free. Optionally upload archived runs
+    to Drive when GOOGLE_DRIVE_SYNC=1.
+    """
+    free = get_free_gb()
+    if free >= min_free_gb:
+        return
+
+    enable_gdrive = _truthy_env("GOOGLE_DRIVE_SYNC", "0")
+    upload_tree_with_manifest = None
+    if enable_gdrive:
+        try:
+            from tools.gdrive_sync import upload_tree_with_manifest  # type: ignore
+        except Exception as e:
+            print(f"[gdrive] WARNING: failed to import gdrive_sync: {e}")
+            upload_tree_with_manifest = None
+    else:
+        print("[storage] Google Drive sync disabled (set GOOGLE_DRIVE_SYNC=1 to enable)")
+
+    # Step 1: upload the oldest runs (not in the last N) as tarballs then delete
+    removed_any = False
+    runs = list_runs(output_dir)
+    for r in reversed(runs):  # oldest first
+        if get_free_gb() >= min_free_gb:
+            break
+        if enable_gdrive and upload_tree_with_manifest:
+            tar = tarball(r, archive_dir)
+            manifest = archive_dir / "manifest.jsonl"
+            try:
+                upload_tree_with_manifest(tar.parent, gdrive_folder_analyzed, manifest)
+            except Exception as e:
+                print(f"[gdrive] WARNING: upload failed: {e}")
+            try:
+                shutil.rmtree(r, ignore_errors=True)
+                tar.unlink(missing_ok=True)
+                removed_any = True
+            except Exception:
+                pass
+        else:
+            try:
+                shutil.rmtree(r, ignore_errors=True)
+                removed_any = True
+            except Exception:
+                pass
+
+    # Step 2: if still low, remove aged raw videos
+    if get_free_gb() < min_free_gb:
+        prune_large_files([video_dir], older_than_days=_env("RETAIN_DAYS", 14, int))
+
+    return removed_any
+
+
+def remove_old_runs_verified(
+    output_dir: Path, retain_latest: int, retain_days: int, manifest_path: Path
+) -> List[Path]:
+    removed: List[Path] = []
+    runs = list_runs(output_dir)
+    now = time.time()
+    for r in runs[retain_latest:]:
+        age_days = (now - r.stat().st_mtime) / (24 * 3600)
+        if age_days > retain_days:
+            if safe_delete(r, manifest_path):
+                removed.append(r)
+    return removed
+
