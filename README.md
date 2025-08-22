@@ -14,6 +14,15 @@ EXTRA_GAIN_DB=4 ./gameday --audio-source pulse            # manual tweak
 ./gameday --dry-run | less                                # inspect command
 ```
 
+## Quick stream config via env
+
+```bash
+export YOUTUBE_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/xxxx-xxxx-xxxx-xxxx'
+export VIDEO_DEV=/dev/video0
+export PULSE_DEV='alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_17477F5D-00.mono-fallback'
+scripts/gameday_launcher.sh
+```
+
 ## Automated Film Analysis
 
 The `analysis` package provides a small end-to-end pipeline that ingests a
