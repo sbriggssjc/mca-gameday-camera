@@ -4,6 +4,8 @@ This repository contains utilities for tracking play participation during a game
 
 Large video recordings (`.mp4`) are saved in the `video/` folder but individual recording files are ignored by Git. Use `upload_to_drive.py` to sync these videos to Google Drive instead of committing them.
 
+This project uses a single playbook at `playbooks/mca_5th_playbook.json`.
+
 ## Game-day one-liners
 
 ```
@@ -62,7 +64,7 @@ mkdir -p "$OUT"
 PYTHONPATH=. python3 -m analysis.pipeline \
   --video video/manual_uploads/IMG_4129.MP4 \
   --team WHITE \
-  --playbook mca_full_playbook_final.json \
+  --playbook playbooks/mca_5th_playbook.json \
   --out "$OUT" \
   --sync-to-drive
 
