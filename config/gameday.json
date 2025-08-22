@@ -1,1 +1,7 @@
-{}
+{
+  "rtmp_url": "",
+  "video_dev": "/dev/video0",
+  "pulse_source": "",
+  "video_size": "1280x720",
+  "fps": 30
+}
