@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Gameday Launcher
-Comment=Start stream + local recording + play counter
-Exec=/bin/bash -lc "cd '$HOME/mca-gameday-camera' && ./gameday"
-Icon=video-display
-Terminal=true
-Categories=Utility;
