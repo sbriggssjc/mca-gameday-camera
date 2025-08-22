@@ -1,32 +1,19 @@
-"""List available audio devices.
+"""List available audio capture devices."""
 
-Usage:
-  PYTHONPATH=. python3 -m tools.list_audio
-  PYTHONPATH=. python3 -m tools.list_audio --json
-"""
-
-import argparse, json
-
-from tools.audio_devices import diag
+import subprocess
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="List audio devices")
-    parser.add_argument("--json", action="store_true", help="output JSON instead of text")
-    args = parser.parse_args()
+print("Pulse sources:")
+subprocess.run(
+    "pactl list short sources | awk '{print \"  - \"$2}'",
+    shell=True,
+    check=False,
+)
 
-    info = diag()
-    if args.json:
-        print(json.dumps(info))
-        return
+print("\nALSA devices:")
+subprocess.run(
+    r"arecord -l | sed -n 's/^card \([0-9]\+\): .*device \([0-9]\+\).*/  - hw:\1,\2/p'",
+    shell=True,
+    check=False,
+)
 
-    print("Pulse sources:")
-    for s in info["pulse"]:
-        print(f"  - {s}")
-    print("\nALSA devices:")
-    for d in info["alsa"]:
-        print(f"  - {d}")
-
-
-if __name__ == "__main__":
-    main()
