@@ -1,0 +1,18 @@
+[
+  {
+    "play_type": "Jet Sweep Right",
+    "confidence": 0.92,
+    "time": 5.0,
+    "start_frame": 180,
+    "end_frame": 250,
+    "success": true
+  },
+  {
+    "play_type": "Inside Zone",
+    "confidence": 0.85,
+    "time": 15.0,
+    "start_frame": 500,
+    "end_frame": 560,
+    "success": false
+  }
+]
