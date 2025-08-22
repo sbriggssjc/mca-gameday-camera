@@ -69,8 +69,9 @@ def build_highlight(clips_dir: pathlib.Path, out_dir: pathlib.Path):
             "0:a:0?",
             "-vsync",
             "vfr",
+            # Our ffmpeg build lacks support for min_*comp flags on aresample.
             "-af",
-            "aresample=async=1:min_hard_comp=0.100:first_pts=0",
+            "aresample=async=1:first_pts=0",
             "-ar",
             "48000",
             "-ac",
