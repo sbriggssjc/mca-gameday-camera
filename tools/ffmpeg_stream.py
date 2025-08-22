@@ -23,21 +23,11 @@ def build_ffmpeg_cmd(
     Pulse device name.
     """
 
-    # Audio filter chain:
-    #  - highpass: roll off low-frequency rumble
-    #  - volume: reduce overall level before compression
-    #  - acompressor: gentle compression to lift quiet speech
-    #  - alimiter: prevent clipping below full scale
-    af = [
-        "highpass=f=100",
-        "volume=-3dB",
-        "acompressor=threshold=-22dB:ratio=2.5:attack=12:release=250:makeup=2",
-        "alimiter=limit=0.85",
-    ]
-
     audio_in = [
         "-thread_queue_size",
-        "4096",
+        "8192",
+        "-use_wallclock_as_timestamps",
+        "1",
         "-f",
         "pulse",
         "-ac",
@@ -52,11 +42,13 @@ def build_ffmpeg_cmd(
     if video_input:
         video_in = [
             "-thread_queue_size",
-            "4096",
+            "8192",
+            "-use_wallclock_as_timestamps",
+            "1",
             "-f",
             "v4l2",
             "-rtbufsize",
-            "256M",
+            "512M",
             "-input_format",
             input_format,
             "-framerate",
@@ -74,9 +66,16 @@ def build_ffmpeg_cmd(
             f"color=size={width}x{height}:rate={fps}:color=black",
         ]
 
+    # Single filter graph for both audio and video to keep timestamps in sync
+    # and ensure consistent audio processing.
     filter_complex = (
-        f"[1:v]setpts=PTS+{video_delay}/TB[v];"
-        "[0:a]aresample=async=1:first_pts=0,asetpts=N/SR/TB[a]"
+        f"[1:v]setpts=PTS+{video_delay}/TB,format=yuv420p[v];"
+        "[0:a]highpass=f=100,volume=-4dB,"
+        "acompressor=threshold=-22dB:ratio=2.5:attack=12:release=250:makeup=2,"
+        "aformat=sample_fmts=s16:sample_rates=48000,"
+        "alimiter=limit=0.85,"
+        "aresample=async=1:min_comp=0.001:max_comp=0.05:first_pts=0,"
+        "asetpts=N/SR/TB[a]"
     )
 
     out = [
@@ -103,16 +102,12 @@ def build_ffmpeg_cmd(
         bufsize,
         "-g",
         str(fps * 2),
-        "-pix_fmt",
-        "yuv420p",
         "-c:a",
         "aac",
         "-b:a",
         "160k",
         "-ar",
         "48000",
-        "-af",
-        ",".join(af),
         # Low-latency/robustness
         "-tune",
         "zerolatency",
