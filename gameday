@@ -178,15 +178,24 @@ pactl list short source-outputs 2>/dev/null | awk '{print $1}' | xargs -r -n1 pa
 systemctl is-active --quiet nvargus-daemon && sudo systemctl stop nvargus-daemon || true
 
 ################################################################################
-# Encoder selection (libx264 preferred; fallback to h264_v4l2m2m if needed)
+# Encoder selection (prefer libx264; otherwise any available h264_* encoder)
 ################################################################################
-ENC_V="-c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p -b:v 3000k -maxrate 3500k -bufsize 4500k -g 60 -r ${fps}"
-if ! ffmpeg -hide_banner -encoders | grep -q '^ ..S... libx264'; then
-  if ffmpeg -hide_banner -encoders | grep -q '^ ..S... h264_v4l2m2m'; then
-    ENC_V="-c:v h264_v4l2m2m -preset veryfast -tune zerolatency -pix_fmt yuv420p -b:v 3000k -maxrate 3500k -bufsize 4500k -g 60 -r ${fps}"
-    log "libx264 missing; using h264_v4l2m2m"
+# Common video encoding options
+ENC_OPTS="-pix_fmt yuv420p -b:v 3000k -maxrate 3500k -bufsize 4500k -g 60 -r ${fps}"
+ENC_PRESET="-preset veryfast"
+ENC_V=""
+
+# Query available encoders once to avoid repeated ffmpeg calls
+ENC_LIST="$(ffmpeg -hide_banner -encoders 2>/dev/null || true)"
+if echo "$ENC_LIST" | grep -q '^ ..S... libx264'; then
+  ENC_V="-c:v libx264 ${ENC_PRESET} -tune zerolatency ${ENC_OPTS}"
+else
+  HW_ENC="$(echo "$ENC_LIST" | awk '$0 ~ /^ ..S... h264_/ {print $2; exit}')"
+  if [[ -n "$HW_ENC" ]]; then
+    ENC_V="-c:v ${HW_ENC} ${ENC_PRESET} ${ENC_OPTS}"
+    log "libx264 missing; using ${HW_ENC}"
   else
-    log "ERROR: no H.264 encoder available (libx264 or h264_v4l2m2m)."
+    log "ERROR: no H.264 encoder available (libx264 or any h264_* encoder)."
     exit 4
   fi
 fi
