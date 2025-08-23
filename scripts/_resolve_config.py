@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 import os, sys, json, re, pathlib
 
-CFG_PATH = pathlib.Path("config/gameday.json")
+try:
+    import env_loader
+    env_loader.load_env()
+except Exception:
+    pass
 
-def eprint(*a, **k):
-    print(*a, file=sys.stderr, **k)
+CFG_PATH = pathlib.Path("config/gameday.json")
 
 def load_cfg():
     if CFG_PATH.exists():
@@ -12,7 +15,7 @@ def load_cfg():
             with open(CFG_PATH, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as ex:
-            eprint(f"[gameday] ERROR: invalid JSON in {CFG_PATH}: {ex}")
+            print(f"[gameday] ERROR: invalid JSON in {CFG_PATH}: {ex}", file=sys.stderr)
             sys.exit(2)
     return {}
 
@@ -22,13 +25,17 @@ def coalesce(cfg_key, env_key, default=None):
         return v.strip()
     return (cfg.get(cfg_key) if (cfg_key in cfg and cfg[cfg_key]) else default)
 
-def valid_rtmp(url: str) -> bool:
-    if not url:
+def _valid_rtmp(u: str) -> bool:
+    if not u or not isinstance(u, str):
         return False
-    if not (url.startswith("rtmp://") or url.startswith("rtmps://")):
+    u = u.strip()
+    if not (u.startswith("rtmps://") or u.startswith("rtmp://")):
         return False
-    # basic YouTube key check: groups of [a-z0-9-], at least 10 chars
-    return bool(re.search(r"/live2/[A-Za-z0-9\-]{10,}$", url))
+    if "/live2/" not in u:
+        return False
+    if any(ch in u for ch in "<>"):
+        return False
+    return len(u.rsplit("/live2/", 1)[-1].strip()) > 0
 
 cfg = load_cfg()
 
@@ -40,13 +47,14 @@ rtmp_url    = coalesce("rtmp_url",    "YOUTUBE_RTMP_URL", "")
 
 ok = True
 if not pathlib.Path(video_dev).exists():
-    eprint(f"[gameday] WARN: video device missing: {video_dev}")
-if not valid_rtmp(rtmp_url):
-    eprint("[gameday] missing or invalid RTMP URL")
+    print(f"[gameday] WARN: video device missing: {video_dev}", file=sys.stderr)
+if not _valid_rtmp(rtmp_url):
+    print("[gameday] missing or invalid RTMP URL", file=sys.stderr)
     ok = False
 
-eprint(f"[gameday] Launch -> video={video_dev} {video_size}@{fps} | pulse={pulse_src} | rtmp={'set' if bool(rtmp_url) else 'MISSING'}")
+print(f"[gameday] Launch -> video={video_dev} {video_size}@{fps} | pulse={pulse_src} | rtmp={'set' if bool(rtmp_url) else 'MISSING'}", file=sys.stderr)
 if not ok:
+    print("[gameday] failed to resolve config.", file=sys.stderr)
     sys.exit(2)
 
 # IMPORTANT: stdout must be JSON only
