@@ -21,7 +21,8 @@ EXTRA_GAIN_DB=4 ./gameday --audio-source pulse            # manual tweak
 scripts/doctor.sh
 
 # 1) Set your stream key (NO angle brackets, no spaces)
-export YOUTUBE_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/<your_key>'
+export YT_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/<your_key>'
+# (``YOUTUBE_RTMP_URL`` is also accepted)
 
 # 2) Optional: override devices (else put them in config/gameday.json)
 export VIDEO_DEV=/dev/video0
