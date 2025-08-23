@@ -77,6 +77,11 @@ sleep 0.5
 ################################################################################
 # Resolve config (stderr = human, stdout = compact JSON)
 ################################################################################
+# Allow --rtmp overrides to satisfy validation in _resolve_config.py by
+# surfacing the override via an environment variable.
+if [[ -n "$OVERRIDE_RTMP" ]]; then
+  export RTMP_URL="$OVERRIDE_RTMP"
+fi
 CFG_JSON="$(scripts/_resolve_config.py 2> >(tee /dev/stderr))" || {
   log "failed to resolve config."
   exit 2
