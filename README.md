@@ -14,37 +14,55 @@ EXTRA_GAIN_DB=4 ./gameday --audio-source pulse            # manual tweak
 ./gameday --dry-run | less                                # inspect command
 ```
 
-## Quick stream config via env
+## Quick Start (YouTube Live)
 
 ```bash
-export YOUTUBE_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/xxxx-xxxx-xxxx-xxxx'
+# 0) First time: check system basics
+scripts/doctor.sh
+
+# 1) Set your stream key (NO angle brackets, no spaces)
+export YOUTUBE_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/<your_key>'
+
+# 2) Optional: override devices (else put them in config/gameday.json)
 export VIDEO_DEV=/dev/video0
-export PULSE_DEV='alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_17477F5D-00.mono-fallback'
-scripts/gameday_launcher.sh
+export PULSE_DEV='alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_XXXXXXXX-00.mono-fallback'
+
+# 3) Run
+./gameday
 ```
 
-## Gameday Quick Start
+If 443/rtmps is flaky, try:
 
-- Port 443 via RTMPS is preferred; port 1935 may be blocked.
-- List audio devices: `./gameday --diag`
-- Push a generated test card + tone (no devices needed): `./gameday --test-pattern`
-- Set your stream key:
+rtmps://b.rtmps.youtube.com/live2/<key>
+
+If port 1935 is open and you prefer RTMP:
+
+rtmp://a.rtmp.youtube.com/live2/<key>
+
+Notes
+
+The launcher prints a one-line “Launch -> …” status to stderr and emits JSON config to stdout internally. If it says missing or invalid RTMP URL, fix your key.
+
+If YouTube shows “No data” or a very low bitrate, verify network, try b.rtmps, or switch to rtmp:// if 1935 is open.
+
+We avoid aresample min_comp/max_comp entirely for compatibility.
+
+MJPEG → H.264 path adds in_range=jpeg:out_range=tv to prevent washed/incorrect levels on YT.
+
+---
+
+## Optional: test generators (keep for debugging)
 
 ```bash
-export YOUTUBE_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/xxxxxxxxxxxxxxxxxxxx'
+ffmpeg -hide_banner -loglevel info -re \
+  -f lavfi -i testsrc2=size=1280x720:rate=30 \
+  -f lavfi -i sine=frequency=1000:sample_rate=48000 \
+  -c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p \
+  -b:v 3500k -maxrate 4000k -bufsize 6000k -g 60 -r 30 \
+  -c:a aac -b:a 128k -ar 48000 -ac 1 \
+  -flvflags no_duration_filesize \
+  -f flv "$YOUTUBE_RTMP_URL"
 ```
-
-### Troubleshooting
-
-If YouTube shows *No data* or a tiny bitrate, check:
-
-- Time sync: `timedatectl status` (enable NTP)
-- CA bundles installed/updated
-- Key has no `< >` or spaces
-- Nothing else is using `/dev/video0` or the Pulse source:
-  - `fuser -v /dev/video0`
-  - `pactl list short source-outputs`
-- Try `b.rtmps.youtube.com` if `a.rtmps` is flaky.
 
 ## Automated Film Analysis
 
