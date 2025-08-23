@@ -39,23 +39,26 @@ def _valid_rtmp(u: str) -> bool:
 
 cfg = load_cfg()
 
-video_dev   = coalesce("video_dev",   "VIDEO_DEV",   "/dev/video0")
-pulse_src   = coalesce("pulse_source","PULSE_DEV",   "alsa_input.platform-sound.analog-stereo")
+video_dev   = coalesce("video_dev",   "VIDEO_DEV")
+pulse_src   = coalesce("pulse_source","PULSE_DEV")
 video_size  = coalesce("video_size",  "VIDEO_SIZE",  "1280x720")
 fps         = int(coalesce("fps",     "FPS",         "30"))
 rtmp_url    = coalesce("rtmp_url",    "YOUTUBE_RTMP_URL", "")
 
-ok = True
+# ---- sanity checks
+if not video_dev:
+    print("[gameday] missing VIDEO_DEV", file=sys.stderr)
+    sys.exit(2)
+if not pulse_src:
+    print("[gameday] missing PULSE_DEV", file=sys.stderr)
+    sys.exit(2)
 if not pathlib.Path(video_dev).exists():
     print(f"[gameday] WARN: video device missing: {video_dev}", file=sys.stderr)
 if not _valid_rtmp(rtmp_url):
     print("[gameday] missing or invalid RTMP URL", file=sys.stderr)
-    ok = False
+    sys.exit(2)
 
 print(f"[gameday] Launch -> video={video_dev} {video_size}@{fps} | pulse={pulse_src} | rtmp={'set' if bool(rtmp_url) else 'MISSING'}", file=sys.stderr)
-if not ok:
-    print("[gameday] failed to resolve config.", file=sys.stderr)
-    sys.exit(2)
 
 # IMPORTANT: stdout must be JSON only
 out = {
