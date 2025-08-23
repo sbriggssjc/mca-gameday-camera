@@ -1,23 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-set -x  # TEMP: debug
-
-kill_conflicts() {
-  local me=$$
-  # Kill likely grabbers, but never this script or its parent
-  pgrep -f -a 'ffmpeg.*video4linux2|python.*(opencv|cv2|camera)|gst-launch|cheese|guvcview|chrome --enable-webrtc|v4l2loopback' \
-  | awk -v me="$me" -v ppid="$PPID" '{print $1}' \
-  | while read -r pid; do
-      if [ "$pid" != "$me" ] && [ "$pid" != "$ppid" ]; then
-        kill -9 "$pid" 2>/dev/null || true
-      fi
-    done
-  pactl list short source-outputs 2>/dev/null | awk '{print $1}' | xargs -r -n1 pactl kill-client 2>/dev/null || true
-}
-
-kill_conflicts
-
-set -euo pipefail
 
 TEST_PATTERN=0
 for arg in "$@"; do
@@ -25,7 +7,7 @@ for arg in "$@"; do
 done
 
 # ---- kill stragglers that often hold devices
-# SAFETY: disabled; self-kills gameday -> pkill -9 -f 'gameday|ffmpeg.*video4linux2|python.*(opencv|cv2|camera)|gst-launch' 2>/dev/null || true
+pkill -9 -f 'gameday|ffmpeg.*video4linux2|python.*(opencv|cv2|camera)|gst-launch' 2>/dev/null || true
 sleep 0.7
 
 # ---- resolve config (stderr: human, stdout: JSON)
