@@ -1,33 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# set -x  # enable while debugging
 
+# Kill potential camera/audio conflicts before starting
 kill_conflicts() {
   local me=$$
+  local ppid=$PPID
 
-set -x  # TEMP: debug
-
-kill_conflicts() {
-  local me=$$
   # Kill likely grabbers, but never this script or its parent
-
   pgrep -f -a 'ffmpeg.*video4linux2|python.*(opencv|cv2|camera)|gst-launch|cheese|guvcview|chrome --enable-webrtc|v4l2loopback' \
-  | awk -v me="$me" -v ppid="$PPID" '{print $1}' \
-  | while read -r pid; do
-      if [ "$pid" != "$me" ] && [ "$pid" != "$ppid" ]; then
-        kill -9 "$pid" 2>/dev/null || true
-      fi
-    done
+    | awk -v me="$me" -v ppid="$ppid" '{print $1}' \
+    | while read -r pid; do
+        if [[ "$pid" != "$me" && "$pid" != "$ppid" ]]; then
+          kill -9 "$pid" 2>/dev/null || true
+        fi
+      done || true
+
   pactl list short source-outputs 2>/dev/null | awk '{print $1}' \
     | xargs -r -n1 pactl kill-client 2>/dev/null || true
 }
-kill_conflicts
-  pactl list short source-outputs 2>/dev/null | awk '{print $1}' | xargs -r -n1 pactl kill-client 2>/dev/null || true
-}
 
 kill_conflicts
-
-set -euo pipefail
 
 TEST_PATTERN=0
 for arg in "$@"; do
