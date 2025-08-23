@@ -20,9 +20,16 @@ def load_cfg():
     return {}
 
 def coalesce(cfg_key, env_key, default=None):
-    v = os.environ.get(env_key)
-    if v is not None and v.strip():
-        return v.strip()
+    """Return the first non-empty env var among ``env_key`` or config fallback."""
+    if isinstance(env_key, (list, tuple)):
+        for ek in env_key:
+            v = os.environ.get(ek)
+            if v is not None and v.strip():
+                return v.strip()
+    else:
+        v = os.environ.get(env_key)
+        if v is not None and v.strip():
+            return v.strip()
     return (cfg.get(cfg_key) if (cfg_key in cfg and cfg[cfg_key]) else default)
 
 def _valid_rtmp(u: str) -> bool:
@@ -43,7 +50,8 @@ video_dev   = coalesce("video_dev",   "VIDEO_DEV")
 pulse_src   = coalesce("pulse_source","PULSE_DEV")
 video_size  = coalesce("video_size",  "VIDEO_SIZE",  "1280x720")
 fps         = int(coalesce("fps",     "FPS",         "30"))
-rtmp_url    = coalesce("rtmp_url",    "YOUTUBE_RTMP_URL", "")
+# Accept common aliases like YT_RTMP_URL for backward compatibility
+rtmp_url    = coalesce("rtmp_url",    ("YOUTUBE_RTMP_URL", "YT_RTMP_URL", "RTMP_URL"), "")
 
 # ---- sanity checks
 if not video_dev:
