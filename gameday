@@ -97,6 +97,33 @@ print(v if v is not None else "")
 PY
 }
 
+# Resolve a configured PulseAudio source name to an actual device.  Handles
+# wildcards like `*` or placeholder `XXXXXXXX` for changing USB serial IDs.
+# If a unique match is found, the resolved name is printed; otherwise the
+# original value is echoed back unchanged so later validation can report an
+# error.
+resolve_pulse_source() {
+  local cfg="$1" sources pattern resolved
+  sources="$(pactl list short sources 2>/dev/null)" || sources=""
+  [[ -z "$sources" ]] && { echo "$cfg"; return; }
+
+  if echo "$sources" | awk '{print $2}' | grep -qxF "$cfg"; then
+    echo "$cfg"
+    return
+  fi
+
+  pattern="$cfg"
+  pattern="${pattern//XXXXXXXX/.+}"
+  pattern="${pattern//\*/.*}"
+  resolved="$(echo "$sources" | awk '{print $2}' | grep -E "^${pattern}$" | head -n1)"
+  if [[ -n "$resolved" ]]; then
+    log "resolved pulse source '$cfg' -> '$resolved'"
+    echo "$resolved"
+  else
+    echo "$cfg"
+  fi
+}
+
 rtmp_url="$(json_get rtmp_url)"
 video_dev="$(json_get video_dev)"
 pulse_dev="$(json_get pulse_source)"
@@ -110,6 +137,9 @@ fps="$(json_get fps)"
 [[ -n "$OVERRIDE_SIZE"      ]] && video_size="$OVERRIDE_SIZE"
 [[ -n "$OVERRIDE_FPS"       ]] && fps="$OVERRIDE_FPS"
 
+# Attempt to auto-resolve dynamic PulseAudio source names.
+pulse_dev="$(resolve_pulse_source "$pulse_dev")"
+
 log "Launch -> video=${video_dev} ${video_size}@${fps} | pulse=${pulse_dev} | rtmp=$([[ -n "$rtmp_url" ]] && echo set || echo MISSING)"
 
 ################################################################################
@@ -122,7 +152,11 @@ esac
 
 if [[ $TEST_PATTERN -ne 1 ]]; then
   [[ -e "$video_dev" ]] || { log "video device not found: $video_dev"; exit 3; }
-  pactl list short sources | grep -qF "$pulse_dev" || { log "pulse source not found: $pulse_dev"; exit 3; }
+  if ! pactl list short sources | awk '{print $2}' | grep -qxF "$pulse_dev"; then
+    log "pulse source not found: $pulse_dev"
+    pactl list short sources 2>/dev/null | awk '{print "  "$2}' >&2 || true
+    exit 3
+  fi
 fi
 
 # Check ffmpeg has rtmps/tls if we're using rtmps://
