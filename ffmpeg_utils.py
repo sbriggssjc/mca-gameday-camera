@@ -4,47 +4,68 @@ import threading
 from typing import List, Optional, Tuple
 
 
-def detect_encoder(input_type: str | None = None) -> str:
+def _sanity_probe(name: str) -> bool:
+    """Return ``True`` if ``ffmpeg`` can open the given encoder."""
+
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=1280x720:rate=30",
+        "-t",
+        "1",
+        "-c:v",
+        name,
+        "-f",
+        "null",
+        "-",
+    ]
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def detect_encoder(
+    preferred: Optional[List[str]] = None,
+    input_type: str | None = None,
+) -> str:
     """Detect and return a usable H.264 encoder.
 
-    Preference order:
-    1. ``h264_v4l2m2m`` (Jetson hardware encoder)
-    2. ``h264_nvmpi``
-    3. ``libx264``
-
-    ``h264_omx`` is intentionally skipped due to reliability issues. A
-    ``RuntimeError`` is raised if no suitable encoder is found.
-
-    When ``input_type`` is ``"image2pipe"`` (MJPEG frames piped via stdin),
-    Jetson hardware encoders output an empty stream. In this case ``libx264`` is
-    forced if available.
+    ``preferred`` may specify a custom encoder search order.  When ``input_type``
+    is ``"image2pipe"`` (piped MJPEG frames), hardware encoders are skipped in
+    favour of ``libx264``.
     """
-
     try:
-        result = subprocess.run(
-            ["ffmpeg", "-encoders"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+        encoders = subprocess.check_output(
+            ["ffmpeg", "-hide_banner", "-encoders"], text=True
         )
-        encoders = result.stdout
-        if input_type == "image2pipe":
-            print("⚠️ Forcing encoder to libx264 due to piped MJPEG input (image2pipe)")
-            if "libx264" in encoders:
-                return "libx264"
-        else:
-            if "h264_v4l2m2m" in encoders:
-                return "h264_v4l2m2m"
-            if "h264_nvmpi" in encoders:
-                return "h264_nvmpi"
-            if "libx264" in encoders:
-                return "libx264"
     except Exception:
-        pass
-    raise RuntimeError(
-        "❌ No usable H.264 encoder found (looked for h264_v4l2m2m, h264_nvmpi, libx264)."
-    )
+        encoders = ""
 
+    candidates = preferred or ["h264_v4l2m2m", "h264_nvmpi", "libx264"]
+
+    if input_type == "image2pipe":
+        if "libx264" in encoders and _sanity_probe("libx264"):
+            return "libx264"
+    else:
+        for name in candidates:
+            if name not in encoders:
+                continue
+            if _sanity_probe(name):
+                return name
+
+    if _sanity_probe("libx264"):
+        return "libx264"
+
+    raise RuntimeError(
+        "❌ No usable H.264 encoder found (looked for h264_v4l2m2m, h264_nvmpi, libx264).",
+    )
 
 def run_ffmpeg_command(cmd: List[str], timeout: int = 15) -> Tuple[int, str, str]:
     """Run an FFmpeg command with realtime stderr streaming.
