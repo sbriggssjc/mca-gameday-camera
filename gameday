@@ -1,14 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# set -x  # enable while debugging
+
+kill_conflicts() {
+  local me=$$
+  pgrep -f -a 'ffmpeg.*video4linux2|python.*(opencv|cv2|camera)|gst-launch|cheese|guvcview|chrome --enable-webrtc|v4l2loopback' \
+  | awk -v me="$me" -v ppid="$PPID" '{print $1}' \
+  | while read -r pid; do
+      if [ "$pid" != "$me" ] && [ "$pid" != "$ppid" ]; then
+        kill -9 "$pid" 2>/dev/null || true
+      fi
+    done
+  pactl list short source-outputs 2>/dev/null | awk '{print $1}' \
+    | xargs -r -n1 pactl kill-client 2>/dev/null || true
+}
+kill_conflicts
 
 TEST_PATTERN=0
 for arg in "$@"; do
   [[ "$arg" == "--test-pattern" ]] && TEST_PATTERN=1
 done
-
-# ---- kill stragglers that often hold devices
-pkill -9 -f 'gameday|ffmpeg.*video4linux2|python.*(opencv|cv2|camera)|gst-launch' 2>/dev/null || true
-sleep 0.7
 
 # ---- resolve config (stderr: human, stdout: JSON)
 CFG_JSON="$(scripts/_resolve_config.py 2> >(tee /dev/stderr))" || {
@@ -63,13 +74,13 @@ ENC_A="-c:a aac -b:a 128k -ar 48000 -ac 1"
 VF='scale=iw:ih:in_range=jpeg:out_range=tv,format=yuv420p'
 
 INPUTS=(
-  -thread_queue_size 4096 -f video4linux2 -input_format mjpeg -video_size "$video_size" -framerate "$fps" -i "$video_dev"
-  -thread_queue_size 1024 -f pulse -i "$pulse_dev"
+  -thread_queue_size 1024 -f video4linux2 -input_format mjpeg -video_size "$video_size" -framerate "$fps" -i "$video_dev"
+  -thread_queue_size 256 -f pulse -i "$pulse_dev"
 )
 if [[ $TEST_PATTERN -eq 1 ]]; then
   INPUTS=(
-    -thread_queue_size 4096 -f lavfi -i "testsrc2=size=1280x720:rate=30"
-    -thread_queue_size 1024 -f lavfi -i "sine=frequency=1000:sample_rate=48000"
+    -thread_queue_size 1024 -f lavfi -i "testsrc2=size=1280x720:rate=30"
+    -thread_queue_size 256 -f lavfi -i "sine=frequency=1000:sample_rate=48000"
   )
   echo "[gameday] using built-in test pattern" >&2
 fi
