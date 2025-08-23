@@ -82,16 +82,16 @@ sleep 0.5
 if [[ -n "$OVERRIDE_RTMP" ]]; then
   export RTMP_URL="$OVERRIDE_RTMP"
 fi
-CFG_JSON="$(scripts/_resolve_config.py 2> >(tee /dev/stderr))" || {
+CFG_JSON="$(scripts/_resolve_config.py)" || {
   log "failed to resolve config."
   exit 2
 }
 
 # Safe JSON extraction
-json_get() { python3 - "$1" <<<"$CFG_JSON" <<'PY' || true
+json_get() { python3 - "$1" "$CFG_JSON" <<'PY' || true
 import json,sys
 k=sys.argv[1]
-cfg=json.loads(sys.stdin.read())
+cfg=json.loads(sys.argv[2])
 v=cfg.get(k,"")
 print(v if v is not None else "")
 PY
