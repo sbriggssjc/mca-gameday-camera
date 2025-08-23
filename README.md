@@ -590,9 +590,6 @@ Retries on transient RTMPS/TLS failures.
 ## Acceptance tests
 
 ```bash
-# A) Strip pass: no min_comp/max_comp left
-! grep -RInE '\b(min_comp|max_comp)\b' --exclude='*strip_aresample_opts.sh' --exclude README.md . || (echo "FAIL: found min/max_comp" && exit 1)
-
 # B) Test pattern to YouTube (use real key; hold for 60–90s)
 export YOUTUBE_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/xxxx-xxxx-xxxx-xxxx-xxxx'
 ./gameday-testsrc

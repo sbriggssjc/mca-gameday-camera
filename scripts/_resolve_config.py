@@ -1,85 +1,61 @@
 #!/usr/bin/env python3
-"""Resolve gameday configuration.
+import os, sys, json, re, pathlib
 
-Reads configuration from disk and environment, validates required fields, and
-emits a single compact JSON blob on stdout for consumption by the launcher.
+CFG_PATH = pathlib.Path("config/gameday.json")
 
-Diagnostics and human friendly summaries are printed to stderr.
-"""
+def eprint(*a, **k):
+    print(*a, file=sys.stderr, **k)
 
-import os
-import sys
-import json
-import re
-import subprocess
+def load_cfg():
+    if CFG_PATH.exists():
+        try:
+            with open(CFG_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as ex:
+            eprint(f"[gameday] ERROR: invalid JSON in {CFG_PATH}: {ex}")
+            sys.exit(2)
+    return {}
 
+def coalesce(cfg_key, env_key, default=None):
+    v = os.environ.get(env_key)
+    if v is not None and v.strip():
+        return v.strip()
+    return (cfg.get(cfg_key) if (cfg_key in cfg and cfg[cfg_key]) else default)
 
-YT_HOSTS = {"a.rtmp.youtube.com", "a.rtmps.youtube.com", "b.rtmps.youtube.com"}
-
-
-def _valid_rtmp(u: str) -> bool:
-    """Strictly validate a YouTube RTMP(S) URL."""
-
-    if not isinstance(u, str) or not u:
+def valid_rtmp(url: str) -> bool:
+    if not url:
         return False
-    if not (u.startswith("rtmp://") or u.startswith("rtmps://")):
+    if not (url.startswith("rtmp://") or url.startswith("rtmps://")):
         return False
-    m = re.match(r"^(rtmps?://)([^/]+)(/live2/[^/\s<>]+)$", u.strip())
-    if not m:
-        return False
-    host = m.group(2)
-    return host in YT_HOSTS
+    # basic YouTube key check: groups of [a-z0-9-], at least 10 chars
+    return bool(re.search(r"/live2/[A-Za-z0-9\-]{10,}$", url))
 
+cfg = load_cfg()
 
-def load_json(path: str):
-    """Load JSON from disk; return empty dict on missing file.
-
-    Any JSON parsing error is surfaced and terminates the program.
-    """
-
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-    except Exception as e:  # pragma: no cover - defensive
-        print(f"[gameday] bad JSON in {path}: {e}", file=sys.stderr)
-        sys.exit(2)
-
-
-cfg_path = os.environ.get("GAMEDAY_CONFIG", "config/gameday.json")
-disk = load_json(cfg_path)
-
-# Merge precedence: env > config file > defaults
-resolved = {
-    "rtmp_url": os.environ.get("YOUTUBE_RTMP_URL", disk.get("rtmp_url", "")),
-    "video_dev": os.environ.get("VIDEO_DEV", disk.get("video_dev", "/dev/video0")),
-    "pulse_source": os.environ.get("PULSE_DEV", disk.get("pulse_source", "")),
-    "video_size": os.environ.get("VIDEO_SIZE", disk.get("video_size", "1280x720")),
-    "fps": int(os.environ.get("FPS", disk.get("fps", 30))),
-    "use_hw": os.environ.get("USE_HW", str(disk.get("use_hw", "auto"))).lower(),  # auto|yes|no
-    "testsrc": os.environ.get("TESTSRC", "0"),  # "1" to enable test pattern mode
-}
-
+video_dev   = coalesce("video_dev",   "VIDEO_DEV",   "/dev/video0")
+pulse_src   = coalesce("pulse_source","PULSE_DEV",   "alsa_input.platform-sound.analog-stereo")
+video_size  = coalesce("video_size",  "VIDEO_SIZE",  "1280x720")
+fps         = int(coalesce("fps",     "FPS",         "30"))
+rtmp_url    = coalesce("rtmp_url",    "YOUTUBE_RTMP_URL", "")
 
 ok = True
-if not _valid_rtmp(resolved["rtmp_url"]):
-    print("[gameday] missing or invalid RTMP URL", file=sys.stderr)
+if not pathlib.Path(video_dev).exists():
+    eprint(f"[gameday] WARN: video device missing: {video_dev}")
+if not valid_rtmp(rtmp_url):
+    eprint("[gameday] missing or invalid RTMP URL")
     ok = False
-if not resolved["pulse_source"]:
-    print("[gameday] missing pulse_source (PULSE_DEV)", file=sys.stderr)
-    ok = False
 
-
-print(
-    f"[gameday] Launch -> video={resolved['video_dev']} {resolved['video_size']}@{resolved['fps']} | "
-    f"pulse={resolved['pulse_source']} | rtmp={'set' if _valid_rtmp(resolved['rtmp_url']) else 'MISSING'}",
-    file=sys.stderr,
-)
-
+eprint(f"[gameday] Launch -> video={video_dev} {video_size}@{fps} | pulse={pulse_src} | rtmp={'set' if bool(rtmp_url) else 'MISSING'}")
 if not ok:
     sys.exit(2)
 
-# Emit compact JSON ONLY on stdout
-sys.stdout.write(json.dumps(resolved, separators=(",", ":")))
+# IMPORTANT: stdout must be JSON only
+out = {
+    "video_dev": video_dev,
+    "pulse_source": pulse_src,
+    "video_size": video_size,
+    "fps": fps,
+    "rtmp_url": rtmp_url,
+}
+print(json.dumps(out, separators=(",", ":")))
 
