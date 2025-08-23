@@ -15,3 +15,6 @@ ffmpeg -hide_banner -protocols | egrep '(^\s+tls$|^\s+rtmps$|^\s+rtmp$)'
 
 scripts/kill_conflicts.sh
 
+- `gameday` will pick the first available H.264 encoder (libx264 or hardware
+  `h264_*`). Ensure your ffmpeg build includes at least one.
+
