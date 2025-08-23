@@ -42,11 +42,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 def _pick_encoder():
     preferred = os.environ.get("PREFERRED_ENCODERS")
-    if os.environ.get("USE_SW_ENC","0") == "1":
-        preferred = "libx264"
-    cmd = ["tools/encoder_detect.py"] + ([preferred] if preferred else [])
-    enc_flag = subprocess.check_output(cmd, text=True).strip()
-    return shlex.split(enc_flag)
+    if os.environ.get("USE_SW_ENC", "0") == "1":
+        pref_list = ["libx264"]
+    elif preferred:
+        pref_list = [p.strip() for p in preferred.split(",") if p.strip()]
+    else:
+        pref_list = None
+    enc_name = detect_encoder(pref_list)
+    return ["-c:v", enc_name]
 
 
 def choose_free_video_device(preferred=("0", "1", "2", "3")):
