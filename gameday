@@ -1,138 +1,228 @@
 #!/usr/bin/env bash
+# gameday — robust launcher for YouTube RTMP(S) from Jetson + USB cam + Pulse mic
+# Keeps all prior features; safer self-protection; richer flags.
+
 set -euo pipefail
 
-# Kill potential camera/audio conflicts before starting
-kill_conflicts() {
-  local me=$$
-  local ppid=$PPID
+################################################################################
+# Flags
+################################################################################
+TEST_PATTERN=0
+DRY_RUN=0
+NO_RETRY=0
+VERBOSE=0
+# Optional one-off overrides (take precedence over config)
+OVERRIDE_RTMP=""
+OVERRIDE_VIDEO_DEV=""
+OVERRIDE_PULSE_DEV=""
+OVERRIDE_SIZE=""
+OVERRIDE_FPS=""
 
-  # Kill likely grabbers, but never this script or its parent
-  pgrep -f -a 'ffmpeg.*video4linux2|python.*(opencv|cv2|camera)|gst-launch|cheese|guvcview|chrome --enable-webrtc|v4l2loopback' \
-    | awk -v me="$me" -v ppid="$ppid" '{print $1}' \
+usage() {
+  cat <<'USAGE'
+Usage: ./gameday [options]
+
+Options:
+  --test-pattern            Use synthetic test video + tone instead of devices
+  --dry-run                 Print resolved command without running ffmpeg
+  --no-retry                Do not retry a.rtmps -> b.rtmps on failure
+  --verbose                 Extra logging
+  --rtmp=URL                Override RTMP(S) URL (e.g. rtmps://a.rtmps.youtube.com/live2/<key>)
+  --video=/dev/videoX       Override V4L2 device
+  --pulse=<source_name>     Override Pulse source name
+  --size=WxH                Override video size (e.g. 1280x720)
+  --fps=N                   Override frame rate (e.g. 30)
+  -h, --help                Show this help
+USAGE
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    --test-pattern) TEST_PATTERN=1 ;;
+    --dry-run) DRY_RUN=1 ;;
+    --no-retry) NO_RETRY=1 ;;
+    --verbose) VERBOSE=1 ;;
+    --rtmp=*) OVERRIDE_RTMP="${arg#--rtmp=}" ;;
+    --video=*) OVERRIDE_VIDEO_DEV="${arg#--video=}" ;;
+    --pulse=*) OVERRIDE_PULSE_DEV="${arg#--pulse=}" ;;
+    --size=*) OVERRIDE_SIZE="${arg#--size=}" ;;
+    --fps=*) OVERRIDE_FPS="${arg#--fps=}" ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "[gameday] Unknown option: $arg" >&2; usage; exit 1 ;;
+  esac
+done
+
+log()  { echo "[gameday] $*" >&2; }
+vlog() { [[ $VERBOSE -eq 1 ]] && echo "[gameday] $*" >&2 || true; }
+
+################################################################################
+# Safer conflict killer (never kill this script or its parent)
+################################################################################
+kill_conflicts() {
+  local me=$$ ppid="$PPID"
+  # Likely device grabbers—do NOT include 'gameday'
+  pgrep -f -a 'ffmpeg.*video4linux2|python.*(opencv|cv2|camera)|gst-launch|cheese|guvcview|chrome --enable-webrtc|v4l2loopback' 2>/dev/null \
+    | awk '{print $1}' \
     | while read -r pid; do
         if [[ "$pid" != "$me" && "$pid" != "$ppid" ]]; then
           kill -9 "$pid" 2>/dev/null || true
         fi
-      done || true
-
-  pactl list short source-outputs 2>/dev/null | awk '{print $1}' \
-    | xargs -r -n1 pactl kill-client 2>/dev/null || true
+      done
+  # Release Pulse source outputs that may latch the mic
+  pactl list short source-outputs 2>/dev/null | awk '{print $1}' | xargs -r -n1 pactl kill-client 2>/dev/null || true
 }
-
 kill_conflicts
+sleep 0.5
 
-TEST_PATTERN=0
-for arg in "$@"; do
-  [[ "$arg" == "--test-pattern" ]] && TEST_PATTERN=1
-done
-# ---- kill stragglers that often hold devices
-# SAFETY: disabled; self-kills gameday -> pkill -9 -f 'gameday|ffmpeg.*video4linux2|python.*(opencv|cv2|camera)|gst-launch' 2>/dev/null || true
-sleep 0.7
-
-# ---- resolve config (stderr: human, stdout: JSON)
+################################################################################
+# Resolve config (stderr = human, stdout = compact JSON)
+################################################################################
 CFG_JSON="$(scripts/_resolve_config.py 2> >(tee /dev/stderr))" || {
-  echo "[gameday] failed to resolve config." >&2
+  log "failed to resolve config."
   exit 2
 }
 
-# ---- parse JSON safely
-rtmp_url="$(python3 -c 'import json,sys;print(json.loads(sys.stdin.read())["rtmp_url"])' <<<"$CFG_JSON" 2>/dev/null)"
-video_dev="$(python3 -c 'import json,sys;print(json.loads(sys.stdin.read())["video_dev"])' <<<"$CFG_JSON" 2>/dev/null)"
-pulse_dev="$(python3 -c 'import json,sys;print(json.loads(sys.stdin.read())["pulse_source"])' <<<"$CFG_JSON" 2>/dev/null)"
-video_size="$(python3 -c 'import json,sys;print(json.loads(sys.stdin.read())["video_size"])' <<<"$CFG_JSON" 2>/dev/null)"
-fps="$(python3 -c 'import json,sys;print(json.loads(sys.stdin.read())["fps"])' <<<"$CFG_JSON" 2>/dev/null)"
+# Safe JSON extraction
+json_get() { python3 - "$1" <<<"$CFG_JSON" <<'PY' || true
+import json,sys
+k=sys.argv[1]
+cfg=json.loads(sys.stdin.read())
+v=cfg.get(k,"")
+print(v if v is not None else "")
+PY
+}
 
-# ---- basic checks
-if [[ $TEST_PATTERN -ne 1 ]]; then
-  [[ -e "$video_dev" ]] || { echo "[gameday] video device not found: $video_dev" >&2; exit 3; }
-  pactl list short sources | grep -qF "$pulse_dev" || { echo "[gameday] pulse source not found: $pulse_dev" >&2; exit 3; }
-fi
+rtmp_url="$(json_get rtmp_url)"
+video_dev="$(json_get video_dev)"
+pulse_dev="$(json_get pulse_source)"
+video_size="$(json_get video_size)"
+fps="$(json_get fps)"
 
+# Apply overrides
+[[ -n "$OVERRIDE_RTMP"      ]] && rtmp_url="$OVERRIDE_RTMP"
+[[ -n "$OVERRIDE_VIDEO_DEV" ]] && video_dev="$OVERRIDE_VIDEO_DEV"
+[[ -n "$OVERRIDE_PULSE_DEV" ]] && pulse_dev="$OVERRIDE_PULSE_DEV"
+[[ -n "$OVERRIDE_SIZE"      ]] && video_size="$OVERRIDE_SIZE"
+[[ -n "$OVERRIDE_FPS"       ]] && fps="$OVERRIDE_FPS"
+
+log "Launch -> video=${video_dev} ${video_size}@${fps} | pulse=${pulse_dev} | rtmp=$([[ -n "$rtmp_url" ]] && echo set || echo MISSING)"
+
+################################################################################
+# Basic validations
+################################################################################
 case "$rtmp_url" in
   rtmps://*|rtmp://*) : ;;
-  *) echo "[gameday] missing or invalid RTMP URL (expect rtmps://... or rtmp://.../live2/<key>)" >&2; exit 2;;
+  *) log "missing or invalid RTMP URL (expect rtmps://... or rtmp://.../live2/<key>)"; exit 2 ;;
 esac
 
-# ---- verify ffmpeg protocols
-if ! ffmpeg -hide_banner -protocols | egrep -q '(^\s+rtmps$|^\s+tls$)'; then
-  echo "[gameday] WARNING: your ffmpeg lacks rtmps/tls; will try rtmp:// fallback if provided" >&2
+if [[ $TEST_PATTERN -ne 1 ]]; then
+  [[ -e "$video_dev" ]] || { log "video device not found: $video_dev"; exit 3; }
+  pactl list short sources | grep -qF "$pulse_dev" || { log "pulse source not found: $pulse_dev"; exit 3; }
 fi
 
-# ---- free up devices extra
+# Check ffmpeg has rtmps/tls if we're using rtmps://
+if [[ "$rtmp_url" == rtmps://* ]]; then
+  if ! ffmpeg -hide_banner -protocols | egrep -q '(^\s+rtmps$|^\s+tls$)'; then
+    log "WARNING: ffmpeg lacks rtmps/tls; use rtmp:// or install an rtmps-capable build."
+  fi
+fi
+
+################################################################################
+# Extra freeing of devices (non-fatal)
+################################################################################
 if [[ $TEST_PATTERN -ne 1 && -e "$video_dev" ]]; then
   fuser -v "$video_dev" 2>/dev/null || true
   lsof "$video_dev" 2>/dev/null || true
 fi
-if [[ $TEST_PATTERN -ne 1 ]]; then
-  pactl list short source-outputs | awk '{print $1}' | xargs -r -n1 pactl kill-client || true
-fi
+pactl list short source-outputs 2>/dev/null | awk '{print $1}' | xargs -r -n1 pactl kill-client 2>/dev/null || true
+# If Argus is holding CSI sensors, stopping it is harmless on pure USB cams
 systemctl is-active --quiet nvargus-daemon && sudo systemctl stop nvargus-daemon || true
 
-# ---- pick encoder: prefer software x264 for YT reliability
+################################################################################
+# Encoder selection (libx264 preferred; fallback to h264_v4l2m2m if needed)
+################################################################################
 ENC_V="-c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p -b:v 3000k -maxrate 3500k -bufsize 4500k -g 60 -r ${fps}"
 if ! ffmpeg -hide_banner -encoders | grep -q '^ ..S... libx264'; then
   if ffmpeg -hide_banner -encoders | grep -q '^ ..S... h264_v4l2m2m'; then
     ENC_V="-c:v h264_v4l2m2m -preset veryfast -tune zerolatency -pix_fmt yuv420p -b:v 3000k -maxrate 3500k -bufsize 4500k -g 60 -r ${fps}"
-    echo "[gameday] libx264 missing; using h264_v4l2m2m" >&2
+    log "libx264 missing; using h264_v4l2m2m"
+  else
+    log "ERROR: no H.264 encoder available (libx264 or h264_v4l2m2m)."
+    exit 4
   fi
 fi
 ENC_A="-c:a aac -b:a 128k -ar 48000 -ac 1"
 
-# ---- color/range fix: mjpeg (jpeg range) -> tv range for yuv420p
+# Range/color fix: MJPEG (jpeg/full) -> TV range YUV420
 VF='scale=iw:ih:in_range=jpeg:out_range=tv,format=yuv420p'
 
-INPUTS=(
-  -thread_queue_size 1024 -f video4linux2 -input_format mjpeg -video_size "$video_size" -framerate "$fps" -i "$video_dev"
-  -thread_queue_size 256 -f pulse -i "$pulse_dev"
-)
+################################################################################
+# Inputs (real or test pattern)
+################################################################################
+declare -a INPUTS
 if [[ $TEST_PATTERN -eq 1 ]]; then
   INPUTS=(
-    -thread_queue_size 1024 -f lavfi -i "testsrc2=size=1280x720:rate=30"
-    -thread_queue_size 256 -f lavfi -i "sine=frequency=1000:sample_rate=48000"
+    -thread_queue_size 4096 -f lavfi -i "testsrc2=size=${video_size:-1280x720}:rate=${fps:-30}"
+    -thread_queue_size 1024 -f lavfi -i "sine=frequency=1000:sample_rate=48000"
   )
-  echo "[gameday] using built-in test pattern" >&2
+  log "using built-in test pattern"
+else
+  # Force MJPEG from the camera for low CPU, then transcode to H.264
+  INPUTS=(
+    -thread_queue_size 4096 -f video4linux2 -input_format mjpeg -video_size "${video_size}" -framerate "${fps}" -i "${video_dev}"
+    -thread_queue_size 1024 -f pulse -i "${pulse_dev}"
+  )
 fi
 
-ulimit -v ${FFMPEG_VMEM:-4000000} 2>/dev/null || true
-TMPLOG=$(mktemp)
+################################################################################
+# Resource caps + logging
+################################################################################
+ulimit -v ${FFMPEG_VMEM:-4000000} 2>/dev/null || true   # ~4 GB virtual mem cap (best-effort)
+TMPLOG="$(mktemp)"
+trap 'rm -f "$TMPLOG"' EXIT
 
-echo "[gameday] ffmpeg starting..." >&2
+################################################################################
+# Compose ffmpeg command
+################################################################################
+COMMON=(-hide_banner -loglevel info -fflags +genpts -use_wallclock_as_timestamps 1)
+MAP=(-map 0:v:0 -map 1:a:0)
+OUT=(-flvflags no_duration_filesize -f flv "$rtmp_url")
+
+CMD=(taskset -c 0-3 ffmpeg "${COMMON[@]}" "${INPUTS[@]}" "${MAP[@]}" -vf "$VF" ${ENC_V} ${ENC_A} "${OUT[@]}")
+
+if [[ $DRY_RUN -eq 1 ]]; then
+  printf '[gameday] DRY-RUN -> '
+  printf '%q ' "${CMD[@]}"
+  printf '\n'
+  exit 0
+fi
+
+################################################################################
+# Go live (with optional a->b failover for rtmps)
+################################################################################
+log "ffmpeg starting..."
 set +e
-taskset -c 0-3 ffmpeg -hide_banner -loglevel info \
-  -fflags +genpts -use_wallclock_as_timestamps 1 \
-  "${INPUTS[@]}" \
-  -map 0:v:0 -map 1:a:0 \
-  -vf "$VF" \
-  $ENC_V $ENC_A \
-  -flvflags no_duration_filesize \
-  -f flv "$rtmp_url" 2> >(tee "$TMPLOG" >&2)
+"${CMD[@]}" 2> >(tee "$TMPLOG" >&2)
 code=$?
 set -e
 
-if [[ $code -ne 0 && "$rtmp_url" == rtmps://a.rtmps.youtube.com/live2/* ]]; then
-  alt_url="${rtmp_url/a.rtmps.youtube.com/b.rtmps.youtube.com}"
-  echo "[gameday] retry -> $alt_url" >&2
+if [[ $code -ne 0 && $NO_RETRY -ne 1 && "$rtmp_url" == rtmps://a.rtmps.youtube.com/live2/* ]]; then
+  local_alt="${rtmp_url/a.rtmps.youtube.com/b.rtmps.youtube.com}"
+  log "retry via $local_alt"
+  OUT=(-flvflags no_duration_filesize -f flv "$local_alt")
+  CMD=(taskset -c 0-3 ffmpeg "${COMMON[@]}" "${INPUTS[@]}" "${MAP[@]}" -vf "$VF" ${ENC_V} ${ENC_A} "${OUT[@]}")
   set +e
-  taskset -c 0-3 ffmpeg -hide_banner -loglevel info \
-    -fflags +genpts -use_wallclock_as_timestamps 1 \
-    "${INPUTS[@]}" \
-    -map 0:v:0 -map 1:a:0 \
-    -vf "$VF" \
-    $ENC_V $ENC_A \
-    -flvflags no_duration_filesize \
-    -f flv "$alt_url" 2> >(tee "$TMPLOG" >&2)
+  "${CMD[@]}" 2> >(tee "$TMPLOG" >&2)
   code=$?
   set -e
-  rtmp_url="$alt_url"
+  rtmp_url="$local_alt"
 fi
 
-bitrate_line=$(grep -o 'bitrate=[^ ]*' "$TMPLOG" | tail -n1)
-rm -f "$TMPLOG"
+# Summarize bitrate if present
+bitrate_line="$(grep -o 'bitrate=[^ ]*' "$TMPLOG" | tail -n1 || true)"
+[[ -n "$bitrate_line" ]] && log "$bitrate_line"
 
 if [[ $code -ne 0 ]]; then
-  echo "[gameday] ffmpeg failed (exit $code). Check: RTMP key, network, firewall, or device busy." >&2
-  exit $code
+  log "ffmpeg failed (exit $code). Check: RTMP key/URL, network/443, firewall, or device busy."
+  exit "$code"
 fi
-
-[[ -n "$bitrate_line" ]] && echo "[gameday] $bitrate_line" >&2
-
