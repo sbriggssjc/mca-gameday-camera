@@ -2,83 +2,71 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
-cfg_json="$("$here/scripts/_resolve_config.py")" || exit $?
+cd "$here"
 
-jq_bin="$(command -v jq || true)"
-if [[ -z "$jq_bin" ]]; then
-  echo "[gameday] jq not found; install with: sudo apt-get install -y jq" >&2
-  exit 2
-fi
+# 0) Kill common conflicts (camera & pulse grabbers)
+pkill -9 -f 'ffmpeg.*video4linux2|python.*(opencv|cv2|camera)|gst-launch|cheese|guvcview|chrome --enable-webrtc|v4l2loopback' 2>/dev/null || true
+sleep 0.5
 
-val() { echo "$cfg_json" | jq -r "$1"; }
+# 1) Resolve config -> JSON ONLY on stdout
+cfg_json="$(scripts/_resolve_config.py 2> >(cat >&2))" || {
+  echo "[gameday] failed to resolve config." >&2
+  exit 1
+}
 
-RTMP_URL="$(val '.rtmp_url')"
-VDEV="$(val '.video_dev')"
-PULSE="$(val '.pulse_source')"
-VSIZE="$(val '.video_size')"
-FPS="$(val '.fps')"
-USE_HW="$(val '.use_hw')"
-TESTSRC="$(val '.testsrc')"
+video_dev="$(python3 - <<'PY'
+import json,sys
+cfg=json.loads(sys.stdin.read())
+print(cfg["video_dev"])
+PY <<<"$cfg_json")"
 
-# Sanity
-if [[ ! -c "$VDEV" ]]; then
-  echo "[gameday] video device $VDEV not found (or not a character device)" >&2
-  exit 2
-fi
+pulse_src="$(python3 - <<'PY'
+import json,sys
+cfg=json.loads(sys.stdin.read())
+print(cfg["pulse_source"])
+PY <<<"$cfg_json")"
 
-# Encoder choice
-ENC_ARGS=()
-case "$USE_HW" in
-  yes)
-    if ffmpeg -hide_banner -encoders 2>/dev/null | grep -q 'h264_nvmpi'; then
-      ENC_ARGS=(-c:v h264_nvmpi -preset ll -tune zerolatency)
-    elif ffmpeg -hide_banner -encoders 2>/dev/null | grep -q 'h264_v4l2m2m'; then
-      ENC_ARGS=(-c:v h264_v4l2m2m)
-    else
-      ENC_ARGS=(-c:v libx264 -preset veryfast -tune zerolatency)
-    fi
-    ;;
-  no)
-    ENC_ARGS=(-c:v libx264 -preset veryfast -tune zerolatency)
-    ;;
-  auto|*)
-    ENC_ARGS=(-c:v libx264 -preset veryfast -tune zerolatency)
-    ;;
-esac
+video_size="$(python3 - <<'PY'
+import json,sys
+cfg=json.loads(sys.stdin.read())
+print(cfg["video_size"])
+PY <<<"$cfg_json")"
 
-# Common rate control
-RC=(-b:v 3000k -maxrate 3500k -bufsize 4500k -g 60 -r "$FPS")
+fps="$(python3 - <<'PY'
+import json,sys
+cfg=json.loads(sys.stdin.read())
+print(cfg["fps"])
+PY <<<"$cfg_json")"
 
-# Input stacks
-if [[ "$TESTSRC" == "1" ]]; then
-  echo "[gameday] TEST MODE: streaming testsrc2 + sine to YouTube" >&2
-  ffmpeg -hide_banner -loglevel info -re \
-    -f lavfi -i "testsrc2=size=${VSIZE}:rate=${FPS}" \
-    -f lavfi -i "sine=frequency=1000:sample_rate=48000" \
-    "${ENC_ARGS[@]}" -pix_fmt yuv420p \
-    "${RC[@]}" \
-    -c:a aac -b:a 128k -ar 48000 -ac 1 \
-    -flvflags no_duration_filesize \
-    -f flv "$RTMP_URL" || { echo "[gameday] ffmpeg failed (testsrc). Check network/key." >&2; exit 1; }
-  exit 0
-fi
+rtmp_url="$(python3 - <<'PY'
+import json,sys
+cfg=json.loads(sys.stdin.read())
+print(cfg["rtmp_url"])
+PY <<<"$cfg_json")"
 
-# Live devices
+# 2) Basic input diags (optional)
+echo "[diag] Listing audio devices (run: PYTHONPATH=. python3 -m tools.list_audio)" >&2 || true
+
+# 3) ffmpeg command (software x264; stable; handles yuvj420p->yuv420p)
+#    NOTE: We avoid aresample min or max comp entirely.
+set +e
 ffmpeg -hide_banner -loglevel info \
   -fflags +genpts -use_wallclock_as_timestamps 1 \
   -thread_queue_size 4096 \
-  -f video4linux2 -input_format mjpeg -video_size "$VSIZE" -framerate "$FPS" -i "$VDEV" \
-  -thread_queue_size 1024 -f pulse -i "$PULSE" \
+  -f video4linux2 -input_format mjpeg -video_size "$video_size" -framerate "$fps" -i "$video_dev" \
+  -thread_queue_size 1024 -f pulse -i "$pulse_src" \
   -map 0:v:0 -map 1:a:0 \
   -vf "scale=iw:ih:in_range=jpeg:out_range=tv,format=yuv420p" \
-  "${ENC_ARGS[@]}" -pix_fmt yuv420p \
-  "${RC[@]}" \
+  -c:v libx264 -preset veryfast -tune zerolatency \
+  -b:v 3000k -maxrate 3500k -bufsize 4500k -g 60 -r "$fps" \
   -c:a aac -b:a 128k -ar 48000 -ac 1 \
   -flvflags no_duration_filesize \
-  -f flv "$RTMP_URL" \
-|| {
-  code=$?
-  echo "[gameday] ffmpeg failed (exit $code). Check: key, network (RTMPS), firewall, device busy." >&2
+  -f flv "$rtmp_url"
+code=$?
+set -e
+
+if [[ $code -ne 0 ]]; then
+  echo "[gameday] ffmpeg failed (exit $code). Check: key, network (RTMPS), firewall, device busy, pulse source." >&2
   exit $code
-}
+fi
 
