@@ -41,6 +41,7 @@ def detect_encoder(
     is ``"image2pipe"`` (piped MJPEG frames), hardware encoders are skipped in
     favour of ``libx264``.
     """
+
     try:
         encoders = subprocess.check_output(
             ["ffmpeg", "-hide_banner", "-encoders"], text=True
@@ -48,23 +49,39 @@ def detect_encoder(
     except Exception:
         encoders = ""
 
-    candidates = preferred or ["h264_v4l2m2m", "h264_nvmpi", "libx264"]
+    # Build a list of available H.264 encoders reported by ffmpeg
+    available: List[str] = []
+    for line in encoders.splitlines():
+        parts = line.strip().split()
+        if len(parts) < 2:
+            continue
+        name = parts[1]
+        if name.startswith("h264") or name == "libx264":
+            available.append(name)
 
+    # When piping frames, prefer software encoding to avoid unsupported hw paths
     if input_type == "image2pipe":
-        if "libx264" in encoders and _sanity_probe("libx264"):
+        if "libx264" in available and _sanity_probe("libx264"):
             return "libx264"
-    else:
-        for name in candidates:
-            if name not in encoders:
-                continue
-            if _sanity_probe(name):
-                return name
+
+    # Determine search order.  Include common hardware encoders then libx264.
+    common = ["h264_v4l2m2m", "h264_nvmpi", "h264_nvenc", "h264_omx", "h264_vaapi", "libx264"]
+    candidates = preferred or common
+
+    for name in candidates:
+        if name in available and _sanity_probe(name):
+            return name
+
+    # Fallback: try any other reported encoder
+    for name in available:
+        if _sanity_probe(name):
+            return name
 
     if _sanity_probe("libx264"):
         return "libx264"
 
     raise RuntimeError(
-        "❌ No usable H.264 encoder found (looked for h264_v4l2m2m, h264_nvmpi, libx264).",
+        "❌ No usable H.264 encoder found (none of the h264 encoders reported by ffmpeg worked).",
     )
 
 def run_ffmpeg_command(cmd: List[str], timeout: int = 15) -> Tuple[int, str, str]:
