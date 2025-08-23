@@ -1,72 +1,91 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-here="$(cd "$(dirname "$0")" && pwd)"
-cd "$here"
+# ---- kill stragglers that often hold devices
+pkill -9 -f 'gameday|ffmpeg.*video4linux2|python.*(opencv|cv2|camera)|gst-launch' 2>/dev/null || true
+sleep 0.7
 
-# 0) Kill common conflicts (camera & pulse grabbers)
-pkill -9 -f 'ffmpeg.*video4linux2|python.*(opencv|cv2|camera)|gst-launch|cheese|guvcview|chrome --enable-webrtc|v4l2loopback' 2>/dev/null || true
-sleep 0.5
-
-# 1) Resolve config -> JSON ONLY on stdout
-cfg_json="$(scripts/_resolve_config.py 2> >(cat >&2))" || {
+# ---- resolve config (stderr: human, stdout: JSON)
+CFG_JSON="$(scripts/_resolve_config.py 2> >(tee /dev/stderr))" || {
   echo "[gameday] failed to resolve config." >&2
-  exit 1
+  exit 2
 }
 
-video_dev="$(python3 - <<'PY'
-import json,sys
-cfg=json.loads(sys.stdin.read())
-print(cfg["video_dev"])
-PY <<<"$cfg_json")"
-
-pulse_src="$(python3 - <<'PY'
-import json,sys
-cfg=json.loads(sys.stdin.read())
-print(cfg["pulse_source"])
-PY <<<"$cfg_json")"
-
-video_size="$(python3 - <<'PY'
-import json,sys
-cfg=json.loads(sys.stdin.read())
-print(cfg["video_size"])
-PY <<<"$cfg_json")"
-
-fps="$(python3 - <<'PY'
-import json,sys
-cfg=json.loads(sys.stdin.read())
-print(cfg["fps"])
-PY <<<"$cfg_json")"
-
-rtmp_url="$(python3 - <<'PY'
+# ---- parse JSON safely
+rtmp_url="$(python3 - <<'PY' 2>/dev/null
 import json,sys
 cfg=json.loads(sys.stdin.read())
 print(cfg["rtmp_url"])
-PY <<<"$cfg_json")"
+PY <<<"$CFG_JSON")"
 
-# 2) Basic input diags (optional)
-echo "[diag] Listing audio devices (run: PYTHONPATH=. python3 -m tools.list_audio)" >&2 || true
+video_dev="$(python3 - <<'PY' 2>/dev/null
+import json,sys
+cfg=json.loads(sys.stdin.read())
+print(cfg["video_dev"])
+PY <<<"$CFG_JSON")"
 
-# 3) ffmpeg command (software x264; stable; handles yuvj420p->yuv420p)
-#    NOTE: We avoid aresample min or max comp entirely.
+pulse_dev="$(python3 - <<'PY' 2>/dev/null
+import json,sys
+cfg=json.loads(sys.stdin.read())
+print(cfg["pulse_source"])
+PY <<<"$CFG_JSON")"
+
+video_size="$(python3 - <<'PY' 2>/dev/null
+import json,sys
+cfg=json.loads(sys.stdin.read())
+print(cfg["video_size"])
+PY <<<"$CFG_JSON")"
+
+fps="$(python3 - <<'PY' 2>/dev/null
+import json,sys
+cfg=json.loads(sys.stdin.read())
+print(cfg["fps"])
+PY <<<"$CFG_JSON")"
+
+# ---- basic checks
+[[ -e "$video_dev" ]] || { echo "[gameday] video device not found: $video_dev" >&2; exit 3; }
+pactl list short sources | grep -qF "$pulse_dev" || { echo "[gameday] pulse source not found: $pulse_dev" >&2; exit 3; }
+
+case "$rtmp_url" in
+  rtmps://*|rtmp://*) : ;;
+  *) echo "[gameday] missing or invalid RTMP URL (expect rtmps://... or rtmp://.../live2/<key>)" >&2; exit 2;;
+esac
+
+# ---- verify ffmpeg protocols
+if ! ffmpeg -hide_banner -protocols | egrep -q '(^\s+rtmps$|^\s+tls$)'; then
+  echo "[gameday] WARNING: your ffmpeg lacks rtmps/tls; will try rtmp:// fallback if provided" >&2
+fi
+
+# ---- free up devices extra
+fuser -v "$video_dev" 2>/dev/null || true
+lsof "$video_dev" 2>/dev/null || true
+pactl list short source-outputs | awk '{print $1}' | xargs -r -n1 pactl kill-client || true
+systemctl is-active --quiet nvargus-daemon && sudo systemctl stop nvargus-daemon || true
+
+# ---- pick encoder: prefer software x264 for YT reliability
+ENC_V="-c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p \ 
+-b:v 3000k -maxrate 3500k -bufsize 4500k -g 60 -r ${fps}"
+ENC_A="-c:a aac -b:a 128k -ar 48000 -ac 1"
+
+# ---- color/range fix: mjpeg (jpeg range) -> tv range for yuv420p
+VF='scale=iw:ih:in_range=jpeg:out_range=tv,format=yuv420p'
+
+echo "[gameday] ffmpeg starting..." >&2
 set +e
 ffmpeg -hide_banner -loglevel info \
   -fflags +genpts -use_wallclock_as_timestamps 1 \
   -thread_queue_size 4096 \
   -f video4linux2 -input_format mjpeg -video_size "$video_size" -framerate "$fps" -i "$video_dev" \
-  -thread_queue_size 1024 -f pulse -i "$pulse_src" \
+  -thread_queue_size 1024 -f pulse -i "$pulse_dev" \
   -map 0:v:0 -map 1:a:0 \
-  -vf "scale=iw:ih:in_range=jpeg:out_range=tv,format=yuv420p" \
-  -c:v libx264 -preset veryfast -tune zerolatency \
-  -b:v 3000k -maxrate 3500k -bufsize 4500k -g 60 -r "$fps" \
-  -c:a aac -b:a 128k -ar 48000 -ac 1 \
+  -vf "$VF" \
+  $ENC_V $ENC_A \
   -flvflags no_duration_filesize \
   -f flv "$rtmp_url"
 code=$?
 set -e
 
 if [[ $code -ne 0 ]]; then
-  echo "[gameday] ffmpeg failed (exit $code). Check: key, network (RTMPS), firewall, device busy, pulse source." >&2
+  echo "[gameday] ffmpeg failed (exit $code). Check: key, network (RTMPS/RTMP), firewall, device busy." >&2
   exit $code
 fi
-
