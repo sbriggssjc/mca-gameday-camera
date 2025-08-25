@@ -47,35 +47,41 @@ def segment_video(
             dur = 0.0
         return [{"id": "PLAY_001", "t0": 0.0, "t1": max(10.0, dur)}]
 
-    def _ffprobe_fps(p: str) -> float | None:
-        try:
-            cmd = f'ffprobe -v error -print_format json -select_streams v:0 -show_streams {shlex.quote(p)}'
-            out = subprocess.check_output(cmd, shell=True).decode("utf-8", "ignore")
-            info = json.loads(out)
-            r = info["streams"][0].get("r_frame_rate", "0/1")
-            n, d = r.split("/")
-            n = float(n)
-            d = float(d) if float(d) != 0 else 1.0
-            fps = n / d
-            return fps if fps > 0 else None
-        except Exception:
-            return None
-
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         raise FileNotFoundError(f"Cannot open video: {path}")
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
-    if fps < 1.0:
-        alt = _ffprobe_fps(path)
-        if alt:
-            fps = alt
-    if fps < 1.0:
+    W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    dur = cap.get(cv2.CAP_PROP_FRAME_COUNT) / fps if fps > 0 else 0.0
+
+    def _ffprobe(path):
+        cmd = f'ffprobe -v error -print_format json -show_streams {shlex.quote(path)}'
+        try:
+            out = subprocess.check_output(cmd, shell=True, text=True)
+            meta = json.loads(out)
+            for s in meta.get("streams", []):
+                if s.get("codec_type") == "video":
+                    fps_str = s.get("r_frame_rate", "0/0")
+                    num, den = fps_str.split("/")
+                    fps_v = float(num) / float(den) if den != "0" else 0.0
+                    w_v = int(s.get("width") or 0)
+                    h_v = int(s.get("height") or 0)
+                    return fps_v, w_v, h_v
+        except Exception:
+            pass
+        return None
+
+    if fps <= 1.0 or dur <= 0.0:
+        probed = _ffprobe(path)
+        if probed:
+            fps, W, H = probed
+
+    if fps <= 1.0:
         raise RuntimeError(f"Unusable FPS ({fps}) for {path}")
 
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-    H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
 
     def read_gray():
         ok, frame = cap.read()
