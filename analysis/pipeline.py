@@ -91,14 +91,11 @@ def _write_jsonl(rows: Sequence[Dict[str, Any]], path: Path) -> None:
 
 
 def detect_video_profile(video_path: str) -> str:
-    name = Path(video_path).name.lower()
-    # Simple filename hints (non-critical; for logging and heuristic features)
-    if "scrimmage 2 - part 1" in name:
+    name = Path(video_path).name
+    if "Scrimmage 2 - Part 1" in name:
         return "Scrimmage 2 (Part 1) — navy jerseys with names/numbers"
-    if "scrimmage 2 - part 2" in name:
+    if "Scrimmage 2 - Part 2" in name:
         return "Scrimmage 2 (Part 2) — navy jerseys with names/numbers"
-    if "img_4129" in name or "imp-4129" in name:
-        return "Scrimmage 1 — white practice uniforms, no jersey numbers"
     return "none"
 
 
@@ -273,23 +270,13 @@ def _run_pipeline(args: argparse.Namespace) -> None:
             formation_conf = 0.8
         print(f"[formation_detector] {seg_id}: {formation_name} conf={formation_conf:.2f}")
 
-        play_name, play_conf = classify_play(
-            segment=None,
-            detected_formation=formation_name,
-            formation_confidence=formation_conf,
-            playbook_path=getattr(args, "playbook", None),
-        )
-        if play_name:
-            print(f"[play_classifier] {seg_id}: {play_name} conf={play_conf:.2f}")
-        else:
-            print(f"[play_classifier] {seg_id}: Unknown conf=0.00")
-        play_family = name_to_family.get(play_name, play_name or "")
+        playcall = classify_play(feat.get("features", {}), raw_pb, formation_hint=formation_name)
+        print(f"[play_classifier] {seg_id}: {playcall['name']} conf={playcall['confidence']:.2f}")
+        play_name = playcall.get("name")
+        play_conf = playcall.get("confidence", 0.0)
+        play_family = playcall.get("family", "")
 
-        playcall_dict = {
-            "name": play_name if play_name else None,
-            "confidence": float(play_conf or 0.0),
-            "candidates": [],
-        }
+        playcall_dict = playcall
 
         # grades -- simple constant grade for each detected player
         for pl in players:
@@ -448,6 +435,9 @@ def run_pipeline(*, args: argparse.Namespace | None = None, **kwargs) -> None:
     highlight = out_base / "clips" / "highlights" / "team_highlights.mp4"
     highlight.parent.mkdir(parents=True, exist_ok=True)
     highlight.touch()
+
+    print("== Summary ==")
+    print(f'Run dir: "{run_dir.resolve()}"')
 
 
 
