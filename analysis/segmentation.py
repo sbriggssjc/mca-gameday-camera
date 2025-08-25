@@ -47,28 +47,31 @@ def segment_video(
             dur = 0.0
         return [{"id": "PLAY_001", "t0": 0.0, "t1": max(10.0, dur)}]
 
+    def _ffprobe_fps(p: str) -> float | None:
+        try:
+            cmd = f'ffprobe -v error -print_format json -select_streams v:0 -show_streams {shlex.quote(p)}'
+            out = subprocess.check_output(cmd, shell=True).decode("utf-8", "ignore")
+            info = json.loads(out)
+            r = info["streams"][0].get("r_frame_rate", "0/1")
+            n, d = r.split("/")
+            n = float(n)
+            d = float(d) if float(d) != 0 else 1.0
+            fps = n / d
+            return fps if fps > 0 else None
+        except Exception:
+            return None
+
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         raise FileNotFoundError(f"Cannot open video: {path}")
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
-    # Fallback probe when FPS is weird/zero (seen on some Jetson encodes)
     if fps < 1.0:
-        try:
-            # ffprobe must be installed; parse r_frame_rate
-            cmd = f'ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate -of json "{Path(path)}"'
-            out = subprocess.check_output(shlex.split(cmd), stderr=subprocess.STDOUT).decode("utf-8", "ignore")
-            info = json.loads(out)
-            rate = info.get("streams", [{}])[0].get("r_frame_rate", "0/1")
-            num, den = rate.split("/")
-            num, den = float(num), float(den) if float(den) != 0 else 1.0
-            probed = num / den
-            if probed > 1.0:
-                fps = probed
-        except Exception:
-            pass
+        alt = _ffprobe_fps(path)
+        if alt:
+            fps = alt
     if fps < 1.0:
-        raise RuntimeError(f"Video FPS could not be determined (>1.0 required). Path={path} probed_fps={fps}")
+        raise RuntimeError(f"Unusable FPS ({fps}) for {path}")
 
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
