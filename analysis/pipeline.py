@@ -90,6 +90,18 @@ def _write_jsonl(rows: Sequence[Dict[str, Any]], path: Path) -> None:
             f.write(json.dumps(r) + "\n")
 
 
+def detect_video_profile(video_path: str) -> str:
+    name = Path(video_path).name.lower()
+    # Simple filename hints (non-critical; for logging and heuristic features)
+    if "scrimmage 2 - part 1" in name:
+        return "Scrimmage 2 (Part 1) — navy jerseys with names/numbers"
+    if "scrimmage 2 - part 2" in name:
+        return "Scrimmage 2 (Part 2) — navy jerseys with names/numbers"
+    if "img_4129" in name or "imp-4129" in name:
+        return "Scrimmage 1 — white practice uniforms, no jersey numbers"
+    return "none"
+
+
 # ---------------------------------------------------------------------------
 # Core pipeline
 # ---------------------------------------------------------------------------
@@ -129,6 +141,12 @@ def export_clip(video: str, start: float, end: float, out_path: Path, rotation: 
 
 def _run_pipeline(args: argparse.Namespace) -> None:
     run_dir = _canonical_dir(args.out, args.video, overwrite=args.overwrite)
+    # Quote out_dir so downstream parsers handle spaces safely
+    print(f'Run dir: "{run_dir}"')
+
+    hint = detect_video_profile(args.video)
+    if hint != "none":
+        print(f"[video_profile_hint] {hint}")
 
     meta: Dict[str, Any] = {"video_path": args.video, "team": args.team, "config": vars(args)}
     if cv2 is not None:
