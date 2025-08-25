@@ -52,34 +52,27 @@ def segment_video(
         raise FileNotFoundError(f"Cannot open video: {path}")
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+    # Re-probe with ffprobe if fps is invalid (< 1.0) or NaN.
+    try:
+        if not fps or fps < 1.0:
+            import json, subprocess
+            probe = [
+                "ffprobe", "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=r_frame_rate",
+                "-of", "json", path
+            ]
+            out = subprocess.check_output(probe, text=True)
+            rate = json.loads(out)["streams"][0]["r_frame_rate"]
+            # r_frame_rate like "30000/1001"
+            num, den = rate.split("/")
+            fps = float(num) / float(den) if float(den) != 0 else 30.0
+    except Exception:
+        fps = fps if fps and fps >= 1.0 else 30.0
+
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
     dur = cap.get(cv2.CAP_PROP_FRAME_COUNT) / fps if fps > 0 else 0.0
-
-    def _ffprobe(path):
-        cmd = f'ffprobe -v error -print_format json -show_streams {shlex.quote(path)}'
-        try:
-            out = subprocess.check_output(cmd, shell=True, text=True)
-            meta = json.loads(out)
-            for s in meta.get("streams", []):
-                if s.get("codec_type") == "video":
-                    fps_str = s.get("r_frame_rate", "0/0")
-                    num, den = fps_str.split("/")
-                    fps_v = float(num) / float(den) if den != "0" else 0.0
-                    w_v = int(s.get("width") or 0)
-                    h_v = int(s.get("height") or 0)
-                    return fps_v, w_v, h_v
-        except Exception:
-            pass
-        return None
-
-    if fps <= 1.0 or dur <= 0.0:
-        probed = _ffprobe(path)
-        if probed:
-            fps, W, H = probed
-
-    if fps <= 1.0:
-        raise RuntimeError(f"Unusable FPS ({fps}) for {path}")
 
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
 
