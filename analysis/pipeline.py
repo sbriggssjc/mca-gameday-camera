@@ -57,7 +57,7 @@ from formation_detector import detect_formation
 from fnmatch import fnmatch
 from playbooks import load_offense_playbook
 from .playbook.schema import validate_playbook
-from analysis.play_classifier import classify_play
+from analysis.classifier import classify_play
 
 
 # ---------------------------------------------------------------------------
@@ -138,8 +138,17 @@ def export_clip(video: str, start: float, end: float, out_path: Path, rotation: 
 
 def _run_pipeline(args: argparse.Namespace) -> None:
     run_dir = _canonical_dir(args.out, args.video, overwrite=args.overwrite)
-    # Quote out_dir so downstream parsers handle spaces safely
-    print(f'Run dir: "{run_dir}"')
+
+    vidname = os.path.basename(args.video).lower()
+    video_profile = "none"
+    if "scrimmage 2 - part 1" in vidname:
+        video_profile = "Scrimmage 2 (Part 1) — navy jerseys with names/numbers"
+    elif "scrimmage 2 - part 2" in vidname:
+        video_profile = "Scrimmage 2 (Part 2) — navy jerseys with names/numbers"
+    elif "img_4129" in vidname or "imp_4129" in vidname:
+        video_profile = "Scrimmage 1 — white practice uniforms, no jersey numbers"
+
+    print(f"[video_profile] {video_profile}")
 
     hint = detect_video_profile(args.video)
     if hint != "none":
@@ -270,11 +279,13 @@ def _run_pipeline(args: argparse.Namespace) -> None:
             formation_conf = 0.8
         print(f"[formation_detector] {seg_id}: {formation_name} conf={formation_conf:.2f}")
 
-        playcall = classify_play(feat.get("features", {}), raw_pb, formation_hint=formation_name)
+        playcall = classify_play(feat.get("features", {}), formation_name, raw_pb)
         print(f"[play_classifier] {seg_id}: {playcall['name']} conf={playcall['confidence']:.2f}")
         play_name = playcall.get("name")
         play_conf = playcall.get("confidence", 0.0)
         play_family = playcall.get("family", "")
+        if play_name == "Unknown":
+            play_family = ""
 
         playcall_dict = playcall
 

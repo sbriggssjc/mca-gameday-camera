@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ORIG_ARGS=("$@")
 VIDEO=""
 TEAM=""
 PLAYBOOK=""
@@ -26,7 +27,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$VIDEO" ]] || { echo "VIDEO: --video required" >&2; exit 2; }
+if [[ -z "$VIDEO" ]]; then
+  echo "ERROR: --video required; you passed: ${ORIG_ARGS[*]}"
+  exit 2
+fi
 [[ -n "$TEAM" ]] || { echo "TEAM: --team required" >&2; exit 2; }
 [[ -n "$PLAYBOOK" ]] || { echo "PLAYBOOK: --playbook required" >&2; exit 2; }
 [[ -n "$OUT" ]] || { echo "OUT: --out required" >&2; exit 2; }
@@ -42,13 +46,17 @@ ARGS=(
   --min-play-length "$MIN_LEN"
 )
 (( GEN_REPORT == 1 )) && ARGS+=( --generate-report )
+LOG=${LOG:-/dev/null}
+
+if [[ "${GOOGLE_DRIVE_SYNC:-}" == "1" ]]; then
+  echo "[gdrive] Drive sync ENABLED"
+else
+  echo "[gdrive] Drive sync DISABLED"
+fi
+
 (( GEN_CLIPS == 1 )) && ARGS+=( --generate-clips )
 
-if [[ -n "$LOG" ]]; then
-  python3 "${ARGS[@]}" 2>&1 | tee "$LOG"
-else
-  python3 "${ARGS[@]}"
-fi
+python3 "${ARGS[@]}" 2>&1 | tee "$LOG"
 
 # determine run directory via Python helper (matches pipeline logic)
 RUN_DIR=$(python3 - "$VIDEO" "$OUT" <<'PY'
@@ -67,13 +75,21 @@ print(run)
 PY
 )
 
-if [[ -n "$LOG" ]]; then
-  {
-    echo "== Summary =="
-    echo "Run dir: \"$RUN_DIR\""
-  } | tee -a "$LOG"
-else
+{
   echo "== Summary =="
   echo "Run dir: \"$RUN_DIR\""
+} | tee -a "$LOG"
+
+if [[ "${GOOGLE_DRIVE_SYNC:-}" == "1" ]]; then
+  if [[ -f "$RUN_DIR/plays_index.csv" ]]; then
+    echo "[gdrive] uploading $RUN_DIR/plays_index.csv" | tee -a "$LOG"
+    if python3 upload_to_drive.py "$RUN_DIR/plays_index.csv" >> "$LOG" 2>&1; then
+      echo "[gdrive] upload OK" | tee -a "$LOG"
+    else
+      echo "[gdrive] upload FAILED" | tee -a "$LOG"
+    fi
+  else
+    echo "[gdrive] nothing to upload" | tee -a "$LOG"
+  fi
 fi
 
