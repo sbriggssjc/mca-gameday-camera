@@ -447,7 +447,8 @@ def run_pipeline(*, args: argparse.Namespace | None = None, **kwargs) -> None:
     highlight.parent.mkdir(parents=True, exist_ok=True)
     highlight.touch()
 
-    print("== Summary ==")
+    # Print once, quoted; some shells glue multiple lines together.
+    print('== Summary ==')
     print(f'Run dir: "{run_dir.resolve()}"')
 
 
