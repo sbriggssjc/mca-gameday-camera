@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import List, Dict
 import numpy as np
+import json, subprocess, shlex
+from pathlib import Path
 
 try:  # pragma: no cover
     import cv2
@@ -49,7 +51,25 @@ def segment_video(
     if not cap.isOpened():
         raise FileNotFoundError(f"Cannot open video: {path}")
 
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+    # Fallback probe when FPS is weird/zero (seen on some Jetson encodes)
+    if fps < 1.0:
+        try:
+            # ffprobe must be installed; parse r_frame_rate
+            cmd = f'ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate -of json "{Path(path)}"'
+            out = subprocess.check_output(shlex.split(cmd), stderr=subprocess.STDOUT).decode("utf-8", "ignore")
+            info = json.loads(out)
+            rate = info.get("streams", [{}])[0].get("r_frame_rate", "0/1")
+            num, den = rate.split("/")
+            num, den = float(num), float(den) if float(den) != 0 else 1.0
+            probed = num / den
+            if probed > 1.0:
+                fps = probed
+        except Exception:
+            pass
+    if fps < 1.0:
+        raise RuntimeError(f"Video FPS could not be determined (>1.0 required). Path={path} probed_fps={fps}")
+
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
