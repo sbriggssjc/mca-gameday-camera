@@ -4,85 +4,77 @@ set -euo pipefail
 usage() {
   cat <<EOF
 Usage:
-  scripts/run_utils.sh get_run_dir /path/to/pipeline.log
-  scripts/run_utils.sh check_csv   /path/to/run_dir
-  scripts/run_utils.sh clip_previews /path/to/run_dir [seconds=3]
+  scripts/run_utils.sh get_run_dir     /path/to/pipeline.log
+  scripts/run_utils.sh check_csv       /path/to/run_dir
+  scripts/run_utils.sh clip_previews   /path/to/run_dir [seconds=3]
 EOF
 }
 
+green() { printf "\033[32m%s\033[0m\n" "$*"; }
+yellow() { printf "\033[33m%s\033[0m\n" "$*"; }
+red() { printf "\033[31m%s\033[0m\n" "$*"; }
+
 get_run_dir() {
-  local log="${1:?log file required}"
-  awk '
-    $0 ~ /^== Summary ==/ { in_sum=1; next }
-    in_sum && $0 ~ /^Run dir:/ {
-      # handle both: Run dir: /path...   and   Run dir: "/path with spaces"
-      sub(/^Run dir:[[:space:]]*/, "", $0)
-      gsub(/^"|"$/, "", $0)
-      print $0; exit
-    }
-  ' "$log"
+  local log="${1:-}"
+  [[ -f "$log" ]] || { red "log not found: $log"; exit 1; }
+  # Grep last 'run complete ->' line
+  local rd
+  rd="$(grep -Eo '\[pipeline\] run complete -> .*' "$log" | tail -n1 | sed 's/.* -> //')"
+  [[ -n "${rd:-}" && -d "$rd" ]] || { red "could not extract run dir from $log"; exit 1; }
+  echo "$rd"
 }
 
 check_csv() {
-  local run_dir="${1:?run_dir required}"
-  local csv="$run_dir/plays_index.csv"
-  if [[ ! -f "$csv" ]]; then
-    echo "❌ missing: $csv"
-    exit 1
-  fi
+  local rd="${1:-}"; [[ -n "$rd" && -d "$rd" ]] || { red "run_dir required"; exit 1; }
+  local csv="$rd/plays_index.csv"
+  [[ -f "$csv" ]] || { red "missing: $csv"; exit 1; }
 
-  # Accept both the “new” header and the earlier one you saw
-  local want1="play_id,t0,t1,snap,whistle,clip_path,formation,formation_confidence,play_family,playcall_confidence,outcome,clip_duration"
-  local want2="play_id,t0,t1,snap,whistle,clip_path,formation,formation_confidence,playcall,play_family,playcall_confidence,outcome,clip_duration"
-  local got
-  got="$(head -n1 "$csv" | tr -d '\r')"
-
-  if [[ "$got" == "$want1" || "$got" == "$want2" ]]; then
-    echo "✅ CSV header OK"
+  local got hdr_ok=0
+  got="$(head -n1 "$csv" | tr -d '\r\n')"
+  local want="play_id,t0,t1,snap,whistle,clip_path,formation,formation_confidence,play_family,playcall_confidence,outcome,clip_duration"
+  if [[ "$got" == "$want" ]]; then
+    green "✅ CSV header OK"
+    hdr_ok=1
   else
-    echo "⚠️ CSV header is unexpected but proceeding:"
+    yellow "⚠️ CSV header is unexpected but proceeding:"
     echo "Got: $got"
   fi
 
-  # Has data?
-  if [[ $(wc -l < "$csv") -gt 1 ]]; then
-    echo "✅ CSV has data rows"
+  local rows
+  rows=$(wc -l < "$csv")
+  if (( rows > 1 )); then
+    green "✅ CSV has data rows"
   else
-    echo "❌ CSV has no data rows"
-    exit 2
+    red "❌ CSV is empty"; exit 2
   fi
 
   echo "First few clips:"
-  awk -F, 'NR>1 && NR<=10 {print $6}' "$csv" | sed 's#^#/#' | sed 's#//#/#'
+  find "$rd/clips" -type f -name '*.mp4' | sort | head -n 10
 }
 
 clip_previews() {
-  local run_dir="${1:?run_dir required}"
-  local seconds="${2:-3}"
+  local rd="${1:-}"; [[ -n "$rd" && -d "$rd" ]] || { red "run_dir required"; exit 1; }
+  local secs="${2:-3}"
 
-  if ! command -v ffmpeg >/dev/null 2>&1; then
-    echo "⚠️ ffmpeg not found; skipping GIF previews"
-    exit 0
-  fi
+  command -v ffmpeg >/dev/null 2>&1 || { red "ffmpeg not found"; exit 1; }
 
   shopt -s nullglob
-  local any=0
-  for mp4 in "$run_dir"/clips/*/*.mp4; do
-    any=1
+  local mp4
+  for mp4 in "$rd"/clips/*/*.mp4; do
     local gif="${mp4%.mp4}.gif"
-    ffmpeg -loglevel error -y -i "$mp4" -t "$seconds" -vf "fps=10,scale=512:-1" "$gif" || true
+    # 10 fps, scale to width=512 maintaining aspect
+    ffmpeg -y -i "$mp4" -vf "fps=10,scale=512:-1:flags=lanczos" -t "$secs" "$gif" >/dev/null 2>&1 || true
   done
-  if [[ $any -eq 1 ]]; then
-    echo "GIF previews written next to each clip."
-  else
-    echo "⚠️ No clips found in $run_dir/clips/*/*.mp4"
-  fi
+  green "GIF previews written next to each clip."
 }
 
-cmd="${1:-}"; shift || true
-case "$cmd" in
-  get_run_dir)     get_run_dir "$@";;
-  check_csv)       check_csv "$@";;
-  clip_previews)   clip_previews "$@";;
-  *)               usage; exit 64;;
-esac
+main() {
+  local cmd="${1:-}"; shift || true
+  case "$cmd" in
+    get_run_dir)     get_run_dir "$@";;
+    check_csv)       check_csv "$@";;
+    clip_previews)   clip_previews "$@";;
+    *) usage; exit 1;;
+  esac
+}
+main "$@"
