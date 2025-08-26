@@ -1,6 +1,6 @@
 # tools/backfill_from_clips.py
 from __future__ import annotations
-import csv, json, subprocess, sys
+import csv, json, subprocess, sys, os
 from pathlib import Path
 from typing import Any
 from .json_io import iter_jsonl_safe
@@ -116,7 +116,7 @@ def backfill(run_dir: Path) -> int:
     with plays_jsonl.open("w", encoding="utf8") as jf, plays_csv.open(
         "w", newline="", encoding="utf8"
     ) as cf:
-        fieldnames = [
+        PREFERRED = [
             "play_id",
             "t0",
             "t1",
@@ -126,13 +126,36 @@ def backfill(run_dir: Path) -> int:
             "formation",
             "formation_confidence",
             "playcall",
+            "playcall_confidence",
+            "play_family",
+            "outcome",
+            "clip_duration",
+        ]
+        LEGACY = [
+            "play_id",
+            "t0",
+            "t1",
+            "snap",
+            "whistle",
+            "clip_path",
+            "formation",
+            "formation_confidence",
             "play_family",
             "playcall_confidence",
             "outcome",
             "clip_duration",
         ]
-        w = csv.DictWriter(cf, fieldnames=fieldnames)
+        write_legacy = os.getenv("PIPELINE_WRITE_LEGACY_CSV", "0") == "1"
+        w = csv.DictWriter(cf, fieldnames=PREFERRED)
         w.writeheader()
+        legacy_writer = None
+        cf_legacy = None
+        if write_legacy:
+            cf_legacy = (run_dir / "plays_index_legacy.csv").open(
+                "w", newline="", encoding="utf8"
+            )
+            legacy_writer = csv.DictWriter(cf_legacy, fieldnames=LEGACY)
+            legacy_writer.writeheader()
         for pid, mp4 in pairs:
             dur = ffprobe_duration(mp4)
             pred = pred_map.get(pid, {})
@@ -188,29 +211,34 @@ def backfill(run_dir: Path) -> int:
             }
             jf.write(json.dumps(row_json) + "\n")
 
-            w.writerow(
-                {
-                    "play_id": pid,
-                    "t0": t0 if t0 is not None else "",
-                    "t1": t1 if t1 is not None else "",
-                    "snap": existing.get("snap", ""),
-                    "whistle": existing.get("whistle", ""),
-                    "clip_path": str(mp4),
-                    "formation": formation_name,
-                    "formation_confidence": float(formation_conf),
-                    "playcall": playcall_name if playcall_name else "",
-                    "play_family": play_family,
-                    "playcall_confidence": float(playcall_conf),
-                    "outcome": existing.get("outcome", ""),
-                    "clip_duration": clip_duration,
-                }
-            )
+            row = {
+                "play_id": pid,
+                "t0": t0 if t0 is not None else "",
+                "t1": t1 if t1 is not None else "",
+                "snap": existing.get("snap", ""),
+                "whistle": existing.get("whistle", ""),
+                "clip_path": str(mp4),
+                "formation": formation_name,
+                "formation_confidence": float(formation_conf),
+                "playcall": playcall_name if playcall_name else "",
+                "playcall_confidence": float(playcall_conf),
+                "play_family": play_family,
+                "outcome": existing.get("outcome", ""),
+                "clip_duration": clip_duration,
+            }
+            w.writerow({k: row.get(k, "") for k in PREFERRED})
+            if legacy_writer:
+                legacy_row = {k: row.get(k, "") for k in LEGACY}
+                legacy_row["play_family"] = row.get("play_family", "")
+                legacy_writer.writerow(legacy_row)
             print(
                 f"[backfill] play {pid}: formation={formation_name} conf={formation_conf} "
                 f"playcall={playcall_name or ''} conf={playcall_conf}"
             )
             total += 1
 
+    if write_legacy and legacy_writer and cf_legacy:
+        cf_legacy.close()
     print(f"[backfill] wrote {total} plays -> {plays_jsonl} and {plays_csv}")
     return total
 
