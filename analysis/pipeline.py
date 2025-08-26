@@ -57,7 +57,8 @@ from formation_detector import detect_formation
 from fnmatch import fnmatch
 from playbooks import load_offense_playbook
 from .playbook.schema import validate_playbook
-from analysis.classifier import classify_play
+from analysis.classifier import model_predict_candidates, FORMATION_FAMILY_PRIOR
+from analysis.classification import postprocess_playcall
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +201,9 @@ def _run_pipeline(args: argparse.Namespace) -> None:
     plays = raw_pb.get("plays", [])
     pb = validate_playbook({"plays": plays, "formations": raw_pb.get("formations", [])}) if plays else None
     name_to_family = {p.name: p.family or p.name for p in pb.plays.values()} if pb else {}
+
+    def derive_family(name: str) -> str:
+        return name_to_family.get(name, "")
     print(
         f"[config] min_play_length={args.min_play_length} min_play_gap={args.min_play_gap} "
         f"report={args.generate_report} clips={args.generate_clips} highlights={args.generate_highlights} overlay={getattr(args, 'make_overlay', getattr(args, 'overlay', False))}"
@@ -279,26 +283,36 @@ def _run_pipeline(args: argparse.Namespace) -> None:
             formation_conf = 0.8
         print(f"[formation_detector] {seg_id}: {formation_name} conf={formation_conf:.2f}")
 
-        playcall = classify_play(feat.get("features", {}), formation_name, raw_pb)
-        play_name = playcall.get("name") or ""
-        play_conf = float(playcall.get("confidence", 0.0))
-        play_family = playcall.get("family", "") if play_name else ""
-        disp_name = play_name or "Unknown"
-        print(f"[play_classifier] {seg_id}: {disp_name} conf={play_conf:.2f}")
-        if (not play_name) or (play_conf < 0.5):
-            cands = ", ".join(
-                [
-                    f"{c['name']}:{c.get('score', 0):.2f}"
-                    for c in playcall.get("candidates", [])[:3]
-                ]
-            )
-            if cands:
-                print(f"[play_classifier:candidates] {seg_id}: {cands}")
+        candidates_raw = model_predict_candidates(feat.get("features", {}), raw_pb)
+        families_ok = FORMATION_FAMILY_PRIOR.get(formation_name)
+        if families_ok:
+            candidates_raw = [
+                c
+                for c in candidates_raw
+                if (c.get("family") in families_ok or c.get("name") in families_ok)
+            ]
+        total_score = sum(max(c["score"], 0.0) for c in candidates_raw) or 1.0
+        pred_dist = sorted(
+            [(c["name"], c["score"] / total_score) for c in candidates_raw],
+            key=lambda x: x[1],
+            reverse=True,
+        )
+        play_name, play_conf, candidates = postprocess_playcall(pred_dist)
+        play_family = derive_family(play_name) if play_name != "Unknown" else ""
+        cand_str = ", ".join([
+            f'{c["name"]}:{c["confidence"]:.2f}' for c in candidates
+        ])
+        if play_name == "Unknown":
+            print(f"[play_classifier] {seg_id}: Unknown conf=0.00")
+            if cand_str:
+                print(f"[play_classifier:candidates] {seg_id}: {cand_str}")
+        else:
+            print(f"[play_classifier] {seg_id}: {play_name} conf={play_conf:.2f}")
 
         playcall_dict = {
             "name": play_name,
             "confidence": play_conf,
-            "candidates": playcall.get("candidates", []),
+            "candidates": candidates,
         }
 
         # grades -- simple constant grade for each detected player
@@ -323,8 +337,8 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         play_rec = {
             "play_id": seg_id,
             "clip_path": str(clip_out),
-            "t0": "",
-            "t1": "",
+            "t0": str(t0),
+            "t1": str(t1),
             "formation": formation_name,
             "formation_confidence": float(formation_conf),
             "playcall": playcall_dict,
@@ -341,23 +355,22 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         }
         prediction_rows.append(play_rec)
 
-        plays_index.append(
-            {
-                "play_id": seg_id,
-                "t0": t0,
-                "t1": t1,
-                "snap": t0,
-                "whistle": t1,
-                "clip_path": str(clip_out),
-                "formation": formation_name,
-                "formation_confidence": formation_conf,
-                "playcall": play_name,
-                "play_family": play_family,
-                "playcall_confidence": float(play_conf or 0.0),
-                "outcome": "",
-                "clip_duration": float(clip_duration),
-            }
-        )
+        row = {
+            "play_id": seg_id,
+            "t0": t0,
+            "t1": t1,
+            "snap": t0,
+            "whistle": t1,
+            "clip_path": str(clip_out),
+            "formation": formation_name,
+            "formation_confidence": formation_conf,
+            "playcall": play_name,
+            "playcall_confidence": float(play_conf or 0.0),
+            "play_family": play_family,
+            "outcome": "",
+            "clip_duration": float(clip_duration),
+        }
+        plays_index.append(row)
 
     if cap is not None:
         cap.release()
@@ -368,7 +381,7 @@ def _run_pipeline(args: argparse.Namespace) -> None:
     _write_jsonl(grade_rows, run_dir / "grades.jsonl")
 
     # plays index
-    csv_columns = [
+    PREFERRED = [
         "play_id",
         "t0",
         "t1",
@@ -378,15 +391,41 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         "formation",
         "formation_confidence",
         "playcall",
+        "playcall_confidence",
+        "play_family",
+        "outcome",
+        "clip_duration",
+    ]
+    LEGACY = [
+        "play_id",
+        "t0",
+        "t1",
+        "snap",
+        "whistle",
+        "clip_path",
+        "formation",
+        "formation_confidence",
         "play_family",
         "playcall_confidence",
         "outcome",
         "clip_duration",
     ]
+    write_legacy = os.getenv("PIPELINE_WRITE_LEGACY_CSV", "0") == "1"
     with (run_dir / "plays_index.csv").open("w", newline="", encoding="utf8") as f:
-        writer = csv.DictWriter(f, fieldnames=csv_columns)
+        writer = csv.DictWriter(f, fieldnames=PREFERRED)
         writer.writeheader()
-        writer.writerows(plays_index)
+        for row in plays_index:
+            writer.writerow({k: row.get(k, "") for k in PREFERRED})
+    if write_legacy:
+        with (run_dir / "plays_index_legacy.csv").open(
+            "w", newline="", encoding="utf8"
+        ) as f:
+            w = csv.DictWriter(f, fieldnames=LEGACY)
+            w.writeheader()
+            for row in plays_index:
+                legacy_row = {k: row.get(k, "") for k in LEGACY}
+                legacy_row["play_family"] = row.get("play_family", "")
+                w.writerow(legacy_row)
 
     # player grade summary
     with (run_dir / "player_grades.csv").open("w", newline="", encoding="utf8") as f:
