@@ -1,8 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Dict
 import numpy as np
-import json, subprocess, shlex
-from pathlib import Path
+import subprocess, json, math, shlex
 
 try:  # pragma: no cover
     import cv2
@@ -36,13 +35,12 @@ def segment_video(
     spanning the entire video duration (via ``ffprobe``).
     """
     if cv2 is None:
-        import subprocess, json as json_module
         try:
             out = subprocess.check_output([
                 "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                 "stream=duration", "-of", "json", path
             ])
-            dur = float(json_module.loads(out)["streams"][0].get("duration", 0.0))
+            dur = float(json.loads(out)["streams"][0].get("duration", 0.0))
         except Exception:
             dur = 0.0
         return [{"id": "PLAY_001", "t0": 0.0, "t1": max(10.0, dur)}]
@@ -52,23 +50,40 @@ def segment_video(
         raise FileNotFoundError(f"Cannot open video: {path}")
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
-    # Re-probe with ffprobe if fps is invalid (< 1.0) or NaN.
-    try:
-        if not fps or fps < 1.0:
-            import json, subprocess
-            probe = [
-                "ffprobe", "-v", "error",
-                "-select_streams", "v:0",
-                "-show_entries", "stream=r_frame_rate",
+
+    def _probe_fps_with_ffprobe(path: str) -> float:
+        try:
+            # ffprobe json for avg_frame_rate, fall back to r_frame_rate
+            cmd = [
+                "ffprobe", "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=avg_frame_rate,r_frame_rate",
                 "-of", "json", path
             ]
-            out = subprocess.check_output(probe, text=True)
-            rate = json.loads(out)["streams"][0]["r_frame_rate"]
-            # r_frame_rate like "30000/1001"
-            num, den = rate.split("/")
-            fps = float(num) / float(den) if float(den) != 0 else 30.0
-    except Exception:
-        fps = fps if fps and fps >= 1.0 else 30.0
+            out = subprocess.check_output(cmd, text=True)
+            data = json.loads(out)
+            st = (data.get("streams") or [{}])[0]
+            for key in ("avg_frame_rate", "r_frame_rate"):
+                fr = st.get(key, "0/0")
+                if fr and "/" in fr:
+                    num, den = fr.split("/")
+                    try:
+                        num, den = float(num), float(den)
+                        if den != 0:
+                            val = num / den
+                            if 5.0 <= val <= 120.0:
+                                return val
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        return 30.0  # sane default
+
+    def _fps_is_bad(x: float) -> bool:
+        return (not x) or (isinstance(x, float) and (math.isnan(x) or x < 5.0 or x > 120.0))
+
+    if _fps_is_bad(fps):
+        fps = _probe_fps_with_ffprobe(path)
+        print(f"[video_probe] OpenCV FPS bad; ffprobe FPS={fps:.3f}")
 
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
