@@ -46,20 +46,20 @@ ARGS=(
   --min-play-length "$MIN_LEN"
 )
 (( GEN_REPORT == 1 )) && ARGS+=( --generate-report )
-LOG=${LOG:-/dev/null}
 
-if [[ "${GOOGLE_DRIVE_SYNC:-}" == "1" ]]; then
-  echo "[gdrive] Drive sync ENABLED"
-else
-  echo "[gdrive] Drive sync DISABLED"
-fi
+run_main() {
+  if [[ "${GOOGLE_DRIVE_SYNC:-}" == "1" ]]; then
+    echo "[gdrive] Drive sync ENABLED"
+  else
+    echo "[gdrive] Drive sync DISABLED"
+  fi
 
-(( GEN_CLIPS == 1 )) && ARGS+=( --generate-clips )
+  (( GEN_CLIPS == 1 )) && ARGS+=( --generate-clips )
 
-python3 "${ARGS[@]}" 2>&1 | tee "$LOG"
+  python3 "${ARGS[@]}"
 
-# determine run directory via Python helper (matches pipeline logic)
-RUN_DIR=$(python3 - "$VIDEO" "$OUT" <<'PY'
+  # determine run directory via Python helper (matches pipeline logic)
+  RUN_DIR=$(python3 - "$VIDEO" "$OUT" <<'PY'
 import sys, hashlib
 from pathlib import Path
 video, out = sys.argv[1], sys.argv[2]
@@ -73,23 +73,28 @@ fp = hashlib.sha1(raw.encode()).hexdigest()[:12]
 run = (Path(out) / "games" / f"{p.stem}__{fp}").resolve()
 print(run)
 PY
-)
+  )
 
-{
   echo "== Summary =="
   echo "Run dir: \"$RUN_DIR\""
-} | tee -a "$LOG"
 
-if [[ "${GOOGLE_DRIVE_SYNC:-}" == "1" ]]; then
-  if [[ -f "$RUN_DIR/plays_index.csv" ]]; then
-    echo "[gdrive] uploading $RUN_DIR/plays_index.csv" | tee -a "$LOG"
-    if python3 upload_to_drive.py "$RUN_DIR/plays_index.csv" >> "$LOG" 2>&1; then
-      echo "[gdrive] upload OK" | tee -a "$LOG"
+  if [[ "${GOOGLE_DRIVE_SYNC:-}" == "1" ]]; then
+    if [[ -f "$RUN_DIR/plays_index.csv" ]]; then
+      echo "[gdrive] uploading $RUN_DIR/plays_index.csv"
+      if python3 upload_to_drive.py "$RUN_DIR/plays_index.csv"; then
+        echo "[gdrive] upload OK"
+      else
+        echo "[gdrive] upload FAILED"
+      fi
     else
-      echo "[gdrive] upload FAILED" | tee -a "$LOG"
+      echo "[gdrive] nothing to upload"
     fi
-  else
-    echo "[gdrive] nothing to upload" | tee -a "$LOG"
   fi
+}
+
+if [[ -n "$LOG" ]]; then
+  run_main 2>&1 | tee "$LOG"
+else
+  run_main
 fi
 
