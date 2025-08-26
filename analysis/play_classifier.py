@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Dict, Any
+import os
 
 
 class PlayClassifier:
@@ -88,8 +89,12 @@ class PlayClassifier:
             score = inter / union
             if formation_hint and row["formation"] and formation_hint.lower() in row["formation"].lower():
                 score += 0.15
-            scored.append((score, row))
-        scored.sort(key=lambda x: x[0], reverse=True)
+            scored.append({"score": score, "name": row["name"], "family": row["family"]})
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        candidates = [
+            {"name": s["name"], "score": s["score"], "family": s["family"]}
+            for s in scored[:5]
+        ]
 
         # Fallback heuristics: unique family by formation = high confidence
         if formation_hint:
@@ -108,21 +113,42 @@ class PlayClassifier:
                     "name": f"Leo {fam}" if "left" in fh else f"Reo {fam}",
                     "confidence": choice[1],
                     "family": fam,
-                    "candidates": [],
+                    "candidates": candidates,
                 }
 
-        if scored and scored[0][0] >= 0.10:
-            best = scored[0][1]
+        if scored and scored[0]["score"] >= 0.10:
+            best = scored[0]
             fam = self.alias.get(best["family"] or best["name"], best["family"] or "Unknown")
-            conf = min(0.98, max(0.70, 0.70 + scored[0][0]))
+            conf = min(0.98, max(0.70, 0.70 + best["score"]))
             return {
                 "name": best["name"] or fam,
                 "confidence": conf,
                 "family": fam,
-                "candidates": [r[1]["name"] for r in scored[:5]],
+                "candidates": candidates,
             }
 
-        return {"name": "Unknown", "confidence": 0.0, "family": "", "candidates": []}
+        fallback_on = os.getenv("PLAYCALL_FALLBACK", "0") == "1"
+        bias_family = os.getenv("PLAYCALL_BIAS_FAMILY", "").strip()
+        best = candidates[0] if candidates else None
+        name, conf, fam = "", 0.0, ""
+        if best and fallback_on and best.get("score", 0) >= 0.35:
+            name, conf = best["name"], float(best["score"])
+            fam = self.alias.get(best.get("family") or best["name"], best.get("family") or "")
+
+        if bias_family and candidates:
+            fam_hits = [c for c in candidates if c["name"].endswith(bias_family)]
+            if fam_hits:
+                fh = max(fam_hits, key=lambda c: c["score"])
+                if fallback_on and fh["score"] >= 0.35:
+                    name, conf = fh["name"], float(fh["score"])
+                    fam = self.alias.get(fh.get("family") or fh["name"], fh.get("family") or "")
+
+        return {
+            "name": name,
+            "confidence": conf,
+            "family": fam if name else "",
+            "candidates": candidates,
+        }
 
 
 __all__ = ["PlayClassifier"]
