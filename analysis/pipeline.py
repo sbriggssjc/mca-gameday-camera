@@ -280,14 +280,26 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         print(f"[formation_detector] {seg_id}: {formation_name} conf={formation_conf:.2f}")
 
         playcall = classify_play(feat.get("features", {}), formation_name, raw_pb)
-        print(f"[play_classifier] {seg_id}: {playcall['name']} conf={playcall['confidence']:.2f}")
-        play_name = playcall.get("name")
-        play_conf = playcall.get("confidence", 0.0)
-        play_family = playcall.get("family", "")
-        if play_name == "Unknown":
-            play_family = ""
+        play_name = playcall.get("name") or ""
+        play_conf = float(playcall.get("confidence", 0.0))
+        play_family = playcall.get("family", "") if play_name else ""
+        disp_name = play_name or "Unknown"
+        print(f"[play_classifier] {seg_id}: {disp_name} conf={play_conf:.2f}")
+        if (not play_name) or (play_conf < 0.5):
+            cands = ", ".join(
+                [
+                    f"{c['name']}:{c.get('score', 0):.2f}"
+                    for c in playcall.get("candidates", [])[:3]
+                ]
+            )
+            if cands:
+                print(f"[play_classifier:candidates] {seg_id}: {cands}")
 
-        playcall_dict = playcall
+        playcall_dict = {
+            "name": play_name,
+            "confidence": play_conf,
+            "candidates": playcall.get("candidates", []),
+        }
 
         # grades -- simple constant grade for each detected player
         for pl in players:
@@ -339,6 +351,7 @@ def _run_pipeline(args: argparse.Namespace) -> None:
                 "clip_path": str(clip_out),
                 "formation": formation_name,
                 "formation_confidence": formation_conf,
+                "playcall": play_name,
                 "play_family": play_family,
                 "playcall_confidence": float(play_conf or 0.0),
                 "outcome": "",
@@ -355,24 +368,23 @@ def _run_pipeline(args: argparse.Namespace) -> None:
     _write_jsonl(grade_rows, run_dir / "grades.jsonl")
 
     # plays index
+    csv_columns = [
+        "play_id",
+        "t0",
+        "t1",
+        "snap",
+        "whistle",
+        "clip_path",
+        "formation",
+        "formation_confidence",
+        "playcall",
+        "play_family",
+        "playcall_confidence",
+        "outcome",
+        "clip_duration",
+    ]
     with (run_dir / "plays_index.csv").open("w", newline="", encoding="utf8") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=[
-                "play_id",
-                "t0",
-                "t1",
-                "snap",
-                "whistle",
-                "clip_path",
-                "formation",
-                "formation_confidence",
-                "play_family",
-                "playcall_confidence",
-                "outcome",
-                "clip_duration",
-            ],
-        )
+        writer = csv.DictWriter(f, fieldnames=csv_columns)
         writer.writeheader()
         writer.writerows(plays_index)
 
@@ -394,7 +406,7 @@ def _run_pipeline(args: argparse.Namespace) -> None:
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     if args.generate_report:
         (run_dir / "report.md").write_text("# Automated Report\n")
-    print(f"[pipeline] run complete -> {run_dir}")
+    print(f"[pipeline] run complete -> \"{run_dir}\"")
 
 def run_pipeline(*, args: argparse.Namespace | None = None, **kwargs) -> None:
     """Wrapper allowing kwargs or an argparse Namespace."""
