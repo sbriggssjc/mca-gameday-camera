@@ -1,15 +1,38 @@
-DEFAULT_MIN_CONF = 0.35
-TOPK=3
 from __future__ import annotations
+
+HARD_MIN = 0.35
+TOP1_MIN = 0.55
+TOPK = 3
 
 """Lightweight play classifier with caching and heuristics."""
 
 from pathlib import Path
 from typing import Dict, Any
 import os
-
-
 import re
+
+ALIASES = {
+    "leo_f_stick": "Leo F Stick",
+    "leo-stick": "Leo F Stick",
+    "lit_jet_sweep": "Lit Jet Sweep",
+    "rit_jet_sweep": "Rit Jet Sweep",
+    "rit_8_option": "Rit 8 Option",
+    "flare_boot_rit": "Rit Flare Boot",
+    "f_screen_rit": "Rit F Screen",
+}
+
+FAMILY = {
+    "Leo F Stick": "F Stick",
+    "Rit Jet Sweep": "Jet Sweep",
+    "Lit Jet Sweep": "Jet Sweep",
+    "Rit Flare Boot": "Boot",
+    "Rit F Screen": "Screen",
+    "Rit 8 Option": "Option",
+}
+
+def normalize_label(s: str) -> str:
+    key = s.strip().lower().replace(" ", "_").replace("-", "_")
+    return ALIASES.get(key, s.strip())
 def _norm_name(x:str)->str:
     x = x.lower().strip()
     x = re.sub(r'[^a-z0-9]+', ' ', x)
@@ -169,7 +192,7 @@ class PlayClassifier:
         }
 
 
-__all__ = ["PlayClassifier"]
+__all__ = ["PlayClassifier", "normalize_label", "FAMILY", "HARD_MIN", "TOP1_MIN"]
 
 
 def build_playbook_index(playbook)->dict:
