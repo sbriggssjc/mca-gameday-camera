@@ -1,29 +1,14 @@
 from dataclasses import dataclass
 from typing import List, Dict
+import json
+import math
+import subprocess
 import numpy as np
-import subprocess, json, shlex
 
 try:  # pragma: no cover
     import cv2
 except Exception:  # pragma: no cover
     cv2 = None  # type: ignore
-
-
-def _probe_fps_ffprobe(path: str) -> float:
-    try:
-        cmd = (
-            f'ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate '
-            f'-of json {shlex.quote(path)}'
-        )
-        out = subprocess.check_output(cmd, shell=True).decode("utf-8", "ignore")
-        data = json.loads(out)
-        rate = data["streams"][0].get("r_frame_rate", "0/1")
-        num, den = rate.split("/")
-        num, den = float(num), float(den)
-        return num / den if den else 0.0
-    except Exception as e:
-        print(f"[ffprobe] failed to probe fps: {e}")
-        return 0.0
 
 
 @dataclass
@@ -67,15 +52,32 @@ def segment_video(
         raise FileNotFoundError(f"Cannot open video: {path}")
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
-
-    if not fps or fps < 5 or fps > 240:
-        print(f"[video] OpenCV fps={fps} looks wrong; reprobing via ffprobe…")
-        fps2 = _probe_fps_ffprobe(path)
-        if fps2 > 1:
-            print(f"[video] using ffprobe fps={fps2}")
-            fps = fps2
-        else:
-            print("[video] ffprobe also failed; keeping OpenCV fps")
+    if (not math.isfinite(fps)) or fps < 1.0:
+        try:
+            probe = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "v:0",
+                    "-show_entries",
+                    "stream=r_frame_rate",
+                    "-of",
+                    "json",
+                    path,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            r = json.loads(probe.stdout)["streams"][0]["r_frame_rate"]
+            num, den = (int(x) for x in r.split("/"))
+            fps = num / den if den else 30.0
+            print(f"[video_profile] ffprobe fallback FPS={fps:.2f}")
+        except Exception as e:
+            print(f"[video_profile] ffprobe fallback failed: {e}; defaulting to 30")
+            fps = 30.0
 
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
