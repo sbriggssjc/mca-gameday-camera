@@ -8,6 +8,20 @@ Jetson without additional model weights.
 from __future__ import annotations
 
 import argparse
+
+# --- import guard (added) ---
+try:
+    # when executed as a package: python -m analysis.pipeline
+    from .segmentation import segment_video
+    from .play_classifier import classify_plays
+except Exception:
+    # when executed as a script: python analysis/pipeline.py
+    import sys
+    from pathlib import Path as _P
+    sys.path.append(str(_P(__file__).resolve().parents[1]))  # add repo root
+    from analysis.segmentation import segment_video
+    from analysis.play_classifier import classify_plays
+# --- end import guard ---
 from argparse import BooleanOptionalAction
 import csv
 import hashlib
