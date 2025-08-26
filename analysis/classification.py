@@ -2,7 +2,24 @@
 
 import logging
 from dataclasses import dataclass
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Sequence, Tuple
+
+SOFT_THR = 0.85
+TOP_K = 3
+
+
+def postprocess_playcall(pred_dist: Sequence[Tuple[str, float]]):
+    """
+    pred_dist: list of (name, prob) sorted descending
+    Returns: (name, conf, candidates)
+    """
+    candidates = [
+        {"name": n, "confidence": float(p)} for n, p in pred_dist[:TOP_K]
+    ]
+    if candidates and candidates[0]["confidence"] >= SOFT_THR:
+        top = candidates[0]
+        return top["name"], top["confidence"], candidates
+    return "Unknown", 0.0, candidates
 
 
 @dataclass
@@ -110,5 +127,5 @@ def classify_play(frame_window, playbook, formation, logger, cues=None):
     return {"name": best.name, "confidence": best.confidence, "candidates": [c.__dict__ for c in others]}
 
 
-__all__ = ["classify_play", "PlayCandidate"]
+__all__ = ["classify_play", "PlayCandidate", "postprocess_playcall"]
 
