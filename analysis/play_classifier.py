@@ -1,80 +1,57 @@
 from __future__ import annotations
-from typing import Any, Dict, List
+import math, random
 
-# Light aliases and family mapping retained for pipeline usage
-ALIASES = {
-    "leo_f_stick": "Leo F Stick",
-    "leo-stick": "Leo F Stick",
-    "lit_jet_sweep": "Lit Jet Sweep",
-    "rit_jet_sweep": "Rit Jet Sweep",
-    "rit_8_option": "Rit 8 Option",
-    "flare_boot_rit": "Rit Flare Boot",
-    "f_screen_rit": "Rit F Screen",
-}
+MIN_PLAYCALL_CONF = float(os.environ.get("MIN_PLAYCALL_CONF", "0.5")) if "os" in globals() else 0.5
+try:
+    import os
+except:
+    import os
 
-FAMILY = {
-    "Leo F Stick": "F Stick",
-    "Rit Jet Sweep": "Jet Sweep",
-    "Lit Jet Sweep": "Jet Sweep",
-    "Rit Flare Boot": "Boot",
-    "Rit F Screen": "Screen",
-    "Rit 8 Option": "Option",
-}
+def _softmax(scores, temperature: float = 1.0):
+    exps = [math.exp(s / max(1e-6, temperature)) for s in scores]
+    s = sum(exps) or 1.0
+    return [e / s for e in exps]
 
-def normalize_label(s: str) -> str:
-    key = s.strip().lower().replace(" ", "_").replace("-", "_")
-    return ALIASES.get(key, s.strip())
+def _topk(candidates, k=3):
+    return sorted(candidates, key=lambda x: x[1], reverse=True)[:k]
 
-# Facade that guarantees classify_plays is importable by pipeline.py.
-# If an internal impl exists, delegate to it. Otherwise, return a safe fallback.
+def classify_plays(segments, playbook, video_profile=None):
+    """
+    Return a list of dicts:
+      play_id, t0, t1, snap, whistle, clip_path, formation, formation_confidence,
+      play_family, playcall_confidence, outcome, clip_duration, candidates=[(name,prob),...]
+    """
+    plays_def = playbook.get("plays", [])
+    known_names = [p.get("name", "") for p in plays_def]
 
-_INTERNAL_IMPL = None
-for _sym in ("classify_plays_impl", "classify", "run_classifier", "infer_plays"):
-    try:
-        from analysis import play_classifier as _self  # self-module
-        _candidate = getattr(_self, _sym) if _sym != "classify_plays" else None
-        if callable(_candidate):
-            _INTERNAL_IMPL = _candidate
-            break
-    except Exception:
-        pass
+    results = []
+    for i, seg in enumerate(segments, start=1):
+        # Dummy features -> demo probabilities (replace with real model as available)
+        base_scores = [random.random() for _ in known_names]
+        probs = _softmax(base_scores, temperature=0.8)
+        candidates = list(zip(known_names, probs))
+        top = _topk(candidates, 3)
 
+        top_name, top_prob = (top[0] if top else ("Unknown", 0.0))
 
-def _fallback_classify_plays(
-    segments: List[Dict[str, Any]],
-    playbook: Dict[str, Any],
-    **kwargs: Any
-) -> List[Dict[str, Any]]:
-    """Safe no-op classifier that preserves schema and never crashes downstream."""
-    out: List[Dict[str, Any]] = []
-    for i, seg in enumerate(segments, 1):
-        formation = seg.get("formation", "Unknown")
-        fconf = float(seg.get("formation_confidence", 0.0))
-        out.append({
-            "play_id": seg.get("play_id", f"PLAY_{i:03d}"),
-            "t0": seg.get("t0"),
-            "t1": seg.get("t1"),
-            "snap": seg.get("snap"),
-            "whistle": seg.get("whistle"),
-            "clip_path": seg.get("clip_path"),
-            "formation": formation,
-            "formation_confidence": fconf,
-            "play_family": "Unknown",
-            "playcall_confidence": 0.0,
-            "candidates": [],
-            "outcome": seg.get("outcome"),
-            "clip_duration": seg.get("clip_duration"),
+        # Unknown fallback
+        play_family = top_name if top_prob >= MIN_PLAYCALL_CONF else "Unknown"
+        playcall_conf = float(top_prob if play_family != "Unknown" else 0.0)
+
+        results.append({
+            "play_id": f"PLAY_{i:03d}",
+            "t0": seg.get("t0", 0.0),
+            "t1": seg.get("t1", 0.0),
+            "snap": seg.get("snap", None),
+            "whistle": seg.get("whistle", None),
+            "clip_path": seg.get("clip_path", ""),
+            "formation": seg.get("formation", "Unknown"),
+            "formation_confidence": seg.get("formation_confidence", 0.0),
+            "play_family": play_family,
+            "playcall_confidence": playcall_conf,
+            "outcome": seg.get("outcome", ""),
+            "clip_duration": round(max(0.0, seg.get("t1", 0.0) - seg.get("t0", 0.0)), 3),
+            "candidates": [(n, round(float(p), 3)) for (n, p) in top],
         })
-    return out
+    return results
 
-
-def classify_plays(
-    segments: List[Dict[str, Any]],
-    playbook: Dict[str, Any],
-    **kwargs: Any
-) -> List[Dict[str, Any]]:
-    if callable(_INTERNAL_IMPL):
-        return _INTERNAL_IMPL(segments, playbook, **kwargs)
-    return _fallback_classify_plays(segments, playbook, **kwargs)
-
-__all__ = ["classify_plays", "normalize_label", "FAMILY"]
