@@ -24,6 +24,10 @@ from tools.storage_cleanup import ensure_min_free_space
 DEFAULT_MIN_PLAY_GAP = 1.5
 DEFAULT_MIN_PLAY_LEN = 6.0
 
+# Play classifier thresholds
+HARD_MIN = 0.35
+TOP1_MIN = 0.55
+
 # Optional shared config; fall back to internal defaults if missing
 try:
     from analysis.config import PROFILE_DEFAULTS as _PROFILE_DEFAULTS  # type: ignore
@@ -51,14 +55,17 @@ try:  # pragma: no cover
 except Exception:  # pragma: no cover
     cv2 = None  # type: ignore
 
-from .segmentation import segment_video
-from . import detect_track, features, orientation, zoom
-from formation_detector import detect_formation
+from analysis.segmentation import segment_video
+from analysis import detect_track, features, orientation, zoom
+try:
+    from analysis.formation_detector import detect_formation
+except Exception:  # fallback for standalone module
+    from formation_detector import detect_formation  # type: ignore
 from fnmatch import fnmatch
 from playbooks import load_offense_playbook
-from .playbook.schema import validate_playbook
+from analysis.playbook.schema import validate_playbook
 from analysis.classifier import model_predict_candidates, FORMATION_FAMILY_PRIOR
-from analysis.classification import postprocess_playcall
+from analysis.play_classifier import normalize_label, FAMILY
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +210,7 @@ def _run_pipeline(args: argparse.Namespace) -> None:
     name_to_family = {p.name: p.family or p.name for p in pb.plays.values()} if pb else {}
 
     def derive_family(name: str) -> str:
-        return name_to_family.get(name, "")
+        return name_to_family.get(name, FAMILY.get(name, ""))
     print(
         f"[config] min_play_length={args.min_play_length} min_play_gap={args.min_play_gap} "
         f"report={args.generate_report} clips={args.generate_clips} highlights={args.generate_highlights} overlay={getattr(args, 'make_overlay', getattr(args, 'overlay', False))}"
@@ -291,23 +298,34 @@ def _run_pipeline(args: argparse.Namespace) -> None:
                 for c in candidates_raw
                 if (c.get("family") in families_ok or c.get("name") in families_ok)
             ]
+        for c in candidates_raw:
+            c["name"] = normalize_label(c.get("name", ""))
         total_score = sum(max(c["score"], 0.0) for c in candidates_raw) or 1.0
         pred_dist = sorted(
             [(c["name"], c["score"] / total_score) for c in candidates_raw],
             key=lambda x: x[1],
             reverse=True,
         )
-        play_name, play_conf, candidates = postprocess_playcall(pred_dist)
+        candidates = [
+            {"name": n, "confidence": float(p)} for n, p in pred_dist[:3]
+        ]
+        top_name, top_score = pred_dist[0] if pred_dist else ("Unknown", 0.0)
+        play_name = "Unknown"
+        play_conf = 0.0
+        if top_score >= TOP1_MIN:
+            play_name, play_conf = top_name, top_score
+        elif top_score >= HARD_MIN:
+            play_name, play_conf = top_name, top_score
         play_family = derive_family(play_name) if play_name != "Unknown" else ""
-        cand_str = ", ".join([
-            f'{c["name"]}:{c["confidence"]:.2f}' for c in candidates
-        ])
+        cand_str = ", ".join(
+            [f"{c['name']}:{c['confidence']:.2f}" for c in candidates]
+        )
         if play_name == "Unknown":
             print(f"[play_classifier] {seg_id}: Unknown conf=0.00")
-            if cand_str:
-                print(f"[play_classifier:candidates] {seg_id}: {cand_str}")
         else:
             print(f"[play_classifier] {seg_id}: {play_name} conf={play_conf:.2f}")
+        if cand_str:
+            print(f"[play_classifier:candidates] {seg_id}: {cand_str}")
 
         playcall_dict = {
             "name": play_name,
@@ -334,6 +352,13 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         clip_out.parent.mkdir(parents=True, exist_ok=True)
         export_clip(args.video, clip_start, clip_end, clip_out, rotation)
 
+        outcome = {
+            "yards": 0,
+            "success": False,
+            "explosive": False,
+            "turnover": False,
+            "penalty": False,
+        }
         play_rec = {
             "play_id": seg_id,
             "clip_path": str(clip_out),
@@ -343,13 +368,7 @@ def _run_pipeline(args: argparse.Namespace) -> None:
             "formation_confidence": float(formation_conf),
             "playcall": playcall_dict,
             "play_family": play_family,
-            "outcome": {
-                "yards": 0,
-                "success": False,
-                "explosive": False,
-                "turnover": False,
-                "penalty": False,
-            },
+            "outcome": outcome,
             "cues": {},
             "clip_duration": float(clip_duration),
         }
@@ -365,9 +384,9 @@ def _run_pipeline(args: argparse.Namespace) -> None:
             "formation": formation_name,
             "formation_confidence": formation_conf,
             "playcall": play_name,
-            "playcall_confidence": float(play_conf or 0.0),
             "play_family": play_family,
-            "outcome": "",
+            "playcall_confidence": float(play_conf or 0.0),
+            "outcome": json.dumps(outcome, separators=(",",":")),
             "clip_duration": float(clip_duration),
         }
         plays_index.append(row)
@@ -391,8 +410,8 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         "formation",
         "formation_confidence",
         "playcall",
-        "playcall_confidence",
         "play_family",
+        "playcall_confidence",
         "outcome",
         "clip_duration",
     ]
