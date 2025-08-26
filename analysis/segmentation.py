@@ -1,12 +1,29 @@
 from dataclasses import dataclass
 from typing import List, Dict
 import numpy as np
-import subprocess, json, math, shlex
+import subprocess, json, shlex
 
 try:  # pragma: no cover
     import cv2
 except Exception:  # pragma: no cover
     cv2 = None  # type: ignore
+
+
+def _probe_fps_ffprobe(path: str) -> float:
+    try:
+        cmd = (
+            f'ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate '
+            f'-of json {shlex.quote(path)}'
+        )
+        out = subprocess.check_output(cmd, shell=True).decode("utf-8", "ignore")
+        data = json.loads(out)
+        rate = data["streams"][0].get("r_frame_rate", "0/1")
+        num, den = rate.split("/")
+        num, den = float(num), float(den)
+        return num / den if den else 0.0
+    except Exception as e:
+        print(f"[ffprobe] failed to probe fps: {e}")
+        return 0.0
 
 
 @dataclass
@@ -51,39 +68,14 @@ def segment_video(
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
 
-    def _probe_fps_with_ffprobe(path: str) -> float:
-        try:
-            # ffprobe json for avg_frame_rate, fall back to r_frame_rate
-            cmd = [
-                "ffprobe", "-v", "error", "-select_streams", "v:0",
-                "-show_entries", "stream=avg_frame_rate,r_frame_rate",
-                "-of", "json", path
-            ]
-            out = subprocess.check_output(cmd, text=True)
-            data = json.loads(out)
-            st = (data.get("streams") or [{}])[0]
-            for key in ("avg_frame_rate", "r_frame_rate"):
-                fr = st.get(key, "0/0")
-                if fr and "/" in fr:
-                    num, den = fr.split("/")
-                    try:
-                        num, den = float(num), float(den)
-                        if den != 0:
-                            val = num / den
-                            if 5.0 <= val <= 120.0:
-                                return val
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-        return 30.0  # sane default
-
-    def _fps_is_bad(x: float) -> bool:
-        return (not x) or (isinstance(x, float) and (math.isnan(x) or x < 5.0 or x > 120.0))
-
-    if _fps_is_bad(fps):
-        fps = _probe_fps_with_ffprobe(path)
-        print(f"[video_probe] OpenCV FPS bad; ffprobe FPS={fps:.3f}")
+    if not fps or fps < 5 or fps > 240:
+        print(f"[video] OpenCV fps={fps} looks wrong; reprobing via ffprobe…")
+        fps2 = _probe_fps_ffprobe(path)
+        if fps2 > 1:
+            print(f"[video] using ffprobe fps={fps2}")
+            fps = fps2
+        else:
+            print("[video] ffprobe also failed; keeping OpenCV fps")
 
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)

@@ -48,10 +48,17 @@ ARGS=(
 (( GEN_REPORT == 1 )) && ARGS+=( --generate-report )
 
 run_main() {
-  if [[ "${GOOGLE_DRIVE_SYNC:-}" == "1" ]]; then
+  if [ "${GOOGLE_DRIVE_SYNC:-0}" != "0" ]; then
     echo "[gdrive] Drive sync ENABLED"
+    if [ -z "${GDRIVE_FOLDER_ID:-}" ]; then
+      echo "[gdrive] WARNING: GDRIVE_FOLDER_ID is not set; skipping Drive upload"
+      DO_DRIVE=0
+    else
+      DO_DRIVE=1
+    fi
   else
     echo "[gdrive] Drive sync DISABLED"
+    DO_DRIVE=0
   fi
 
   (( GEN_CLIPS == 1 )) && ARGS+=( --generate-clips )
@@ -78,14 +85,12 @@ PY
   echo "== Summary =="
   echo "Run dir: \"$RUN_DIR\""
 
-  if [[ "${GOOGLE_DRIVE_SYNC:-}" == "1" ]]; then
-    if [[ -f "$RUN_DIR/plays_index.csv" ]]; then
+  if [ "$DO_DRIVE" -eq 1 ]; then
+    if [ -f "$RUN_DIR/plays_index.csv" ]; then
       echo "[gdrive] uploading $RUN_DIR/plays_index.csv"
-      if python3 upload_to_drive.py "$RUN_DIR/plays_index.csv"; then
-        echo "[gdrive] upload OK"
-      else
+      python3 tools/upload_to_drive.py --folder-id "$GDRIVE_FOLDER_ID" "$RUN_DIR/plays_index.csv" || {
         echo "[gdrive] upload FAILED"
-      fi
+      }
     else
       echo "[gdrive] nothing to upload"
     fi
