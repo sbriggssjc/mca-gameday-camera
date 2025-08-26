@@ -1,3 +1,5 @@
+DEFAULT_MIN_CONF = 0.35
+TOPK=3
 from __future__ import annotations
 
 """Lightweight play classifier with caching and heuristics."""
@@ -6,6 +8,22 @@ from pathlib import Path
 from typing import Dict, Any
 import os
 
+
+import re
+def _norm_name(x:str)->str:
+    x = x.lower().strip()
+    x = re.sub(r'[^a-z0-9]+', ' ', x)
+    x = re.sub(r'\s+', ' ', x).strip()
+    return x
+
+def _map_to_playbook(name:str, playbook_index:dict)->str:
+    # exact or startswith match after normalization
+    n = _norm_name(name)
+    if n in playbook_index: return playbook_index[n]
+    for k in playbook_index:
+        if n.startswith(k) or k.startswith(n):
+            return playbook_index[k]
+    return ""
 
 class PlayClassifier:
     def __init__(self, playbook_cfg, device="cpu", cache_dir=".cache"):
@@ -153,3 +171,11 @@ class PlayClassifier:
 
 __all__ = ["PlayClassifier"]
 
+
+def build_playbook_index(playbook)->dict:
+    idx={}
+    for pl in playbook.get('plays',[]):
+        for nm in {pl.get('name',''), pl.get('alias',''), pl.get('label','')}:
+            if not nm: continue
+            idx[_norm_name(nm)] = pl.get('name',nm)
+    return {k:v for k,v in idx.items() if k}
