@@ -30,6 +30,7 @@ def segment_video(
     downscale: int = 2,
     motion_thresh: float = 8.0,   # motion energy threshold (tunable)
     min_active_sec: float = 1.0,  # need at least this much contiguous activity to start a play
+    **kwargs
 ) -> List[Dict]:
     """Simple motion-based play segmentation.
 
@@ -126,6 +127,7 @@ def segment_video(
     active = sm > motion_thresh
 
     # Convert to segments in seconds with gap/length constraints
+    min_play_gap = float(kwargs.get("min_gap", min_play_gap))
     segs: List[Dict] = []
     i = 0
     t = lambda fi: max(0.0, fi / fps)
@@ -140,7 +142,10 @@ def segment_video(
             if segs and (t0 - segs[-1]["t1"]) < min_play_gap:
                 segs[-1]["t1"] = t1
             else:
-                segs.append({"id": f"PLAY_{play_idx:03d}", "t0": max(0.0, t0), "t1": t1})
+                play_id = f"PLAY_{play_idx:03d}"
+                seg = {"id": play_id, "t0": max(0.0, t0), "t1": t1}
+                seg["clip_path"] = seg.get("clip_path", "")
+                segs.append(seg)
                 play_idx += 1
             i = j
         else:
