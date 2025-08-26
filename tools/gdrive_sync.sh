@@ -1,38 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-log() { echo "[gdrive] $*"; }
-
-: "${GOOGLE_DRIVE_SYNC:=0}"
-
-if [[ "$GOOGLE_DRIVE_SYNC" != "1" ]]; then
-  log "Drive sync DISABLED"
+if [[ "${GOOGLE_DRIVE_SYNC:-0}" != "1" ]]; then
+  echo "[gdrive] Drive sync DISABLED"
   exit 0
 fi
 
-log "Drive sync ENABLED"
-
-: "${GOOGLE_APPLICATION_CREDENTIALS:=}"
-if [[ -z "$GOOGLE_APPLICATION_CREDENTIALS" || ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]]; then
-  log "missing GOOGLE_APPLICATION_CREDENTIALS; skipping"
+if [[ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" || ! -f "${GOOGLE_APPLICATION_CREDENTIALS:-/nope}" ]]; then
+  echo "[gdrive] missing GOOGLE_APPLICATION_CREDENTIALS; skipping"
   exit 0
 fi
 
 UPLOADER="${TOOLS_UPLOAD:-tools/upload_to_drive.py}"
 if [[ ! -f "$UPLOADER" ]]; then
-  log "uploader script missing ($UPLOADER); skipping"
+  echo "[gdrive] uploader script missing ($UPLOADER); skipping"
   exit 0
 fi
 
-: "${GDRIVE_FOLDER_ID:=}"
-if [[ -z "$GDRIVE_FOLDER_ID" ]]; then
-  log "no GDRIVE_FOLDER_ID; skipping"
+if [[ -z "${GDRIVE_FOLDER_ID:-}" ]]; then
+  echo "[gdrive] missing GDRIVE_FOLDER_ID; skipping"
   exit 0
 fi
 
-if [[ "$#" -lt 1 ]]; then
-  log "no files provided; nothing to upload"
-  exit 0
-fi
+echo "[gdrive] Drive sync ENABLED"
+for f in "$@"; do
+  [[ -f "$f" ]] || continue
+  echo "[gdrive] uploading $f"
+  python3 "$UPLOADER" --folder-id "$GDRIVE_FOLDER_ID" "$f" || { echo "[gdrive] upload FAILED"; exit 1; }
+done
 
-python3 "$UPLOADER" --folder-id "$GDRIVE_FOLDER_ID" "$@" || log "upload FAILED"
