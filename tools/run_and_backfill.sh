@@ -3,46 +3,45 @@ set -euo pipefail
 
 LOG="${LOG:-/tmp/pipeline_$(date +%s).log}"
 
-video=""
-team=""
-playbook=""
-out="output"
-min_gap="1.5"
-min_len="3.0"
-gen_report=1
-gen_clips=1
+usage() {
+  cat <<EOF
+Usage: tools/run_and_backfill.sh --video PATH --team NAME --playbook PATH --out DIR [--min-play-gap F] [--min-play-length F] [--generate-report] [--generate-clips]
+Sets LOG env to write run log at: $LOG
+EOF
+}
+
+VIDEO="" ; TEAM="" ; PLAYBOOK="" ; OUT=""
+MIN_GAP="1.5" ; MIN_LEN="3.0"
+GEN_REPORT=0 ; GEN_CLIPS=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --video) video="$2"; shift 2;;
-    --team) team="$2"; shift 2;;
-    --playbook) playbook="$2"; shift 2;;
-    --out) out="$2"; shift 2;;
-    --min-play-gap) min_gap="$2"; shift 2;;
-    --min-play-length) min_len="$2"; shift 2;;
-    --generate-report) gen_report=1; shift;;
-    --no-generate-report) gen_report=0; shift;;
-    --generate-clips) gen_clips=1; shift;;
-    --no-generate-clips) gen_clips=0; shift;;
-    *) break;;
+    --video) VIDEO="$2"; shift 2;;
+    --team) TEAM="$2"; shift 2;;
+    --playbook) PLAYBOOK="$2"; shift 2;;
+    --out) OUT="$2"; shift 2;;
+    --min-play-gap) MIN_GAP="$2"; shift 2;;
+    --min-play-length) MIN_LEN="$2"; shift 2;;
+    --generate-report) GEN_REPORT=1; shift;;
+    --generate-clips)  GEN_CLIPS=1; shift;;
+    -h|--help) usage; exit 0;;
+    *) echo "Unknown arg: $1"; usage; exit 1;;
   esac
 done
 
-[[ -z "$video" ]] && { echo "tools/run_and_backfill.sh: --video required"; exit 1; }
-[[ -z "$team" ]] && { echo "tools/run_and_backfill.sh: --team required"; exit 1; }
-[[ -z "$playbook" ]] && { echo "tools/run_and_backfill.sh: --playbook required"; exit 1; }
+[[ -n "$VIDEO" && -n "$TEAM" && -n "$PLAYBOOK" && -n "$OUT" ]] || { echo "VIDEO/TEAM/PLAYBOOK/OUT required"; usage; exit 1; }
 
-PY_ARGS=( --video "$video" --team "$team" --playbook "$playbook" --out "$out" --min-play-gap "$min_gap" --min-play-length "$min_len" )
-[[ $gen_report -eq 1 ]] && PY_ARGS+=( --generate-report )
-[[ $gen_clips -eq 1 ]] && PY_ARGS+=( --generate-clips )
+echo "[run] python -m analysis.pipeline --video $VIDEO --team $TEAM --playbook $PLAYBOOK --out $OUT --min-play-gap $MIN_GAP --min-play-length $MIN_LEN ${GEN_REPORT:+--generate-report} ${GEN_CLIPS:+--generate-clips}" | tee "$LOG"
+python -m analysis.pipeline \
+  --video "$VIDEO" \
+  --team "$TEAM" \
+  --playbook "$PLAYBOOK" \
+  --out "$OUT" \
+  --min-play-gap "$MIN_GAP" \
+  --min-play-length "$MIN_LEN" \
+  ${GEN_REPORT:+--generate-report} \
+  ${GEN_CLIPS:+--generate-clips} | tee -a "$LOG"
 
-echo "[run] python -m analysis.pipeline ${PY_ARGS[*]}"
-python3 -m analysis.pipeline "${PY_ARGS[@]}" 2>&1 | tee "$LOG"
-
-RUN_DIR=$(scripts/run_utils.sh get_run_dir "$LOG" | sed 's/^Run dir: //')
-echo "Run dir: ${RUN_DIR}"
-
-if [[ -n "${RUN_DIR}" && -d "${RUN_DIR}" ]]; then
-  scripts/run_utils.sh check_csv "${RUN_DIR}" || true
-fi
-
+# Print run dir
+RUN_DIR="$(scripts/run_utils.sh get_run_dir "$LOG" || true)"
+[[ -n "${RUN_DIR:-}" ]] && echo "Run dir: $RUN_DIR" | tee -a "$LOG" || echo "Run dir: could not extract run dir from $LOG" | tee -a "$LOG"
