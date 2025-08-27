@@ -1,18 +1,15 @@
 from __future__ import annotations
-import os, sys, json, argparse, pathlib, time
-from dataclasses import dataclass, asdict
 
-# --- import guard so this works as script or module ---
-if __package__ is None or __package__ == '':
-    # Running as script: add repo root so "analysis.*" works
-    repo_root = pathlib.Path(__file__).resolve().parents[1]
-    sys.path.insert(0, str(repo_root))
-    # Now we can import analysis.* with absolute package names
-    from analysis.play_classifier import classify_plays
-    from analysis.segmentation import segment_video
-else:
+try:
+    # normal, when run via `python -m analysis.pipeline`
     from .play_classifier import classify_plays
     from .segmentation import segment_video
+except Exception:
+    # fallback when run as script or when PYTHONPATH is set to repo root
+    from analysis.play_classifier import classify_plays  # type: ignore
+    from analysis.segmentation import segment_video       # type: ignore
+
+import os, json, argparse, pathlib
 
 CSV_HEADER = [
     "play_id","t0","t1","snap","whistle","clip_path",
@@ -67,7 +64,7 @@ def main(argv=None):
     print(f"[pipeline] segments detected: {len(segments)}")
 
     # Step 2: classify (returns list of per-play dicts with keys including candidates[])
-    plays = classify_plays(segments, playbook=playbook, video_profile=None)
+    plays = classify_plays(segments)
 
     # Normalize rows for CSV, and build report with candidates
     csv_rows = []
@@ -88,14 +85,38 @@ def main(argv=None):
         csv_rows.append(row)
         # Put candidates + all fields in report
         rp = dict(p)
-        rp["playcall_candidates"] = p.get("candidates", [])  # ensure present
+        rp["candidates"] = p.get("candidates", [])  # ensure present
         report["plays"].append(rp)
 
     # Write outputs
     plays_csv = game_dir / "plays_index.csv"
-    report_json = game_dir / "report.json"
     write_csv(csv_rows, plays_csv)
-    write_json(report, report_json)
+    if args.generate_report:
+        report_json = game_dir / "report.json"
+        write_json(report, report_json)
+
+    # Optional clip generation
+    if args.generate_clips:
+        import subprocess, csv as _csv
+        clips_dir = os.path.join(game_dir, "clips")
+        os.makedirs(clips_dir, exist_ok=True)
+
+        with open(plays_csv, "r", newline="") as f:
+            reader = _csv.DictReader(f)
+            for row in reader:
+                play_id = row["play_id"]
+                t0 = float(row["t0"])
+                t1 = float(row["t1"])
+                src = args.video
+                out_dir = os.path.join(clips_dir, play_id)
+                os.makedirs(out_dir, exist_ok=True)
+                out_mp4 = os.path.join(out_dir, f"{play_id}.mp4")
+                if not os.path.exists(out_mp4):
+                    subprocess.run([
+                        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                        "-ss", f"{t0}", "-to", f"{t1}", "-i", src,
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", out_mp4
+                    ], check=True)
     print(f"[pipeline] run complete -> {game_dir}")
     return 0
 
