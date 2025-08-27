@@ -24,7 +24,12 @@ get_run_dir() {
 }
 
 check_csv() {
-  local rd="${1:-}"; [[ -d "$rd" ]] || err "run_dir required"
+  local rd="${1:-}"
+  if [[ -z "$rd" ]]; then
+    echo "run_dir required"
+    exit 1
+  fi
+  [[ -d "$rd" ]] || err "no run_dir found: $rd"
   local csv="$rd/plays_index.csv"
   [[ -f "$csv" ]] || err "missing $csv"
 
