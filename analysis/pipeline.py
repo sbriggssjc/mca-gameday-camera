@@ -1,125 +1,165 @@
 from __future__ import annotations
+import argparse, json, csv, os, sys, pathlib, subprocess, shlex
+from typing import Dict, Any, List
 
+# Import robustly whether run as a module or a script
 try:
-    # normal, when run via `python -m analysis.pipeline`
-    from .play_classifier import classify_plays
-    from .segmentation import segment_video
+    from .segmentation import segment_video   # existing
+    from .formation_detector import detect_formations  # existing
+    from .play_classifier import classify_plays        # we'll ensure this exists
 except Exception:
-    # fallback when run as script or when PYTHONPATH is set to repo root
-    from analysis.play_classifier import classify_plays  # type: ignore
-    from analysis.segmentation import segment_video       # type: ignore
+    # fall back if executed as -m analysis.pipeline from repo root without package context
+    sys.path.append(str(pathlib.Path(__file__).resolve().parent.parent))
+    from analysis.segmentation import segment_video
+    from analysis.formation_detector import detect_formations
+    from analysis.play_classifier import classify_plays
 
-import os, json, argparse, pathlib
+def _ffmpeg(*args: str) -> None:
+    cmd = ["ffmpeg", "-y", *args]
+    subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-CSV_HEADER = [
-    "play_id","t0","t1","snap","whistle","clip_path",
-    "formation","formation_confidence","play_family",
-    "playcall_confidence","outcome","clip_duration"
-]
+def _safe_name(s: str) -> str:
+    return "".join(c if c.isalnum() or c in "._- " else "_" for c in s)
 
-def write_csv(rows, csv_path: pathlib.Path):
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    import csv
-    with csv_path.open("w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=CSV_HEADER)
-        w.writeheader()
-        for r in rows:
-            w.writerow({k: r.get(k, "") for k in CSV_HEADER})
+def run_pipeline(
+    video: str,
+    team: str,
+    playbook_path: str,
+    out_dir: str,
+    min_play_gap: float,
+    min_play_length: float,
+    generate_report: bool,
+    generate_clips: bool,
+    highlights: bool = True,
+    overlay: bool = False,
+) -> str:
+    video = os.path.abspath(video)
+    out_dir = os.path.abspath(out_dir)
+    pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
 
-def write_json(obj, path: pathlib.Path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w") as f:
-        json.dump(obj, f, indent=2)
+    # Build run dir
+    tag = pathlib.Path(video).stem
+    # short hash to avoid collisions
+    short = hex(abs(hash((tag, playbook_path, min_play_gap, min_play_length))) & ((1<<44)-1))[2:]
+    run_dir = os.path.join(out_dir, "games", f"{_safe_name(tag)}__{short}")
+    pathlib.Path(run_dir).mkdir(parents=True, exist_ok=True)
 
-def build_argparser():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--video", required=True)
-    ap.add_argument("--team", required=True)
-    ap.add_argument("--playbook", required=True)
-    ap.add_argument("--out", default="output")
-    ap.add_argument("--min-play-length", type=float, default=3.0)
-    ap.add_argument("--min-play-gap", type=float, default=1.5)
-    ap.add_argument("--generate-report", action="store_true", default=True)
-    ap.add_argument("--generate-clips", action="store_true", default=True)
-    ap.add_argument("--highlights", action="store_true", default=True)
-    ap.add_argument("--overlay", action="store_true", default=False)
-    return ap
-
-def main(argv=None):
-    args = build_argparser().parse_args(argv)
-    video_path = pathlib.Path(args.video).resolve()
-    out_dir = pathlib.Path(args.out).resolve()
-    game_dir = out_dir / "games" / f"{video_path.stem}__{hex(abs(hash(video_path)))[:12].replace('x','')}"
-    game_dir.mkdir(parents=True, exist_ok=True)
-
-    print(f"[playbook] source={pathlib.Path(args.playbook).resolve()}")
-    with open(args.playbook) as f:
+    # Load playbook
+    with open(playbook_path, "r") as f:
         playbook = json.load(f)
-    print(f"[playbook] OK: loaded playbook from {args.playbook}")
-    print("[config] min_play_length={} min_play_gap={} report={} clips={} highlights={} overlay={}"
-          .format(args.min_play_length, args.min_play_gap, args.generate_report, args.generate_clips, args.highlights, args.overlay))
+    print(f"[playbook] source={playbook_path}")
+    print(f"[playbook] OK: loaded playbook from {playbook_path}")
 
-    # Step 1: segment
-    segments = segment_video(str(video_path), min_play_length=args.min_play_length, min_gap=args.min_play_gap)
+    # Segment
+    segments = segment_video(video, min_play_gap=min_play_gap, min_play_length=min_play_length)
+    print(f"[config] min_play_length={min_play_length} min_play_gap={min_play_gap} "
+          f"report={generate_report} clips={generate_clips} highlights={highlights} overlay={overlay}")
     print(f"[pipeline] segments detected: {len(segments)}")
 
-    # Step 2: classify (returns list of per-play dicts with keys including candidates[])
-    plays = classify_plays(segments)
+    # Detect formations + classify
+    rows: List[Dict[str, Any]] = []
+    formations = detect_formations(video, segments)
+    classifications = classify_plays(video, segments, formations, playbook)
 
-    # Normalize rows for CSV, and build report with candidates
-    csv_rows = []
-    report = {"video": str(video_path), "plays": []}
-    for p in plays:
-        row = {
-            "play_id": p.get("play_id"),
-            "t0": p.get("t0"), "t1": p.get("t1"),
-            "snap": p.get("snap"), "whistle": p.get("whistle"),
-            "clip_path": p.get("clip_path", ""),
-            "formation": p.get("formation", "Unknown"),
-            "formation_confidence": round(float(p.get("formation_confidence", 0.0)), 2),
-            "play_family": p.get("play_family", "Unknown"),
-            "playcall_confidence": round(float(p.get("playcall_confidence", 0.0)), 2),
-            "outcome": p.get("outcome", ""),
-            "clip_duration": p.get("clip_duration", 0.0),
+    # Ensure each row has a sane schema; candidates is a list[str] (possibly empty)
+    for idx, seg in enumerate(segments, start=1):
+        pid = f"PLAY_{idx:03d}"
+        fdet = formations.get(pid, {})
+        cdet = classifications.get(pid, {})
+        formation = fdet.get("formation", "Unknown")
+        fconf = float(fdet.get("confidence", 0.0))
+        family = cdet.get("play_family") or cdet.get("label") or "Unknown"
+        pconf = float(cdet.get("confidence", 0.0))
+        outcome = cdet.get("outcome", "")
+        # normalize candidates
+        candidates = cdet.get("candidates") or []
+        if not isinstance(candidates, list):
+            candidates = []
+        # clip path (filled after export step)
+        clip_path = ""
+
+        rows.append(dict(
+            play_id=pid,
+            t0=float(seg["t0"]), t1=float(seg["t1"]),
+            snap=float(seg.get("snap", seg["t0"])),
+            whistle=float(seg.get("whistle", seg["t1"])),
+            clip_path=clip_path,
+            formation=formation,
+            formation_confidence=fconf,
+            play_family=family,
+            playcall_confidence=pconf,
+            outcome=outcome,
+            clip_duration=max(0.0, float(seg["t1"]) - float(seg["t0"])),
+            candidates=";".join(candidates),  # new column
+        ))
+
+    # Write plays_index.csv (header tolerant downstream)
+    csv_path = os.path.join(run_dir, "plays_index.csv")
+    fieldnames = ["play_id","t0","t1","snap","whistle","clip_path",
+                  "formation","formation_confidence","play_family",
+                  "playcall_confidence","outcome","clip_duration","candidates"]
+    with open(csv_path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        for r in rows:
+            w.writerow(r)
+
+    # Export clips deterministically from source video
+    clips_root = os.path.join(run_dir, "clips")
+    if generate_clips:
+        pathlib.Path(clips_root).mkdir(parents=True, exist_ok=True)
+        for r in rows:
+            pid = r["play_id"]
+            pdir = os.path.join(clips_root, pid)
+            pathlib.Path(pdir).mkdir(parents=True, exist_ok=True)
+            mp4 = os.path.join(pdir, f"{pid}.mp4")
+            t0, t1 = float(r["t0"]), float(r["t1"])
+            dur = max(0.1, t1 - t0)
+            # Use re-encode for broad compatibility (Jetson ffmpeg build OK)
+            _ffmpeg("-ss", f"{t0:.3f}", "-i", video, "-t", f"{dur:.3f}",
+                    "-an", "-vf", "scale=720:-2:flags=lanczos", mp4)
+            r["clip_path"] = mp4
+
+        # Rewrite CSV with clip_path filled
+        with open(csv_path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=fieldnames)
+            w.writeheader()
+            for r in rows:
+                w.writerow(r)
+
+    # Minimal JSON report (for Drive)
+    if generate_report:
+        rep = {
+            "video": video,
+            "run_dir": run_dir,
+            "n_segments": len(segments),
+            "generated_clips": bool(generate_clips),
+            "plays": rows,
         }
-        csv_rows.append(row)
-        # Put candidates + all fields in report
-        rp = dict(p)
-        rp["candidates"] = p.get("candidates", [])  # ensure present
-        report["plays"].append(rp)
+        with open(os.path.join(run_dir, "report.json"), "w") as f:
+            json.dump(rep, f, indent=2)
 
-    # Write outputs
-    plays_csv = game_dir / "plays_index.csv"
-    write_csv(csv_rows, plays_csv)
-    if args.generate_report:
-        report_json = game_dir / "report.json"
-        write_json(report, report_json)
+    print(f"[pipeline] run complete -> {run_dir}")
+    return run_dir
 
-    # Optional clip generation
-    if args.generate_clips:
-        import subprocess, csv as _csv
-        clips_dir = os.path.join(game_dir, "clips")
-        os.makedirs(clips_dir, exist_ok=True)
+def main(argv=None) -> None:
+    p = argparse.ArgumentParser()
+    p.add_argument("--video", required=True)
+    p.add_argument("--team", required=True)              # retained for future use
+    p.add_argument("--playbook", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--min-play-gap", type=float, default=1.5)
+    p.add_argument("--min-play-length", type=float, default=3.0)
+    p.add_argument("--generate-report", action="store_true")
+    p.add_argument("--generate-clips", action="store_true")
+    args = p.parse_args(argv)
 
-        with open(plays_csv, "r", newline="") as f:
-            reader = _csv.DictReader(f)
-            for row in reader:
-                play_id = row["play_id"]
-                t0 = float(row["t0"])
-                t1 = float(row["t1"])
-                src = args.video
-                out_dir = os.path.join(clips_dir, play_id)
-                os.makedirs(out_dir, exist_ok=True)
-                out_mp4 = os.path.join(out_dir, f"{play_id}.mp4")
-                if not os.path.exists(out_mp4):
-                    subprocess.run([
-                        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                        "-ss", f"{t0}", "-to", f"{t1}", "-i", src,
-                        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", out_mp4
-                    ], check=True)
-    print(f"[pipeline] run complete -> {game_dir}")
-    return 0
+    run_pipeline(
+        video=args.video, team=args.team, playbook_path=args.playbook,
+        out_dir=args.out, min_play_gap=args["min_play_gap"] if isinstance(args,dict) else args.min_play_gap,
+        min_play_length=args["min_play_length"] if isinstance(args,dict) else args.min_play_length,
+        generate_report=args.generate_report, generate_clips=args.generate_clips,
+    )
 
 if __name__ == "__main__":
-    raise SystemExit(main())
-
+    main()
