@@ -1,13 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "[gdrive] Drive sync ${GOOGLE_DRIVE_SYNC:+ENABLED:- DISABLED}"
-[[ "${GOOGLE_DRIVE_SYNC:-}" == "1" ]] || { echo "[gdrive] skipping (set GOOGLE_DRIVE_SYNC=1 to enable)"; exit 0; }
+if [[ "${GOOGLE_DRIVE_SYNC:-}" != "1" ]]; then
+  echo "skipping"
+  exit 0
+fi
 
-: "${GDRIVE_FOLDER_ID:? [gdrive] missing GDRIVE_FOLDER_ID}"
-[[ -f "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]] || { echo "[gdrive] missing GOOGLE_APPLICATION_CREDENTIALS; skipping"; exit 0; }
+if [[ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]] || [[ ! -f "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]]; then
+  echo "skipping"
+  exit 0
+fi
+
+if [[ -z "${GDRIVE_FOLDER_ID:-}" ]]; then
+  echo "skipping"
+  exit 0
+fi
 
 uploader="${TOOLS_UPLOAD:-tools/upload_to_drive.py}"
-[[ -f "$uploader" ]] || { echo "[gdrive] uploader script missing ($uploader); skipping"; exit 0; }
+if [[ ! -f "$uploader" ]]; then
+  echo "skipping"
+  exit 0
+fi
 
-python3 "$uploader" --folder-id "$GDRIVE_FOLDER_ID" "$@"
+echo "[gdrive] uploading $# file(s)"
+fails=0
+for f in "$@"; do
+  [[ -f "$f" ]] || { echo "[gdrive] missing $f"; fails=$((fails+1)); continue; }
+  python3 "$uploader" --folder-id "$GDRIVE_FOLDER_ID" "$f" || { echo "[gdrive] failed $f"; fails=$((fails+1)); }
+done
+echo "[gdrive] completed with $fails failure(s)"
