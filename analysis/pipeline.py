@@ -15,9 +15,9 @@ except ImportError:  # pragma: no cover - fallback for script execution
     from analysis.playbook import load_playbook
 
 
-def _ffmpeg(*args: str) -> None:
+def _ffmpeg(*args: str) -> subprocess.CompletedProcess:
     cmd = ["ffmpeg", "-y", *args]
-    subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
 def _safe_name(s: str) -> str:
@@ -31,6 +31,9 @@ def run_pipeline(
     out_dir: str,
     min_play_gap: float,
     min_play_length: float,
+    max_play_length: float,
+    preroll: float,
+    postroll: float,
     generate_report: bool,
     generate_clips: bool,
 ) -> str:
@@ -46,9 +49,16 @@ def run_pipeline(
     playbook = load_playbook(playbook_path)
     print(f"[playbook] source={playbook_path}")
 
-    segments = segment_video(video, min_play_gap=min_play_gap, min_play_length=min_play_length)
+    segments = segment_video(
+        video,
+        min_play_length=min_play_length,
+        max_play_length=max_play_length,
+        min_play_gap=min_play_gap,
+        preroll=preroll,
+        postroll=postroll,
+    )
     print(
-        f"[config] min_play_length={min_play_length} min_play_gap={min_play_gap} "
+        f"[config] min_play_length={min_play_length} max_play_length={max_play_length} min_play_gap={min_play_gap} "
         f"report={generate_report} clips={generate_clips}"
     )
     print(f"[pipeline] segments detected: {len(segments)}")
@@ -72,6 +82,9 @@ def run_pipeline(
                 "playcall_confidence": float(det.get("playcall_confidence", 0.0)),
                 "outcome": det.get("outcome") or "",
                 "clip_duration": max(0.0, float(seg["t1"]) - float(seg["t0"])),
+                "candidates": ";".join(
+                    f"{n}:{s:.2f}" for n, s in det.get("candidates", [])
+                ),
             }
         )
 
@@ -88,6 +101,7 @@ def run_pipeline(
         "playcall_confidence",
         "outcome",
         "clip_duration",
+        "candidates",
     ]
     csv_path = os.path.join(run_dir, "plays_index.csv")
     with open(csv_path, "w", newline="") as f:
@@ -102,22 +116,37 @@ def run_pipeline(
             pdir = os.path.join(run_dir, "clips", pid)
             os.makedirs(pdir, exist_ok=True)
             t0, t1 = float(r["t0"]), float(r["t1"])
-            dur = max(0.1, t1 - t0)
             mp4 = os.path.join(pdir, f"{pid}.mp4")
-            gif = os.path.join(pdir, f"{pid}.gif")
-            _ffmpeg("-ss", f"{t0:.3f}", "-i", video, "-t", f"{dur:.3f}", "-an", mp4)
-            _ffmpeg(
+            dur = max(0.1, t1 - t0)
+            proc = _ffmpeg(
                 "-ss",
                 f"{t0:.3f}",
+                "-to",
+                f"{t1:.3f}",
                 "-i",
                 video,
-                "-t",
-                f"{dur:.3f}",
-                "-an",
-                "-vf",
-                "fps=10,scale=512:-2",
-                gif,
+                "-c",
+                "copy",
+                mp4,
             )
+            if proc.returncode != 0:
+                _ffmpeg(
+                    "-ss",
+                    f"{t0:.3f}",
+                    "-to",
+                    f"{t1:.3f}",
+                    "-i",
+                    video,
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-crf",
+                    "23",
+                    "-c:a",
+                    "copy",
+                    mp4,
+                )
             r["clip_path"] = mp4
 
         with open(csv_path, "w", newline="") as f:
@@ -137,6 +166,15 @@ def run_pipeline(
         with open(os.path.join(run_dir, "report.json"), "w") as f:
             json.dump(report, f, indent=2)
 
+    # QA guardrails
+    if rows:
+        long = [r for r in rows if r["clip_duration"] > max_play_length]
+        unknown = [r for r in rows if not r["formation"] or not r["play_family"]]
+        if len(long) / len(rows) > 0.25:
+            print("⚠️ segmentation too coarse")
+        if len(unknown) / len(rows) > 0.5:
+            print("⚠️ formation/classifier weak")
+
     print(f"[pipeline] run complete -> {run_dir}")
     return run_dir
 
@@ -149,6 +187,9 @@ def main(argv=None) -> None:
     p.add_argument("--out", required=True)
     p.add_argument("--min-play-gap", type=float, default=1.5)
     p.add_argument("--min-play-length", type=float, default=3.0)
+    p.add_argument("--max-play-length", type=float, default=12.0)
+    p.add_argument("--preroll", type=float, default=0.75)
+    p.add_argument("--postroll", type=float, default=0.75)
     p.add_argument("--generate-report", action="store_true")
     p.add_argument("--generate-clips", action="store_true")
     args = p.parse_args(argv)
@@ -160,6 +201,9 @@ def main(argv=None) -> None:
         out_dir=args.out,
         min_play_gap=args.min_play_gap,
         min_play_length=args.min_play_length,
+        max_play_length=args.max_play_length,
+        preroll=args.preroll,
+        postroll=args.postroll,
         generate_report=args.generate_report,
         generate_clips=args.generate_clips,
     )

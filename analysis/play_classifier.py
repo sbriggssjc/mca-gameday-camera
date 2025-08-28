@@ -1,172 +1,148 @@
-"""Lightweight play classification utilities.
-
-This version is intentionally minimal and focuses on surfacing plausible
-play names from a playbook.  The playbook may be a legacy dictionary or a
-`PlaybookIndex` style object; the helper functions below iterate through
-either form and extract play metadata.  The classifier returns a list of
-results with a `playcall` entry that always contains a list of candidate
-names.
-"""
-
 from __future__ import annotations
 
-from typing import Iterable, Dict, Any, List, Optional
+"""Simple play classification helpers.
+
+These helpers accept either legacy dict playbooks or ``PlaybookIndex`` style
+objects.  The classifier itself is intentionally lightweight; it returns
+formation information when present and proposes top-N candidate play names
+from the supplied playbook.
+"""
+
+from typing import Any, Dict, Iterable, List, Tuple
+
+# ---------------------------------------------------------------------------
+# Playbook helpers
 
 
-# --- helpers to be robust to dict or PlaybookIndex inputs --------------------
-def _iter_play_defs(playbook: Any) -> Iterable[Dict[str, Any]]:
-    """Yield play definitions as dictionaries.
+def _iter_playbook_plays(pb: Any) -> Iterable[Dict[str, Any]]:
+    """Yield play dicts from ``pb`` regardless of its structure."""
 
-    Handles several playbook layouts:
-
-    * Plain dict with key ``"plays"`` (legacy format).
-    * Objects exposing ``iter_plays``/``iter``/``__iter__`` returning play
-      objects or dictionaries.
-    * Objects with ``plays`` or ``by_name`` attributes that are sequences or
-      mappings.
-
-    Each yielded dict will contain at least ``name`` and formation-related
-    information when available.
-    """
-
-    # Case 1: legacy dict format {"plays": [{...}, ...]}
-    if isinstance(playbook, dict):
-        for p in playbook.get("plays", []):
+    if isinstance(pb, dict):
+        plays = pb.get("plays", [])
+        for p in plays:
             if isinstance(p, dict):
                 yield p
         return
 
-    # Case 2: object with an iterator method
-    for attr in ("iter_plays", "iter", "__iter__"):
-        it = getattr(playbook, attr, None)
-        if callable(it):
-            for p in it():
-                if isinstance(p, dict):
-                    yield p
-                else:
-                    yield {
-                        "name": getattr(p, "name", None),
-                        "formation": getattr(p, "formation", None),
-                        "formations": getattr(p, "formations", None),
-                        "family": getattr(p, "family", None),
-                        "tags": getattr(p, "tags", None),
-                    }
-            return
+    plays = getattr(pb, "plays", None)
+    if plays is None and hasattr(pb, "to_dict"):
+        plays = pb.to_dict().get("plays", [])
+    if plays is None and hasattr(pb, "__dict__"):
+        plays = getattr(pb.__dict__, "plays", []) or []
 
-    # Case 3: object exposing 'plays' or mapping-like 'by_name'
-    for attr in ("plays", "by_name"):
-        obj = getattr(playbook, attr, None)
-        if obj is None:
-            continue
-        if isinstance(obj, dict):
-            for name, p in obj.items():
-                if isinstance(p, dict):
-                    if "name" not in p:
-                        p = {**p, "name": name}
-                    yield p
-                else:
-                    yield {
-                        "name": getattr(p, "name", name),
-                        "formation": getattr(p, "formation", None),
-                        "formations": getattr(p, "formations", None),
-                        "family": getattr(p, "family", None),
-                        "tags": getattr(p, "tags", None),
-                    }
-            return
-        elif isinstance(obj, (list, tuple)):
-            for p in obj:
-                if isinstance(p, dict):
-                    yield p
-                else:
-                    yield {
-                        "name": getattr(p, "name", None),
-                        "formation": getattr(p, "formation", None),
-                        "formations": getattr(p, "formations", None),
-                        "family": getattr(p, "family", None),
-                        "tags": getattr(p, "tags", None),
-                    }
-            return
-
-    # Fallback: nothing recognized
-    return
+    for p in plays or []:
+        if isinstance(p, dict):
+            yield p
+        else:
+            yield {
+                "name": getattr(p, "name", ""),
+                "formation": getattr(p, "formation", ""),
+                "formations": getattr(p, "formations", None),
+                "family": getattr(p, "family", ""),
+            }
 
 
-def _norm(s: Optional[str]) -> Optional[str]:
-    return s.lower().strip() if isinstance(s, str) else None
+def _tokenize(s: str) -> List[str]:
+    return [t for t in s.lower().split() if t]
 
 
-def _formation_matches(target: Optional[str], cand: Dict[str, Any]) -> float:
-    """Soft match score between target formation and candidate entry."""
-
-    if not target:
+def _jaccard(a: List[str], b: List[str]) -> float:
+    if not a or not b:
         return 0.0
-    t = _norm(target)
-    fs: List[str] = []
-    if isinstance(cand.get("formation"), str):
-        fs.append(cand["formation"])
-    formations = cand.get("formations")
-    if formations:
-        if isinstance(formations, (list, tuple)):
-            fs.extend([f for f in formations if isinstance(f, str)])
-        elif isinstance(formations, str):
-            fs.append(formations)
-    fs_norm = [_norm(f) for f in fs if isinstance(f, str)]
-    if t in fs_norm:
-        return 1.0
-    # Partial credit when both contain 'trips' regardless of side
-    if any(("trips" in (f or "") and "trips" in (t or "")) for f in fs_norm):
-        return 0.5
-    return 0.0
+    sa, sb = set(a), set(b)
+    inter = len(sa & sb)
+    union = len(sa | sb)
+    return inter / union if union else 0.0
+
+
+def _levenshtein(a: str, b: str) -> int:
+    if a == b:
+        return 0
+    la, lb = len(a), len(b)
+    dp = list(range(lb + 1))
+    for i in range(1, la + 1):
+        prev = dp[0]
+        dp[0] = i
+        for j in range(1, lb + 1):
+            cur = dp[j]
+            if a[i - 1] == b[j - 1]:
+                dp[j] = prev
+            else:
+                dp[j] = 1 + min(prev, dp[j], dp[j - 1])
+            prev = cur
+    return dp[lb]
+
+
+def _name_similarity(a: str, b: str) -> float:
+    if not a or not b:
+        return 0.0
+    tok_a, tok_b = _tokenize(a), _tokenize(b)
+    j = _jaccard(tok_a, tok_b)
+    lev = _levenshtein(a.lower(), b.lower())
+    norm = 1.0 - (lev / max(len(a), len(b), 1))
+    return 0.5 * j + 0.5 * max(0.0, norm)
 
 
 def _best_matches_from_playbook(
-    formation: Optional[str], playbook: Any, k: int = 5
-) -> List[str]:
-    """Return up to ``k`` play names best matching ``formation``."""
+    formation: str,
+    pb: Any,
+    topk: int = 3,
+) -> List[Tuple[str, float]]:
+    """Return ``topk`` candidate names and scores from ``pb``."""
 
-    scored: List[tuple[float, str]] = []
-    seen: set[str] = set()
-    for p in _iter_play_defs(playbook):
-        name = p.get("name") if isinstance(p, dict) else None
-        if not name or name in seen:
+    cands: List[Tuple[str, float]] = []
+    for p in _iter_playbook_plays(pb):
+        name = p.get("name") or ""
+        if not name:
             continue
-        seen.add(name)
-        score = _formation_matches(formation, p)
-        scored.append((score, name))
-    if not scored:
-        return []
-    scored.sort(key=lambda x: (-x[0], x[1]))
-    return [n for _, n in scored[:k]]
+        pf = p.get("formation") or ""
+        formations = p.get("formations") or []
+        if isinstance(formations, str):
+            formations = [formations]
+        formation_match = False
+        if formation and (pf or formations):
+            pool = [pf, *formations]
+            for f in pool:
+                if f and f.lower() in formation.lower() or formation.lower() in f.lower():
+                    formation_match = True
+                    break
+            if not formation_match:
+                continue
+        sim = _name_similarity(name, name)  # placeholder self-similarity
+        score = min(1.0, sim + (0.2 if formation_match else 0.0))
+        cands.append((name, score))
+    cands.sort(key=lambda x: x[1], reverse=True)
+    return cands[:topk]
 
 
-def classify_plays(segments, playbook, team):
-    """Classify plays using simple formation matching.
+# ---------------------------------------------------------------------------
+# Main classifier
 
-    Each returned dict contains ``play_id``, ``formation`` and ``playcall`` with
-    a confidence score and candidate list.  ``playcall`` is always present to
-    simplify downstream logging.
-    """
+
+def classify_plays(
+    segments: List[Dict[str, float]],
+    playbook: Any,
+    team: str,
+) -> List[Dict[str, Any]]:
+    """Classify each segment and propose candidate play names."""
 
     results: List[Dict[str, Any]] = []
-    for seg in segments:
-        play_id = seg.get("play_id") or seg.get("id")
-        formation = seg.get("formation")
-        names = _best_matches_from_playbook(formation, playbook)
-        top = names[0] if names else "Unknown"
-        conf = 0.0 if top == "Unknown" else (1.0 if formation and names else 0.13)
+    for i, seg in enumerate(segments, 1):
+        formation = seg.get("formation", "") or ""
+        candidates = _best_matches_from_playbook(formation, playbook, topk=3)
+        top_name, top_score = (candidates[0] if candidates else ("", 0.0))
         results.append(
             {
-                "play_id": play_id,
-                "playcall": {
-                    "name": top,
-                    "confidence": conf,
-                    "candidates": names[:5],
-                },
+                "play_id": seg.get("id") or seg.get("play_id") or f"PLAY_{i:03d}",
                 "formation": formation,
+                "formation_confidence": float(seg.get("formation_confidence", 0.0)),
+                "play_family": top_name,
+                "playcall_confidence": float(top_score),
+                "candidates": candidates,
+                "outcome": seg.get("outcome", ""),
             }
         )
     return results
 
 
 __all__ = ["classify_plays"]
-
