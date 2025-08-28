@@ -7,6 +7,9 @@ Usage:
   scripts/run_utils.sh get_run_dir   /path/to/pipeline.log
   scripts/run_utils.sh check_csv     /path/to/run_dir
   scripts/run_utils.sh clip_previews /path/to/run_dir [seconds=3]
+  scripts/run_utils.sh latest_run_for  <video_basename>
+  scripts/run_utils.sh clean_old_runs  <video_basename>
+  scripts/run_utils.sh dedupe_all [--dry-run]
 EOF
 }
 
@@ -81,9 +84,39 @@ clip_previews() {
   [[ $made -gt 0 ]] || echo "(no mp4 clips found to preview)"
 }
 
+latest_run_for() {
+  local base="$1"
+  ls -td "$PWD/output/games/${base}__"* 2>/dev/null | head -1 || true
+}
+
+clean_old_runs() {
+  local base="$1"
+  local newest; newest="$(latest_run_for "$base")"
+  [[ -z "$newest" ]] && { echo "no runs for $base"; return 0; }
+  ls -td "$PWD/output/games/${base}__"* 2>/dev/null | tail -n +2 | xargs -r rm -rf
+  echo "kept: $newest"
+}
+
+dedupe_all() {
+  local dry=0
+  if [[ "${1:-}" == "--dry-run" ]]; then dry=1; shift; fi
+  cd "$PWD/output/games" 2>/dev/null || return 0
+  for base in $(ls -d *__* 2>/dev/null | sed 's/__.*//' | sort -u); do
+    if [[ $dry -eq 1 ]]; then
+      echo "would clean $base"
+      ls -td "${base}__"* 2>/dev/null | tail -n +2
+    else
+      "$PWD/../../scripts/run_utils.sh" clean_old_runs "$base"
+    fi
+  done
+}
+
 case "${1:-}" in
   get_run_dir)     shift; get_run_dir "${1:-}";;
   check_csv)       shift; check_csv   "${1:-}";;
   clip_previews)   shift; clip_previews "${1:-}" "${2:-3}";;
+  latest_run_for)  shift; latest_run_for "${1:-}";;
+  clean_old_runs)  shift; clean_old_runs "${1:-}";;
+  dedupe_all)      shift; dedupe_all "$@";;
   *) usage; exit 1;;
 esac
