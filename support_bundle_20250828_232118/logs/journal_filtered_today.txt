@@ -1,0 +1,21 @@
+Aug 28 20:02:40 scott-jetson-desktop alsactl[662]: alsa-lib main.c:1412:(snd_use_case_mgr_open) error: failed to import hw:0 use case configuration -2
+Aug 28 20:02:45 scott-jetson-desktop systemd[1320]: Listening on PipeWire Multimedia System Socket.
+Aug 28 20:02:45 scott-jetson-desktop systemd[1320]: Started PipeWire Multimedia Service.
+Aug 28 20:02:45 scott-jetson-desktop systemd[1320]: Started PipeWire Media Session Manager.
+Aug 28 20:02:45 scott-jetson-desktop dbus-daemon[500]: [system] Activating via systemd: service name='org.freedesktop.RealtimeKit1' unit='rtkit-daemon.service' requested by ':1.26' (uid=1000 pid=1365 comm="/usr/bin/pipewire " label="kernel")
+Aug 28 20:03:02 scott-jetson-desktop packagekitd[1976]: Failed to fetch https://repo.download.nvidia.com/jetson/ffmpeg/dists/r36.4/InRelease  
+                                                           E: Failed to fetch https://repo.download.nvidia.com/jetson/ffmpeg/dists/r36.4/InRelease  
+Aug 28 21:58:42 scott-jetson-desktop kernel: usbcore: registered new interface driver uvcvideo
+Aug 28 21:58:42 scott-jetson-desktop pipewire[1365]: spa.v4l2: '/dev/video0' VIDIOC_QUERYCTRL: Input/output error
+Aug 28 21:58:42 scott-jetson-desktop pipewire-media-session[1366]: ms.core: error id:27 seq:273 res:-5 (Input/output error): enum params id:1 (Spa:Enum:ParamId:PropInfo) failed
+Aug 28 22:41:06 scott-jetson-desktop sudo[9613]:    scott : TTY=pts/7 ; PWD=/home/scott/mca-gameday-camera ; USER=root ; COMMAND=/usr/bin/journalctl --since 'today 18:40' --until 'today 19:10'
+Aug 28 22:41:06 scott-jetson-desktop sudo[9651]:    scott : TTY=pts/7 ; PWD=/home/scott/mca-gameday-camera ; USER=root ; COMMAND=/usr/bin/journalctl --since 'today 18:40' --until 'today 19:10'
+Aug 28 22:42:09 scott-jetson-desktop sudo[9902]:    scott : TTY=pts/8 ; PWD=/home/scott/mca-gameday-camera ; USER=root ; COMMAND=/usr/bin/journalctl --since '2025-08-28 18:40:00' --until '2025-08-28 19:10:00'
+Aug 28 22:42:09 scott-jetson-desktop sudo[9911]:    scott : TTY=pts/8 ; PWD=/home/scott/mca-gameday-camera ; USER=root ; COMMAND=/usr/bin/journalctl --since '2025-08-28 18:40:00' --until '2025-08-28 19:10:00'
+Aug 28 22:45:31 scott-jetson-desktop sudo[10493]:    scott : TTY=pts/9 ; PWD=/home/scott/mca-gameday-camera ; USER=root ; COMMAND=/usr/bin/find / -xdev -type f ( -iname *.mp4 -o -iname *.mkv -o -iname *.mov -o -iname *.flv -o -iname *.ts -o -iname *.m3u8 ) -newermt '2025-08-28 18:30:00' ! -newermt '2025-08-28 20:30:00' -size +50M -printf '%TY-%Tm-%Td %TH:%TM  %12s  %p\\n'
+Aug 28 22:45:49 scott-jetson-desktop sudo[10604]:    scott : TTY=pts/9 ; PWD=/home/scott/mca-gameday-camera ; USER=root ; COMMAND=/usr/bin/find / -xdev -type f ( -name *output*.mp4 -o -name *.part -o -name *.tmp -o -name ffmpeg* ) -newermt '2025-08-28 18:30:00' ! -newermt '2025-08-28 20:30:00' -printf '%TY-%Tm-%Td %TH:%TM  %12s  %p\\n'
+Aug 28 22:46:43 scott-jetson-desktop sudo[10749]:    scott : TTY=pts/9 ; PWD=/home/scott/mca-gameday-camera ; USER=root ; COMMAND=/usr/bin/find / -xdev -type f ( -iname *.mp4 -o -iname *.mov -o -iname *.mkv -o -iname *.flv -o -iname *.ts ) -newermt '2025-08-28 18:30:00' ! -newermt '2025-08-28 20:30:00' -printf '%TY-%Tm-%Td %TH:%TM  %12s  %p\\n'
+Aug 28 22:52:09 scott-jetson-desktop sudo[12284]:    scott : TTY=pts/12 ; PWD=/home/scott/mca-gameday-camera ; USER=root ; COMMAND=/usr/bin/lsof -p 10973
+Aug 28 23:14:50 scott-jetson-desktop sudo[21391]:    scott : TTY=pts/13 ; PWD=/home/scott/mca-gameday-camera ; USER=root ; COMMAND=/usr/bin/find / -xdev -type f ( -iregex .*\\.\\(mp4\\|mov\\|mkv\\|flv\\|ts\\|m3u8\\|f4v\\|frag\\|partial\\|tmp\\) -o -name ff*seg* -o -name ffmpeg* ) -newermt '2025-08-28 18:30:00' ! -newermt '2025-08-28 20:30:00' -printf '%TY-%Tm-%Td %TH:%TM  %12s  %p\\n'
+Aug 28 23:14:52 scott-jetson-desktop sudo[21480]:    scott : TTY=pts/13 ; PWD=/home/scott/mca-gameday-camera ; USER=root ; COMMAND=/usr/bin/find /tmp /var/tmp -maxdepth 2 -type f -newermt '2025-08-28 18:30:00' ! -newermt '2025-08-28 20:30:00' -printf '%TY-%Tm-%Td %TH:%TM  %12s  %p\\n'
+Aug 28 23:21:23 scott-jetson-desktop sudo[24417]:    scott : TTY=pts/15 ; PWD=/home/scott/mca-gameday-camera ; USER=root ; COMMAND=/usr/bin/journalctl --since '2025-08-28 00:00:00' --until '2025-08-29 00:00:00'
