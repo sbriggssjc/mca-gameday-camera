@@ -29,13 +29,13 @@ def run_pipeline(
     team: str,
     playbook_path: str,
     out_dir: str,
-    min_play_gap: float,
-    min_play_length: float,
-    max_play_length: float,
-    preroll: float,
-    postroll: float,
-    generate_report: bool,
-    generate_clips: bool,
+    min_play_gap: float = 1.5,
+    min_play_length: float = 3.0,
+    max_play_length: float = 12.0,
+    preroll: float = 0.75,
+    postroll: float = 0.75,
+    generate_report: bool = False,
+    generate_clips: bool = False,
 ) -> str:
     video = os.path.abspath(video)
     out_dir = os.path.abspath(out_dir)
@@ -176,6 +176,21 @@ def run_pipeline(
             print("⚠️ formation/classifier weak")
 
     print(f"[pipeline] run complete -> {run_dir}")
+
+    # Update "latest" symlinks for this video
+    script = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "update_latest_symlinks.sh"
+    try:
+        subprocess.run(
+            [
+                "bash",
+                str(script),
+                tag,
+                out_dir,
+            ],
+            check=False,
+        )
+    except Exception as e:  # pragma: no cover - best effort only
+        print(f"[pipeline] symlink update failed: {e}")
     return run_dir
 
 
