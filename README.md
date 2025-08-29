@@ -81,6 +81,32 @@ coach report under `output/reports/`.
 The coach summary report includes per-play tables and player grades. A
 sample output is generated during tests under `tests/data`.
 
+### Batch fresh analyses
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+export PYTHONPATH=.
+FILES=("IMG_4129.MP4" "Scrimmage 2 - Part 1.MP4" "Scrimmage 2 - Part 2.MP4")
+for F in "${FILES[@]}"; do
+  python -m analysis.pipeline \
+    --video "video/manual_uploads/${F}" \
+    --team WHITE \
+    --playbook "playbooks/mca_5th_playbook.json" \
+    --out "output" \
+    --min-play-gap 1.5 \
+    --min-play-length 3.0 \
+    --report \
+    --clips
+done
+# Update symlinks for all
+bash scripts/update_latest_symlinks.sh
+```
+
+Or run `scripts/run_batch.sh` to use this loop.
+
+
+
 ### One-click end-to-end analysis
 
 Run the entire processing pipeline and summary generation with a single command:
