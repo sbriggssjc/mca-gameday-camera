@@ -100,5 +100,17 @@ def segment_video(
         if seg["t1"] - seg["t0"] >= min_play_length:
             cleaned.append(seg)
     if not cleaned:
-        cleaned = [{"id": "PLAY_001", "t0": 0.0, "t1": min(duration, max_play_length), "snap": 0.0, "whistle": min(duration, max_play_length)}]
+        cleaned = [{
+            "id": "PLAY_001",
+            "t0": 0.0,
+            "t1": min(duration, max_play_length),
+            "snap": 0.0,
+            "whistle": min(duration, max_play_length),
+        }]
+
+    for seg in cleaned:
+        mask = (times >= seg["t0"]) & (times <= seg["t1"])
+        seg["activity_ratio"] = float(np.mean(activity[mask] > 0)) if mask.any() else 0.0
+        seg["has_whistle"] = int(any((p >= seg["t0"]) and (p <= seg["t1"]) for p in audio_peaks))
+
     return cleaned

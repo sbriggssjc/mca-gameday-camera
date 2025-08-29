@@ -32,6 +32,7 @@ def run_pipeline(
     min_play_gap: float = 1.5,
     min_play_length: float = 3.0,
     max_play_length: float = 12.0,
+    min_activity_ratio: float = 0.10,
     preroll: float = 0.75,
     postroll: float = 0.75,
     generate_report: bool = False,
@@ -42,7 +43,21 @@ def run_pipeline(
     out_dir = os.path.abspath(out_dir)
 
     tag = pathlib.Path(video).stem
-    short = hex(abs(hash((tag, playbook_path, min_play_gap, min_play_length))) & ((1 << 44) - 1))[2:]
+    short = hex(
+        abs(
+            hash(
+                (
+                    tag,
+                    playbook_path,
+                    min_play_gap,
+                    min_play_length,
+                    max_play_length,
+                    min_activity_ratio,
+                )
+            )
+        )
+        & ((1 << 44) - 1)
+    )[2:]
     run_dir = os.path.join(out_dir, "games", f"{_safe_name(tag)}__{short}")
     os.makedirs(run_dir, exist_ok=True)
     os.makedirs(os.path.join(run_dir, "clips"), exist_ok=True)
@@ -59,10 +74,15 @@ def run_pipeline(
         postroll=postroll,
     )
     print(
-        f"[config] min_play_length={min_play_length} max_play_length={max_play_length} min_play_gap={min_play_gap} "
-        f"report={generate_report} clips={generate_clips}"
+        f"[config] min_play_length={min_play_length} max_play_length={max_play_length} min_activity_ratio={min_activity_ratio} "
+        f"min_play_gap={min_play_gap} report={generate_report} clips={generate_clips}"
     )
     print(f"[pipeline] segments detected: {len(segments)}")
+
+    for seg in segments:
+        seg["low_activity"] = int(
+            seg.get("activity_ratio", 0.0) < min_activity_ratio and not seg.get("has_whistle")
+        )
 
     classifications = classify_plays(segments, playbook, team)
 
@@ -91,9 +111,8 @@ def run_pipeline(
                 "clf_family": det.get("clf_family", ""),
                 "outcome": det.get("outcome") or "",
                 "clip_duration": max(0.0, float(seg["t1"]) - float(seg["t0"])),
-                "candidates": ";".join(
-                    f"{n}:{s:.2f}" for n, s in det.get("candidates", [])
-                ),
+                "low_activity": int(seg.get("low_activity", 0)),
+                "candidates": ";".join(f"{n}:{s:.2f}" for n, s in det.get("candidates", [])),
             }
         )
 
@@ -115,6 +134,7 @@ def run_pipeline(
         "clf_family",
         "outcome",
         "clip_duration",
+        "low_activity",
         "candidates",
     ]
     csv_path = os.path.join(run_dir, "plays_index.csv")
@@ -197,6 +217,12 @@ def run_pipeline(
             "run_dir": run_dir,
             "n_segments": len(segments),
             "generated_clips": bool(generate_clips),
+            "config": {
+                "min_play_length": min_play_length,
+                "max_play_length": max_play_length,
+                "min_play_gap": min_play_gap,
+                "min_activity_ratio": min_activity_ratio,
+            },
             "plays": rows,
         }
         with open(os.path.join(run_dir, "report.json"), "w") as f:
@@ -251,6 +277,7 @@ def main(argv=None) -> None:
     p.add_argument("--min-play-gap", type=float, default=1.5)
     p.add_argument("--min-play-length", type=float, default=3.0)
     p.add_argument("--max-play-length", type=float, default=12.0)
+    p.add_argument("--min-activity-ratio", type=float, default=0.10)
     p.add_argument("--preroll", type=float, default=0.75)
     p.add_argument("--postroll", type=float, default=0.75)
     p.add_argument("--generate-report", action="store_true")
@@ -266,6 +293,7 @@ def main(argv=None) -> None:
         min_play_gap=args.min_play_gap,
         min_play_length=args.min_play_length,
         max_play_length=args.max_play_length,
+        min_activity_ratio=args.min_activity_ratio,
         preroll=args.preroll,
         postroll=args.postroll,
         generate_report=args.generate_report,
