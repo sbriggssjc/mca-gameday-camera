@@ -86,14 +86,18 @@ clip_previews() {
 
 latest_run_for() {
   local base="$1"
-  ls -td "$PWD/output/games/${base}__"* 2>/dev/null | head -1 || true
+  ls -1td -- "$PWD/output/games/${base}__"* 2>/dev/null | head -n1 || true
 }
 
 clean_old_runs() {
   local base="$1"
   local newest; newest="$(latest_run_for "$base")"
   [[ -z "$newest" ]] && { echo "no runs for $base"; return 0; }
-  ls -td "$PWD/output/games/${base}__"* 2>/dev/null | tail -n +2 | xargs -r rm -rf
+  ls -1td -- "$PWD/output/games/${base}__"* 2>/dev/null |
+    tail -n +2 |
+    while IFS= read -r old; do
+      rm -rf -- "$old"
+    done
   echo "kept: $newest"
 }
 
@@ -101,14 +105,20 @@ dedupe_all() {
   local dry=0
   if [[ "${1:-}" == "--dry-run" ]]; then dry=1; shift; fi
   cd "$PWD/output/games" 2>/dev/null || return 0
-  for base in $(ls -d *__* 2>/dev/null | sed 's/__.*//' | sort -u); do
+  declare -A seen=()
+  while IFS= read -r -d '' dir; do
+    local base
+    base="${dir#./}"
+    base="${base%%__*}"
+    [[ -n ${seen["$base"]:-} ]] && continue
+    seen["$base"]=1
     if [[ $dry -eq 1 ]]; then
       echo "would clean $base"
-      ls -td "${base}__"* 2>/dev/null | tail -n +2
+      ls -1td -- "${base}__"* 2>/dev/null | tail -n +2
     else
       "$PWD/../../scripts/run_utils.sh" clean_old_runs "$base"
     fi
-  done
+  done < <(find . -maxdepth 1 -mindepth 1 -type d -name '*__*' -print0)
 }
 
 case "${1:-}" in
