@@ -163,15 +163,15 @@ def run_pipeline(
                 "snap": float(seg.get("snap", seg["t0"])),
                 "whistle": float(seg.get("whistle", seg["t1"])),
                 "clip_path": "",
-                "formation": det.get("formation", "Unknown"),
+                "formation": det.get("formation") or "",
                 "formation_confidence": float(det.get("formation_confidence", 0.0)),
                 "play_family": det.get("play_family", "Unknown"),
                 "playcall_confidence": float(det.get("playcall_confidence", 0.0)),
                 # Observability fields
                 "clf_top1": det.get("clf_top1", det.get("play_family", "")),
                 "clf_top1_conf": float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0))),
-                "clf_top3": ";".join(
-                    f"{n}:{s:.2f}" for n, s in det.get("clf_top3", det.get("candidates", []))
+                "clf_top3": "|".join(
+                    f"{n}:{float(s):.3f}" for n, s in det.get("clf_top3", det.get("candidates", []))
                 ),
                 "clf_weak_flag": int(det.get("clf_weak_flag", 0)),
                 "clf_family": det.get("clf_family", ""),
