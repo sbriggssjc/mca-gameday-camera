@@ -19,8 +19,4 @@ python -m analysis.pipeline \
 
 base="$(basename "$VID")"
 name="${base%.*}"
-run="$(scripts/run_utils.sh latest_run_for "$name")"
-[ -n "$run" ] && {
-  ln -sfn "$run" "$OUT_DIR/games/${name}__latest"
-  scripts/run_utils.sh clean_old_runs "$name"
-}
+scripts/update_latest_symlinks.sh --clean "$name"
