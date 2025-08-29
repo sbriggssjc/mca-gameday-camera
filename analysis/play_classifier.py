@@ -109,11 +109,9 @@ def _best_matches_from_playbook(
         if formation and (pf or formations):
             pool = [pf, *formations]
             for f in pool:
-                if f and f.lower() in formation.lower() or formation.lower() in f.lower():
+                if f and (f.lower() in formation.lower() or formation.lower() in f.lower()):
                     formation_match = True
                     break
-            if not formation_match:
-                continue
         # Compare the formation text with the play name as a loose proxy for a
         # classifier score.  This keeps the implementation deterministic while
         # still yielding a range of confidences for tests to exercise.
@@ -150,6 +148,10 @@ def classify_plays(
     playbook: Any,
     team: str,
     *,
+    play_ckpt: str | None = None,
+    play_labels: str | None = None,
+    formation_ckpt: str | None = None,
+    formation_labels: str | None = None,
     weak_threshold: float = 0.35,
     smooth_radius: int = 4,
 ) -> List[Dict[str, Any]]:
@@ -161,6 +163,11 @@ def classify_plays(
     classification.
     """
 
+    # The ``*_ckpt`` and ``*_labels`` arguments are accepted for API
+    # compatibility with the full model-backed implementation.  They are not
+    # used in this lightweight fallback classifier.
+    _ = (play_ckpt, play_labels, formation_ckpt, formation_labels)
+
     # ------------------------------------------------------------------
     # Pre-compute candidate score dictionaries for all segments so that
     # temporal smoothing can operate on them.
@@ -171,6 +178,8 @@ def classify_plays(
         formation = seg.get("formation", "") or ""
         formations.append(formation)
         cands = _best_matches_from_playbook(formation, playbook, topk=3)
+        if not cands:
+            cands = _best_matches_from_playbook("", playbook, topk=3)
         if seg.get("low_activity"):
             cands = [(n, s * 0.5) for n, s in cands]
         raw_scores.append({n: s for n, s in cands})
