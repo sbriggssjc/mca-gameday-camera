@@ -24,6 +24,40 @@ def _safe_name(s: str) -> str:
     return "".join(c if c.isalnum() or c in "._- " else "_" for c in s)
 
 
+def _load_model_labels(model_path: str | None = None) -> set[str]:
+    """Return classifier label set from a checkpoint or JSON mapping.
+
+    The function first attempts to load ``model_path`` using ``torch.load`` to
+    access a ``label_map`` attribute.  If that fails, it falls back to parsing
+    the file as JSON.  When ``model_path`` is ``None`` the environment variable
+    ``PLAY_CLASSIFIER_MODEL`` is consulted and finally a default checkpoint path
+    under ``models/play_classifier/latest.pt`` is used.  Any errors are
+    swallowed and an empty set is returned.
+    """
+
+    model_path = (
+        model_path
+        or os.environ.get("PLAY_CLASSIFIER_MODEL")
+        or os.path.join("models", "play_classifier", "latest.pt")
+    )
+    p = pathlib.Path(model_path)
+    if not p.exists():
+        return set()
+    label_map = {}
+    try:  # pragma: no cover - torch may be unavailable
+        import torch  # type: ignore
+
+        data = torch.load(p, map_location="cpu")
+        label_map = data.get("label_map", {})
+    except Exception:
+        try:
+            data = json.loads(p.read_text())
+            label_map = data.get("label_map", {})
+        except Exception:
+            return set()
+    return set(label_map.keys())
+
+
 def run_pipeline(
     video: str,
     team: str,
@@ -47,8 +81,39 @@ def run_pipeline(
     os.makedirs(run_dir, exist_ok=True)
     os.makedirs(os.path.join(run_dir, "clips"), exist_ok=True)
 
+    report_dir = os.path.join(run_dir, "report")
+    os.makedirs(report_dir, exist_ok=True)
+
     playbook = load_playbook(playbook_path)
     print(f"[playbook] source={playbook_path}")
+
+    # ------------------------------------------------------------------
+    # Validate classifier ↔ playbook wiring
+    # ------------------------------------------------------------------
+    validator_warnings: list[str] = []
+    model_labels = _load_model_labels()
+    if model_labels:
+        if hasattr(playbook, "plays"):
+            pb_labels = set(playbook.plays.keys())
+        else:
+            pb_labels = {p.get("name", "") for p in playbook.get("plays", [])}
+        missing_in_playbook = sorted(model_labels - pb_labels)
+        missing_in_model = sorted(pb_labels - model_labels)
+        if missing_in_playbook:
+            validator_warnings.append(
+                "Model labels not in playbook: " + ", ".join(missing_in_playbook)
+            )
+        if missing_in_model:
+            validator_warnings.append(
+                "Playbook labels missing from model: " + ", ".join(missing_in_model)
+            )
+    if validator_warnings:
+        warn_path = os.path.join(report_dir, "warnings.txt")
+        with open(warn_path, "w", encoding="utf-8") as wf:
+            for line in validator_warnings:
+                wf.write(line + "\n")
+        for line in validator_warnings:
+            print(f"⚠️ {line}")
 
     segments = segment_video(
         video,
@@ -211,7 +276,27 @@ def run_pipeline(
         if len(unknown) / len(rows) > 0.5:
             print("⚠️ formation/classifier weak")
 
-    print(f"[pipeline] run complete -> {run_dir}")
+    status_icon = "⚠️ " if validator_warnings else ""
+    print(f"{status_icon}[pipeline] run complete -> {run_dir}")
+
+    # ------------------------------------------------------------------
+    # Basic HTML report with sanity checks
+    # ------------------------------------------------------------------
+    index_path = os.path.join(report_dir, "index.html")
+    with open(index_path, "w", encoding="utf-8") as f:
+        f.write("<html><head><meta charset='utf-8'><title>Run Report</title></head><body>\n")
+        f.write(f"<h1>{status_icon.strip()}Analysis Report</h1>\n")
+        f.write("<h2>Sanity Checks</h2>\n<ul>\n")
+        f.write(
+            f"<li>Active thresholds: min_play_gap={min_play_gap}, min_play_length={min_play_length}, "
+            f"max_play_length={max_play_length}</li>\n"
+        )
+        if validator_warnings:
+            for line in validator_warnings:
+                f.write(f"<li>{line}</li>\n")
+        else:
+            f.write("<li>No unmapped labels</li>\n")
+        f.write("</ul>\n</body></html>\n")
 
 
     # Update the "__latest" symlink for this video base
