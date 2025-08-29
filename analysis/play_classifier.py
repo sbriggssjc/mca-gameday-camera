@@ -190,11 +190,9 @@ def classify_plays(
         scores = raw_scores[i - 1]
         sorted_cands = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         top_name, top_score = (sorted_cands[0] if sorted_cands else ("", 0.0))
-        weak_flag = 1 if seg.get("low_activity") else 0
         final_scores = scores
 
         if top_score < weak_threshold:
-            weak_flag = 1
             # Temporal smoothing over neighbouring segments
             start = max(0, (i - 1) - smooth_radius)
             end = min(total, (i - 1) + smooth_radius + 1)
@@ -203,18 +201,21 @@ def classify_plays(
             smoothed: Dict[str, float] = {}
             for n in names:
                 smoothed[n] = sum(d.get(n, 0.0) for d in window) / len(window)
-            final_scores = smoothed
-            sorted_cands = sorted(final_scores.items(), key=lambda x: x[1], reverse=True)
-            top_name, top_score = (sorted_cands[0] if sorted_cands else ("", 0.0))
+            smoothed_sorted = sorted(smoothed.items(), key=lambda x: x[1], reverse=True)
+            if smoothed_sorted and smoothed_sorted[0][1] > top_score:
+                final_scores = smoothed
+                sorted_cands = smoothed_sorted
+                top_name, top_score = smoothed_sorted[0]
 
-            # Back off to family-level classification if still weak
-            if top_score < weak_threshold:
-                clf_family = _best_family_from_playbook(playbook, final_scores)
-            else:
-                clf_family = ""
+        # Back off to family-level classification if still weak after smoothing
+        if top_score < weak_threshold:
+            clf_family = _best_family_from_playbook(playbook, final_scores)
         else:
             clf_family = ""
 
+        weak_flag = 1 if seg.get("low_activity") or top_score < weak_threshold else 0
+
+        top5 = sorted_cands[:5]
         top3 = sorted_cands[:3]
 
         results.append(
@@ -225,7 +226,7 @@ def classify_plays(
                 # Existing fields for backwards compatibility
                 "play_family": top_name,
                 "playcall_confidence": float(top_score),
-                "candidates": top3,
+                "candidates": top5,
                 "outcome": seg.get("outcome", ""),
                 # New observability fields
                 "clf_top1": top_name,
