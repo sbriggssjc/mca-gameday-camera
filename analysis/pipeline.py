@@ -108,15 +108,16 @@ def run_pipeline(
     video = os.path.abspath(video)
     out_dir = os.path.abspath(out_dir)
 
-    play_ckpt = play_ckpt or os.environ.get("PLAY_CLASSIFIER_MODEL") or os.path.join(
-        "models", "play_classifier", "latest.pt"
+    play_ckpt = os.path.abspath(
+        play_ckpt
+        or os.environ.get("PLAY_CLASSIFIER_MODEL")
+        or os.path.join("models", "play_classifier", "latest.pt")
     )
-    formation_ckpt = formation_ckpt or os.path.join("models", "formation", "latest.pt")
-
-    if require_classifier:
-        for path in [play_ckpt, play_labels, formation_ckpt, formation_labels]:
-            if path and not os.path.exists(path):
-                raise FileNotFoundError(f"missing required file: {path}")
+    play_labels = os.path.abspath(play_labels) if play_labels else None
+    formation_ckpt = os.path.abspath(
+        formation_ckpt or os.path.join("models", "formation", "latest.pt")
+    )
+    formation_labels = os.path.abspath(formation_labels) if formation_labels else None
 
     tag = pathlib.Path(video).stem
     short = hex(
@@ -152,6 +153,17 @@ def run_pipeline(
     root_logger.addHandler(fh)
     root_logger.addHandler(sh)
     root_logger.setLevel(logging.INFO)
+
+    logging.info(f"[pipeline] play_ckpt: {play_ckpt}")
+    logging.info(f"[pipeline] play_labels: {play_labels}")
+    logging.info(f"[pipeline] formation_ckpt: {formation_ckpt}")
+    logging.info(f"[pipeline] formation_labels: {formation_labels}")
+
+    if require_classifier:
+        for path in [play_ckpt, play_labels, formation_ckpt, formation_labels]:
+            if path and not os.path.exists(path):
+                logging.error(f"[pipeline] missing required file: {path}")
+                raise FileNotFoundError(f"missing required file: {path}")
 
     index_path = os.path.join(report_dir, "index.html")
     if generate_report:
