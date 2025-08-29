@@ -1,5 +1,5 @@
 .RECIPEPREFIX := >
-.PHONY: deps diag preflight audit fix-logging run testsrc audio fmt
+.PHONY: deps diag preflight audit fix-logging run testsrc audio fmt prune-runs
 deps:
 >scripts/install_deps.sh
 diag:
@@ -58,6 +58,9 @@ testsrc:
 
 audio:
 >PYTHONPATH=. python3 -m tools.list_audio
+
+prune-runs:
+>PYTHONPATH=. python3 tools/prune_runs.py --games-dir output/games --keep 3
 
 fmt:
 >@echo "no-op"
