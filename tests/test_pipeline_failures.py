@@ -1,6 +1,6 @@
 import csv
 import json
-import pytest
+import csv, json, os, pathlib, pytest, torch
 
 from analysis import pipeline
 
@@ -16,8 +16,12 @@ def test_pipeline_no_run_dir_on_load_failure(tmp_path):
             playbook_path=str(playbook_path),
             out_dir=str(out_dir),
         )
-
-    assert not (out_dir / "games").exists()
+    games_dir = out_dir / "games"
+    assert games_dir.exists(), "run dir should exist"
+    run_dirs = list(games_dir.glob("*"))
+    assert run_dirs, "no run dirs created"
+    log_path = run_dirs[0] / "pipeline.log"
+    assert log_path.exists()
 
 
 def test_pipeline_marks_failed_run(tmp_path, monkeypatch):
@@ -26,6 +30,11 @@ def test_pipeline_marks_failed_run(tmp_path, monkeypatch):
     pb_path.write_text(json.dumps(playbook))
 
     out_dir = tmp_path / "out"
+
+    # Provide a dummy model so label loading succeeds
+    ckpt = tmp_path / "model.pt"
+    torch.save({"label_map": {"Rit Sweep": 0}}, ckpt)
+    monkeypatch.setenv("PLAY_CLASSIFIER_MODEL", str(ckpt))
 
     class BoomWriter(csv.DictWriter):
         def writeheader(self):  # type: ignore[override]
