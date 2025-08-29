@@ -93,11 +93,7 @@ def run_pipeline(
         & ((1 << 44) - 1)
     )[2:]
     run_dir = os.path.join(out_dir, "games", f"{_safe_name(tag)}__{short}")
-    os.makedirs(run_dir, exist_ok=True)
-    os.makedirs(os.path.join(run_dir, "clips"), exist_ok=True)
-
     report_dir = os.path.join(run_dir, "report")
-    os.makedirs(report_dir, exist_ok=True)
 
     playbook = load_playbook(playbook_path)
     print(f"[playbook] source={playbook_path}")
@@ -122,14 +118,6 @@ def run_pipeline(
             validator_warnings.append(
                 "Playbook labels missing from model: " + ", ".join(missing_in_model)
             )
-    if validator_warnings:
-        warn_path = os.path.join(report_dir, "warnings.txt")
-        with open(warn_path, "w", encoding="utf-8") as wf:
-            for line in validator_warnings:
-                wf.write(line + "\n")
-        for line in validator_warnings:
-            print(f"⚠️ {line}")
-
     segments = segment_video(
         video,
         min_play_length=min_play_length,
@@ -180,7 +168,6 @@ def run_pipeline(
                 "candidates": ";".join(f"{n}:{s:.2f}" for n, s in det.get("candidates", [])),
             }
         )
-
     csv_header = [
         "play_id",
         "t0",
@@ -203,11 +190,34 @@ def run_pipeline(
         "candidates",
     ]
     csv_path = os.path.join(run_dir, "plays_index.csv")
-    with open(csv_path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=csv_header)
-        w.writeheader()
-        for r in rows:
-            w.writerow(r)
+    run_dir_created = False
+    try:
+        os.makedirs(run_dir, exist_ok=True)
+        run_dir_created = True
+        os.makedirs(os.path.join(run_dir, "clips"), exist_ok=True)
+        os.makedirs(report_dir, exist_ok=True)
+
+        if validator_warnings:
+            warn_path = os.path.join(report_dir, "warnings.txt")
+            with open(warn_path, "w", encoding="utf-8") as wf:
+                for line in validator_warnings:
+                    wf.write(line + "\n")
+            for line in validator_warnings:
+                print(f"⚠️ {line}")
+
+        with open(csv_path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=csv_header)
+            w.writeheader()
+            for r in rows:
+                w.writerow(r)
+    except Exception as e:
+        if run_dir_created:
+            try:
+                with open(os.path.join(run_dir, "RUN_FAILED.txt"), "w", encoding="utf-8") as f:
+                    f.write(str(e))
+            except Exception:
+                pass
+        raise
 
     if generate_clips:
         for r in rows:
