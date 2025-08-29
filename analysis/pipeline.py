@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os, sys, json, pathlib, argparse, csv, subprocess
+import os, sys, json, pathlib, argparse, csv, subprocess, logging
 
 try:
     # When executed as module (recommended)
@@ -24,6 +24,20 @@ def _safe_name(s: str) -> str:
     return "".join(c if c.isalnum() or c in "._- " else "_" for c in s)
 
 
+from .classifiers import _load_ckpt, _load_labels, log as clf_log
+
+
+def _load_model_labels(model_path: str | None = None) -> set[str]:
+    """Return classifier label set from a checkpoint or label file.
+
+    Parameters
+    ----------
+    model_path:
+        Path to the checkpoint or plain text label file. When ``None`` the
+        environment variable ``PLAY_CLASSIFIER_MODEL`` is consulted and finally
+        a default checkpoint path under ``models/play_classifier/latest.pt`` is
+        used.
+
 def _load_model_labels(
     model_path: str | None = None, labels_path: str | None = None
 ) -> set[str]:
@@ -36,6 +50,7 @@ def _load_model_labels(
     ``PLAY_CLASSIFIER_MODEL`` is consulted and finally a default checkpoint path
     under ``models/play_classifier/latest.pt`` is used.  Any errors are
     swallowed and an empty set is returned.
+
     """
 
     if labels_path:
@@ -55,22 +70,20 @@ def _load_model_labels(
         or os.environ.get("PLAY_CLASSIFIER_MODEL")
         or os.path.join("models", "play_classifier", "latest.pt")
     )
-    p = pathlib.Path(model_path)
-    if not p.exists():
-        return set()
-    label_map = {}
-    try:  # pragma: no cover - torch may be unavailable
-        import torch  # type: ignore
 
-        data = torch.load(p, map_location="cpu")
+    p = pathlib.Path(model_path)
+    labels: list[str] = []
+    try:
+        data = _load_ckpt(str(p))
         label_map = data.get("label_map", {})
+        labels = list(label_map.keys())
+        clf_log.info(
+            f"[classifier] labels: {len(labels)} in checkpoint; sample={labels[:5]}"
+        )
     except Exception:
-        try:
-            data = json.loads(p.read_text())
-            label_map = data.get("label_map", {})
-        except Exception:
-            return set()
-    return set(label_map.keys())
+        # Fall back to plain text label file
+        labels = _load_labels(str(p))
+    return set(labels)
 
 
 def run_pipeline(
@@ -122,15 +135,25 @@ def run_pipeline(
     )[2:]
     run_dir = os.path.join(out_dir, "games", f"{_safe_name(tag)}__{short}")
     report_dir = os.path.join(run_dir, "report")
+    os.makedirs(run_dir, exist_ok=True)
+    run_dir_created = True
 
-    # Prepare directories early only when reporting is requested so that we can
-    # always emit a stub report on failure. Otherwise we defer creation so that
-    # a failure during load does not leave a run directory behind.
-    run_dir_created = False
+    # Configure logging to file under the run directory and to stdout
+    log_path = os.path.join(run_dir, "pipeline.log")
+    root_logger = logging.getLogger()
+    for h in list(root_logger.handlers):
+        root_logger.removeHandler(h)
+    fmt = logging.Formatter("%(asctime)s %(message)s")
+    fh = logging.FileHandler(log_path)
+    fh.setFormatter(fmt)
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    root_logger.addHandler(fh)
+    root_logger.addHandler(sh)
+    root_logger.setLevel(logging.INFO)
+
     index_path = os.path.join(report_dir, "index.html")
     if generate_report:
-        os.makedirs(run_dir, exist_ok=True)
-        run_dir_created = True
         os.makedirs(report_dir, exist_ok=True)
         # Default stub in case we crash before classification.
         with open(index_path, "w", encoding="utf-8") as f:

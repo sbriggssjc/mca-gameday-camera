@@ -1,4 +1,4 @@
-import json, pathlib
+import json, os, pathlib, torch
 from analysis import pipeline
 
 
@@ -9,6 +9,10 @@ def test_pipeline_smoke(tmp_path):
 
     video = "dummy.mp4"
     out_dir = tmp_path / "out"
+
+    ckpt = tmp_path / "model.pt"
+    torch.save({"label_map": {"Rit Sweep": 0}}, ckpt)
+    os.environ["PLAY_CLASSIFIER_MODEL"] = str(ckpt)
 
     run_dir = pipeline.run_pipeline(
         video=video,
