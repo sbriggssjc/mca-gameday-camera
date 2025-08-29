@@ -171,6 +171,8 @@ def classify_plays(
         formation = seg.get("formation", "") or ""
         formations.append(formation)
         cands = _best_matches_from_playbook(formation, playbook, topk=3)
+        if seg.get("low_activity"):
+            cands = [(n, s * 0.5) for n, s in cands]
         raw_scores.append({n: s for n, s in cands})
 
     results: List[Dict[str, Any]] = []
@@ -179,7 +181,7 @@ def classify_plays(
         scores = raw_scores[i - 1]
         sorted_cands = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         top_name, top_score = (sorted_cands[0] if sorted_cands else ("", 0.0))
-        weak_flag = 0
+        weak_flag = 1 if seg.get("low_activity") else 0
         final_scores = scores
 
         if top_score < weak_threshold:
