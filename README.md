@@ -728,3 +728,13 @@ sudo systemctl stop nvargus-daemon || true
 ```
 
 If Studio shows “low bitrate”, increase -b:v/-maxrate/-bufsize in gameday.
+
+### Gameday capture and log collection
+
+Run `tools/gameday_always_capture.sh` to stream with guaranteed local recording and logs.  After a game, bundle today's artifacts with `tools/collect_today_logs.sh`.
+
+The capture script stops PipeWire for reliability.  To restore audio services after the game, run:
+
+```bash
+systemctl --user start pipewire pipewire-media-session
+```
