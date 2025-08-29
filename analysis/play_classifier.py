@@ -150,6 +150,10 @@ def classify_plays(
     playbook: Any,
     team: str,
     *,
+    play_ckpt: str | None = None,
+    play_labels: str | None = None,
+    formation_ckpt: str | None = None,
+    formation_labels: str | None = None,
     weak_threshold: float = 0.35,
     smooth_radius: int = 4,
 ) -> List[Dict[str, Any]]:
@@ -160,6 +164,11 @@ def classify_plays(
     temporal smoothing fallback and, if necessary, backs off to family-level
     classification.
     """
+
+    # The ``*_ckpt`` and ``*_labels`` arguments are accepted for API
+    # compatibility with the full model-backed implementation.  They are not
+    # used in this lightweight fallback classifier.
+    _ = (play_ckpt, play_labels, formation_ckpt, formation_labels)
 
     # ------------------------------------------------------------------
     # Pre-compute candidate score dictionaries for all segments so that
