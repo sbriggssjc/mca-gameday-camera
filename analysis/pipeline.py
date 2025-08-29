@@ -6,14 +6,17 @@ from collections import Counter
 try:
     # When executed as module (recommended)
     from .segmentation import segment_video
-    from .play_classifier import classify_plays
     from .playbook import load_playbook
 except ImportError:  # pragma: no cover - fallback for script execution
     # Fallback when run as a script from repo root
     sys.path.append(str(pathlib.Path(__file__).resolve().parent.parent))
     from analysis.segmentation import segment_video
-    from analysis.play_classifier import classify_plays
     from analysis.playbook import load_playbook
+
+# ``classify_plays`` is loaded lazily so that the pipeline can operate without
+# the heavy classifier dependency when needed.  Tests may monkeypatch this
+# symbol, hence it is defined at module scope.
+classify_plays = None  # type: ignore
 
 
 def _ffmpeg(*args: str) -> subprocess.CompletedProcess:
@@ -23,9 +26,6 @@ def _ffmpeg(*args: str) -> subprocess.CompletedProcess:
 
 def _safe_name(s: str) -> str:
     return "".join(c if c.isalnum() or c in "._- " else "_" for c in s)
-
-
-from .classifiers import _load_ckpt, _load_labels, log as clf_log
 
 
 def _norm_label(label: str) -> str:
@@ -69,6 +69,8 @@ def _load_model_labels(
     p = pathlib.Path(model_path)
     labels: list[str] = []
     try:
+        from .classifiers import _load_ckpt, _load_labels, log as clf_log
+
         data = _load_ckpt(str(p))
         label_map = data.get("label_map", {})
         labels = list(label_map.keys())
@@ -76,6 +78,8 @@ def _load_model_labels(
             f"[classifier] labels: {len(labels)} in checkpoint; sample={labels[:5]}"
         )
     except Exception:
+        from .classifiers import _load_labels
+
         # Fall back to plain text label file
         labels = _load_labels(str(p))
     return set(labels)
@@ -99,6 +103,7 @@ def run_pipeline(
     generate_report: bool = False,
     generate_clips: bool = False,
     debug_weak: bool = False,
+    require_classifier: bool = True,
 ) -> str:
     video = os.path.abspath(video)
     out_dir = os.path.abspath(out_dir)
@@ -108,9 +113,10 @@ def run_pipeline(
     )
     formation_ckpt = formation_ckpt or os.path.join("models", "formation", "latest.pt")
 
-    for path in [play_ckpt, play_labels, formation_ckpt, formation_labels]:
-        if path and not os.path.exists(path):
-            raise FileNotFoundError(f"missing required file: {path}")
+    if require_classifier:
+        for path in [play_ckpt, play_labels, formation_ckpt, formation_labels]:
+            if path and not os.path.exists(path):
+                raise FileNotFoundError(f"missing required file: {path}")
 
     tag = pathlib.Path(video).stem
     short = hex(
@@ -157,6 +163,28 @@ def run_pipeline(
     playbook = load_playbook(playbook_path)
     print(f"[playbook] source={playbook_path}")
 
+    import types
+
+    clf = None
+    clf_error: str | None = None
+    try:
+        from .classifiers import load_models
+
+        args_obj = types.SimpleNamespace(
+            play_ckpt=play_ckpt,
+            play_labels=play_labels,
+            formation_ckpt=formation_ckpt,
+            formation_labels=formation_labels,
+        )
+        clf = load_models(args_obj)
+    except Exception as e:
+        if require_classifier:
+            raise
+        else:
+            logging.getLogger().warning(f"[classifier] disabled: {e}")
+            clf_error = str(e)
+            clf = None
+
     # ------------------------------------------------------------------
     # Validate classifier ↔ playbook wiring
     # ------------------------------------------------------------------
@@ -164,29 +192,34 @@ def run_pipeline(
     unmapped_pb_norms: set[str] = set()
     missing_in_playbook: list[str] = []
     missing_in_model: list[str] = []
-    model_labels = _load_model_labels(play_ckpt, play_labels)
-    if model_labels:
-        if hasattr(playbook, "plays"):
-            pb_labels = set(playbook.plays.keys())
-        else:
-            pb_labels = {p.get("name", "") for p in playbook.get("plays", [])}
-        norm_pb = { _norm_label(p): p for p in pb_labels if p }
-        norm_model = { _norm_label(m): m for m in model_labels if m }
-        for norm, orig in norm_model.items():
-            if norm not in norm_pb:
-                missing_in_playbook.append(orig)
-        missing_in_model = [orig for norm, orig in norm_pb.items() if norm not in norm_model]
-        unmapped_pb_norms = { _norm_label(lbl) for lbl in missing_in_model }
-        if missing_in_playbook:
-            validator_warnings.append(
-                "Model labels not in playbook: " + ", ".join(sorted(missing_in_playbook))
-            )
-        if missing_in_model:
-            validator_warnings.append(
-                "Playbook labels missing from model: " + ", ".join(sorted(missing_in_model))
-            )
-        if validator_warnings:
-            logging.warning("label/playbook mismatch detected")
+    if clf is not None:
+        model_labels = _load_model_labels(play_ckpt, play_labels)
+        if model_labels:
+            if hasattr(playbook, "plays"):
+                pb_labels = set(playbook.plays.keys())
+            else:
+                pb_labels = {p.get("name", "") for p in playbook.get("plays", [])}
+            norm_pb = { _norm_label(p): p for p in pb_labels if p }
+            norm_model = { _norm_label(m): m for m in model_labels if m }
+            for norm, orig in norm_model.items():
+                if norm not in norm_pb:
+                    missing_in_playbook.append(orig)
+            missing_in_model = [orig for norm, orig in norm_pb.items() if norm not in norm_model]
+            unmapped_pb_norms = { _norm_label(lbl) for lbl in missing_in_model }
+            if missing_in_playbook:
+                validator_warnings.append(
+                    "Model labels not in playbook: " + ", ".join(sorted(missing_in_playbook))
+                )
+            if missing_in_model:
+                validator_warnings.append(
+                    "Playbook labels missing from model: " + ", ".join(sorted(missing_in_model))
+                )
+            if validator_warnings:
+                logging.warning("label/playbook mismatch detected")
+    else:
+        model_labels = set()
+        msg = f"classifier disabled: {clf_error}" if clf_error else "classifier disabled"
+        validator_warnings.append(msg)
     segments = segment_video(
         video,
         min_play_length=min_play_length,
@@ -206,48 +239,47 @@ def run_pipeline(
             seg.get("activity_ratio", 0.0) < min_activity_ratio and not seg.get("has_whistle")
         )
 
-    classifications = classify_plays(
-        segments,
-        playbook,
-        team,
-        play_ckpt=play_ckpt,
-        play_labels=play_labels,
-        formation_ckpt=formation_ckpt,
-        formation_labels=formation_labels,
-    )
+    if clf is not None:
+        global classify_plays
+        if classify_plays is None:  # pragma: no cover - lazy import
+            from .play_classifier import classify_plays as _classify_plays
+            classify_plays = _classify_plays
+
+        classifications = classify_plays(
+            segments,
+            playbook,
+            team,
+            play_ckpt=play_ckpt,
+            play_labels=play_labels,
+            formation_ckpt=formation_ckpt,
+            formation_labels=formation_labels,
+        )
+        for d in classifications:
+            d["clf_disabled"] = 0
+    else:
+        classifications = []
+        for i, seg in enumerate(segments, 1):
+            classifications.append(
+                {
+                    "play_id": seg.get("id") or seg.get("play_id") or f"PLAY_{i:03d}",
+                    "formation": seg.get("formation") or "",
+                    "formation_confidence": float(seg.get("formation_confidence", 0.0)),
+                    "play_family": "",
+                    "playcall_confidence": 0.0,
+                    "candidates": [],
+                    "outcome": seg.get("outcome", ""),
+                    "clf_top1": "__no_torch__",
+                    "clf_top1_conf": 0.0,
+                    "clf_top3": [],
+                    "clf_weak_flag": 1,
+                    "clf_family": "",
+                    "clf_disabled": 1,
+                }
+            )
 
     rows: list[dict] = []
     for seg, det in zip(segments, classifications):
         pid = det.get("play_id") or f"PLAY_{len(rows)+1:03d}"
-
-        rows.append(
-            {
-                "play_id": pid,
-                "t0": float(seg["t0"]),
-                "t1": float(seg["t1"]),
-                "snap": float(seg.get("snap", seg["t0"])),
-                "whistle": float(seg.get("whistle", seg["t1"])),
-                "clip_path": "",
-                "formation": det.get("formation") or "",
-                "formation_confidence": float(det.get("formation_confidence", 0.0)),
-                "play_family": det.get("play_family", "Unknown"),
-                "playcall_confidence": float(det.get("playcall_confidence", 0.0)),
-                # Observability fields
-                "clf_top1": det.get("clf_top1", det.get("play_family", "")),
-                "clf_top1_conf": float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0))),
-                "clf_top3": "|".join(
-                    f"{n}:{float(s):.3f}" for n, s in det.get("clf_top3", det.get("candidates", []))
-                ),
-                "clf_weak_flag": int(det.get("clf_weak_flag", 0)),
-                "clf_family": det.get("clf_family", ""),
-                "outcome": det.get("outcome") or "",
-                "clip_duration": max(0.0, float(seg["t1"]) - float(seg["t0"])),
-                "low_activity": int(seg.get("low_activity", 0)),
-                "candidates": "|".join(
-                    f"{n}:{float(s):.3f}" for n, s in det.get("candidates", [])
-                ),
-            }
-        )
 
         row = {
             "play_id": pid,
@@ -268,6 +300,7 @@ def run_pipeline(
             ),
             "clf_weak_flag": int(det.get("clf_weak_flag", 0)),
             "clf_family": det.get("clf_family", ""),
+            "clf_disabled": int(det.get("clf_disabled", 0)),
             "outcome": det.get("outcome") or "",
             "clip_duration": max(0.0, float(seg["t1"]) - float(seg["t0"])),
             "low_activity": int(seg.get("low_activity", 0)),
@@ -293,6 +326,7 @@ def run_pipeline(
         "clf_top3",
         "clf_weak_flag",
         "clf_family",
+        "clf_disabled",
         "outcome",
         "clip_duration",
         "low_activity",
@@ -438,6 +472,7 @@ def run_pipeline(
         top_labels = ", ".join(
             f"{n} ({c})" for n, c in label_counts.most_common(5) if n
         )
+        disabled_count = sum(r.get("clf_disabled", 0) for r in rows)
         unmapped_labels = sorted(set(missing_in_playbook + missing_in_model))
 
         if rows:
@@ -457,6 +492,7 @@ def run_pipeline(
 
                 f.write("<h2>Classifier Health</h2>\n<ul>\n")
                 f.write(f"<li>Segments: {seg_count}</li>\n")
+                f.write(f"<li>Classifier disabled: {disabled_count}</li>\n")
                 f.write(
                     f"<li>Weak classifications: {weak_count} ({weak_pct:.1f}% weak)</li>\n"
                 )
@@ -528,6 +564,12 @@ def main(argv=None) -> None:
     p.add_argument("--generate-clips", dest="generate_clips", action="store_true", help="export per-play mp4 clips")
     p.add_argument("--clips", dest="generate_clips", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--debug-weak", action="store_true")
+    p.add_argument(
+        "--require-classifier",
+        action="store_true",
+        default=True,
+        help="If True, raise on classifier init failure; if False, continue without predictions.",
+    )
     args = p.parse_args(argv)
     print(f"[pipeline] config: {json.dumps(vars(args), sort_keys=True)}")
 
@@ -549,6 +591,7 @@ def main(argv=None) -> None:
         generate_report=args.generate_report,
         generate_clips=args.generate_clips,
         debug_weak=args.debug_weak,
+        require_classifier=args.require_classifier,
     )
 
 
