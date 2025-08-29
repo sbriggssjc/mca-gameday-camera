@@ -217,6 +217,36 @@ def run_pipeline(
     rows: list[dict] = []
     for seg, det in zip(segments, classifications):
         pid = det.get("play_id") or f"PLAY_{len(rows)+1:03d}"
+
+        rows.append(
+            {
+                "play_id": pid,
+                "t0": float(seg["t0"]),
+                "t1": float(seg["t1"]),
+                "snap": float(seg.get("snap", seg["t0"])),
+                "whistle": float(seg.get("whistle", seg["t1"])),
+                "clip_path": "",
+                "formation": det.get("formation") or "",
+                "formation_confidence": float(det.get("formation_confidence", 0.0)),
+                "play_family": det.get("play_family", "Unknown"),
+                "playcall_confidence": float(det.get("playcall_confidence", 0.0)),
+                # Observability fields
+                "clf_top1": det.get("clf_top1", det.get("play_family", "")),
+                "clf_top1_conf": float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0))),
+                "clf_top3": "|".join(
+                    f"{n}:{float(s):.3f}" for n, s in det.get("clf_top3", det.get("candidates", []))
+                ),
+                "clf_weak_flag": int(det.get("clf_weak_flag", 0)),
+                "clf_family": det.get("clf_family", ""),
+                "outcome": det.get("outcome") or "",
+                "clip_duration": max(0.0, float(seg["t1"]) - float(seg["t0"])),
+                "low_activity": int(seg.get("low_activity", 0)),
+                "candidates": "|".join(
+                    f"{n}:{float(s):.3f}" for n, s in det.get("candidates", [])
+                ),
+            }
+        )
+
         row = {
             "play_id": pid,
             "t0": float(seg["t0"]),
@@ -244,6 +274,7 @@ def run_pipeline(
         if _norm_label(row["clf_top1"]) in unmapped_pb_norms:
             row["clf_weak_flag"] = 1
         rows.append(row)
+
     csv_header = [
         "play_id",
         "t0",
