@@ -109,11 +109,9 @@ def _best_matches_from_playbook(
         if formation and (pf or formations):
             pool = [pf, *formations]
             for f in pool:
-                if f and f.lower() in formation.lower() or formation.lower() in f.lower():
+                if f and (f.lower() in formation.lower() or formation.lower() in f.lower()):
                     formation_match = True
                     break
-            if not formation_match:
-                continue
         # Compare the formation text with the play name as a loose proxy for a
         # classifier score.  This keeps the implementation deterministic while
         # still yielding a range of confidences for tests to exercise.
@@ -171,6 +169,8 @@ def classify_plays(
         formation = seg.get("formation", "") or ""
         formations.append(formation)
         cands = _best_matches_from_playbook(formation, playbook, topk=3)
+        if not cands:
+            cands = _best_matches_from_playbook("", playbook, topk=3)
         if seg.get("low_activity"):
             cands = [(n, s * 0.5) for n, s in cands]
         raw_scores.append({n: s for n, s in cands})
