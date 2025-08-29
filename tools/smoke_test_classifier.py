@@ -1,22 +1,15 @@
 from __future__ import annotations
 
-import argparse
+import argparse, cv2, numpy as np
 import os
 from typing import List, Tuple
 
-import numpy as np
+import torch
+import torch.nn as nn  # <-- this was missing
+from torchvision import models, transforms
 
-try:  # Optional dependencies
-    import cv2  # type: ignore
-except Exception:  # pragma: no cover - handled at runtime
-    cv2 = None
-
-try:
-    import torch
-    from torch import nn
-    from torchvision import models, transforms
-except Exception:  # pragma: no cover - handled at runtime
-    torch = None
+if not torch.cuda.is_available():
+    print("[warn] CUDA not available – running classifier on CPU")
 
 
 class ToFloatNormalize(nn.Module):
@@ -33,8 +26,6 @@ class ToFloatNormalize(nn.Module):
 
 
 def _load_model(ckpt: str, labels_path: str | None) -> Tuple[nn.Module, List[str]]:
-    if torch is None:
-        raise ImportError("PyTorch is required for classifier smoke test")
     data = torch.load(ckpt, map_location="cpu")
     label_map = data.get("label_map")
     labels: List[str] = []
@@ -54,8 +45,6 @@ def _load_model(ckpt: str, labels_path: str | None) -> Tuple[nn.Module, List[str
 
 
 def _sample_frames(path: str, count: int = 8) -> List[np.ndarray]:
-    if cv2 is None:
-        raise ImportError("OpenCV is required for classifier smoke test")
     cap = cv2.VideoCapture(path)
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     if total <= 0:
