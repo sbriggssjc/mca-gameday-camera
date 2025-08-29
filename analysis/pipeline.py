@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os, sys, json, pathlib, argparse, csv, subprocess, logging, re
+from collections import Counter
 
 try:
     # When executed as module (recommended)
@@ -161,6 +162,8 @@ def run_pipeline(
     # ------------------------------------------------------------------
     validator_warnings: list[str] = []
     unmapped_pb_norms: set[str] = set()
+    missing_in_playbook: list[str] = []
+    missing_in_model: list[str] = []
     model_labels = _load_model_labels(play_ckpt, play_labels)
     if model_labels:
         if hasattr(playbook, "plays"):
@@ -169,7 +172,6 @@ def run_pipeline(
             pb_labels = {p.get("name", "") for p in playbook.get("plays", [])}
         norm_pb = { _norm_label(p): p for p in pb_labels if p }
         norm_model = { _norm_label(m): m for m in model_labels if m }
-        missing_in_playbook: list[str] = []
         for norm, orig in norm_model.items():
             if norm not in norm_pb:
                 missing_in_playbook.append(orig)
@@ -395,6 +397,18 @@ def run_pipeline(
     # Basic HTML report with sanity checks
     # ------------------------------------------------------------------
     if generate_report:
+        seg_count = len(rows)
+        weak_count = sum(r.get("clf_weak_flag", 0) for r in rows)
+        weak_pct = (weak_count / seg_count * 100.0) if seg_count else 0.0
+        avg_conf = (
+            sum(r.get("clf_top1_conf", 0.0) for r in rows) / seg_count if seg_count else 0.0
+        )
+        label_counts = Counter(r.get("clf_top1", "") for r in rows)
+        top_labels = ", ".join(
+            f"{n} ({c})" for n, c in label_counts.most_common(5) if n
+        )
+        unmapped_labels = sorted(set(missing_in_playbook + missing_in_model))
+
         if rows:
             with open(index_path, "w", encoding="utf-8") as f:
                 f.write("<html><head><meta charset='utf-8'><title>Run Report</title></head><body>\n")
@@ -405,15 +419,33 @@ def run_pipeline(
                     f"max_play_length={max_play_length}</li>\n"
                 )
                 if validator_warnings:
-                    for line in validator_warnings:
-                        f.write(f"<li>{line}</li>\n")
+                    f.write("<li><a href='warnings.txt'>Label/playbook mismatches</a></li>\n")
                 else:
                     f.write("<li>No unmapped labels</li>\n")
+                f.write("</ul>\n")
+
+                f.write("<h2>Classifier Health</h2>\n<ul>\n")
+                f.write(f"<li>Segments: {seg_count}</li>\n")
+                f.write(
+                    f"<li>Weak classifications: {weak_count} ({weak_pct:.1f}% weak)</li>\n"
+                )
+                f.write(f"<li>Average top1 confidence: {avg_conf:.3f}</li>\n")
+                if top_labels:
+                    f.write(f"<li>Top predictions: {top_labels}</li>\n")
+                if unmapped_labels:
+                    f.write(
+                        "<li>Unmapped labels: " + ", ".join(unmapped_labels) + "</li>\n"
+                    )
+                if validator_warnings:
+                    f.write("<li><a href='warnings.txt'>warnings.txt</a></li>\n")
                 f.write("</ul>\n</body></html>\n")
         else:
             # Stub report when no segments were detected.
             with open(index_path, "w", encoding="utf-8") as f:
-                f.write("<html><body><p>0 segments detected</p></body></html>")
+                f.write("<html><body><p>0 segments detected</p>")
+                if validator_warnings:
+                    f.write("<p><a href='warnings.txt'>warnings.txt</a></p>")
+                f.write("</body></html>")
 
 
     # Update the "__latest" symlink for this video base
