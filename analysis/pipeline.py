@@ -27,17 +27,6 @@ def _safe_name(s: str) -> str:
 from .classifiers import _load_ckpt, _load_labels, log as clf_log
 
 
-def _load_model_labels(model_path: str | None = None) -> set[str]:
-    """Return classifier label set from a checkpoint or label file.
-
-    Parameters
-    ----------
-    model_path:
-        Path to the checkpoint or plain text label file. When ``None`` the
-        environment variable ``PLAY_CLASSIFIER_MODEL`` is consulted and finally
-        a default checkpoint path under ``models/play_classifier/latest.pt`` is
-        used.
-
 def _load_model_labels(
     model_path: str | None = None, labels_path: str | None = None
 ) -> set[str]:
@@ -237,7 +226,9 @@ def run_pipeline(
                 "outcome": det.get("outcome") or "",
                 "clip_duration": max(0.0, float(seg["t1"]) - float(seg["t0"])),
                 "low_activity": int(seg.get("low_activity", 0)),
-                "candidates": ";".join(f"{n}:{s:.2f}" for n, s in det.get("candidates", [])),
+                "candidates": "|".join(
+                    f"{n}:{float(s):.3f}" for n, s in det.get("candidates", [])
+                ),
             }
         )
     csv_header = [
