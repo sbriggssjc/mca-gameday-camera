@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os, sys, json, pathlib, argparse, csv, subprocess, logging
+import os, sys, json, pathlib, argparse, csv, subprocess, logging, re
 
 try:
     # When executed as module (recommended)
@@ -25,6 +25,11 @@ def _safe_name(s: str) -> str:
 
 
 from .classifiers import _load_ckpt, _load_labels, log as clf_log
+
+
+def _norm_label(label: str) -> str:
+    """Return a normalised version of ``label`` for comparison."""
+    return re.sub(r"[\s_-]+", "", label).lower()
 
 
 def _load_model_labels(
@@ -155,22 +160,31 @@ def run_pipeline(
     # Validate classifier ↔ playbook wiring
     # ------------------------------------------------------------------
     validator_warnings: list[str] = []
+    unmapped_pb_norms: set[str] = set()
     model_labels = _load_model_labels(play_ckpt, play_labels)
     if model_labels:
         if hasattr(playbook, "plays"):
             pb_labels = set(playbook.plays.keys())
         else:
             pb_labels = {p.get("name", "") for p in playbook.get("plays", [])}
-        missing_in_playbook = sorted(model_labels - pb_labels)
-        missing_in_model = sorted(pb_labels - model_labels)
+        norm_pb = { _norm_label(p): p for p in pb_labels if p }
+        norm_model = { _norm_label(m): m for m in model_labels if m }
+        missing_in_playbook: list[str] = []
+        for norm, orig in norm_model.items():
+            if norm not in norm_pb:
+                missing_in_playbook.append(orig)
+        missing_in_model = [orig for norm, orig in norm_pb.items() if norm not in norm_model]
+        unmapped_pb_norms = { _norm_label(lbl) for lbl in missing_in_model }
         if missing_in_playbook:
             validator_warnings.append(
-                "Model labels not in playbook: " + ", ".join(missing_in_playbook)
+                "Model labels not in playbook: " + ", ".join(sorted(missing_in_playbook))
             )
         if missing_in_model:
             validator_warnings.append(
-                "Playbook labels missing from model: " + ", ".join(missing_in_model)
+                "Playbook labels missing from model: " + ", ".join(sorted(missing_in_model))
             )
+        if validator_warnings:
+            logging.warning("label/playbook mismatch detected")
     segments = segment_video(
         video,
         min_play_length=min_play_length,
@@ -203,6 +217,7 @@ def run_pipeline(
     rows: list[dict] = []
     for seg, det in zip(segments, classifications):
         pid = det.get("play_id") or f"PLAY_{len(rows)+1:03d}"
+
         rows.append(
             {
                 "play_id": pid,
@@ -231,6 +246,35 @@ def run_pipeline(
                 ),
             }
         )
+
+        row = {
+            "play_id": pid,
+            "t0": float(seg["t0"]),
+            "t1": float(seg["t1"]),
+            "snap": float(seg.get("snap", seg["t0"])),
+            "whistle": float(seg.get("whistle", seg["t1"])),
+            "clip_path": "",
+            "formation": det.get("formation") or "",
+            "formation_confidence": float(det.get("formation_confidence", 0.0)),
+            "play_family": det.get("play_family", "Unknown"),
+            "playcall_confidence": float(det.get("playcall_confidence", 0.0)),
+            # Observability fields
+            "clf_top1": det.get("clf_top1", det.get("play_family", "")),
+            "clf_top1_conf": float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0))),
+            "clf_top3": "|".join(
+                f"{n}:{float(s):.3f}" for n, s in det.get("clf_top3", det.get("candidates", []))
+            ),
+            "clf_weak_flag": int(det.get("clf_weak_flag", 0)),
+            "clf_family": det.get("clf_family", ""),
+            "outcome": det.get("outcome") or "",
+            "clip_duration": max(0.0, float(seg["t1"]) - float(seg["t0"])),
+            "low_activity": int(seg.get("low_activity", 0)),
+            "candidates": ";".join(f"{n}:{s:.2f}" for n, s in det.get("candidates", [])),
+        }
+        if _norm_label(row["clf_top1"]) in unmapped_pb_norms:
+            row["clf_weak_flag"] = 1
+        rows.append(row)
+
     csv_header = [
         "play_id",
         "t0",
@@ -265,6 +309,7 @@ def run_pipeline(
                 for line in validator_warnings:
                     wf.write(line + "\n")
             for line in validator_warnings:
+                logging.warning(line)
                 print(f"⚠️ {line}")
 
         with open(csv_path, "w", newline="") as f:
