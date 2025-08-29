@@ -27,7 +27,6 @@ def test_pipeline_smoke(tmp_path):
     index_path = run_dir / "report" / "index.html"
     assert index_path.exists()
     html = index_path.read_text()
-    assert "Sanity Checks" in html
-    assert "min_play_length" in html
+    assert "0 segments detected" in html
     warnings_path = run_dir / "report" / "warnings.txt"
     assert not warnings_path.exists()
