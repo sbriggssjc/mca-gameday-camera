@@ -15,6 +15,13 @@ Keep only the last 10 games (archive older):
 python3 tools/cleanup_outputs.py --out output --archive --retention 10
 ```
 
+Prune old runs per game (keep last 3):
+```bash
+python3 tools/prune_runs.py --games-dir output/games --keep 3
+# or
+make prune-runs
+```
+
 Run cleaner automatically before analysis:
 ```bash
 python3 -m analysis.pipeline \
