@@ -6,6 +6,18 @@ Large video recordings (`.mp4`) are saved in the `video/` folder but individual 
 
 This project uses a single playbook at `playbooks/mca_5th_playbook.json`.
 
+## Development setup
+
+On Jetson devices running JetPack 6.x, run the setup script to install
+PyTorch and related dependencies:
+
+```bash
+scripts/dev_setup.sh
+```
+
+The script detects your L4T version, installs the matching NVIDIA PyTorch
+wheel, and falls back to NVIDIA's official L4T PyTorch container if needed.
+
 ## Robust game-day capture
 
 `gameday_capture.py` is a single-entry CLI that always records a local MP4 and
