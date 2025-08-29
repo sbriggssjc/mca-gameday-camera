@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Update "__latest" symlinks under output/games
-# Usage: scripts/update_latest_symlinks.sh [basename...]
+# Usage: scripts/update_latest_symlinks.sh [--clean] [basename...]
 
 cd "$(dirname "$0")/.."
+
+CLEAN=0
+if [[ "${1:-}" == "--clean" ]]; then
+  CLEAN=1
+  shift
+fi
 
 update_one() {
   local BASE="$1"
@@ -24,6 +30,13 @@ update_one() {
   local rel
   rel=$(realpath --relative-to="output/games" "$newest")
   ln -sfn "$rel" "output/games/${BASE}__latest"
+
+  if (( CLEAN )); then
+    for run in "${RUNS[@]}"; do
+      [[ "$run" == "$newest" ]] && continue
+      rm -rf -- "$run"
+    done
+  fi
 }
 
 if [[ $# -gt 0 ]]; then
