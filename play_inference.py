@@ -1,5 +1,6 @@
 import argparse
 import csv
+import logging
 import os
 import subprocess
 from pathlib import Path
@@ -10,22 +11,15 @@ try:
     import torch
     from torch import nn
     from torchvision import models, transforms
+    from torchvision.transforms import InterpolationMode
 except Exception:  # pragma: no cover - optional dependency
     cv2 = None
     torch = None
 
 
-class ToFloatNormalize(nn.Module):
-    """Convert ``uint8`` tensor to float and normalize to ImageNet stats."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-        self.std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
-        x = x / 255.0
-        return (x - self.mean) / self.std
+MEAN = [0.485, 0.456, 0.406]
+STD = [0.229, 0.224, 0.225]
+log = logging.getLogger(__name__)
 
 
 def seconds_to_time(secs: float) -> str:
@@ -70,7 +64,8 @@ def read_clip(path: Path, clip_len: int, transform) -> torch.Tensor:
     success, frame = cap.read()
     while success and len(frames) < clip_len:
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        tensor = torch.from_numpy(frame).permute(2, 0, 1).float()
+        frame = frame.astype("float32") / 255.0
+        tensor = torch.from_numpy(frame).permute(2, 0, 1)
         if transform:
             tensor = transform(tensor)
         frames.append(tensor)
@@ -95,16 +90,20 @@ def run_inference(video: str, checkpoint: str, segment_time: int, clips_dir: str
     model, inv_map = load_model(checkpoint, device)
 
     transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        ToFloatNormalize(),
+        transforms.Resize((224, 224), interpolation=InterpolationMode.BILINEAR),
+        transforms.Normalize(mean=MEAN, std=STD),
     ])
 
     log_rows = []
     clip_files = sorted(clip_dir.glob("clip_*.mp4"))
+    logged_stats = False
     for idx, clip_path in enumerate(clip_files):
         start = idx * segment_time
         end = start + segment_time
         clip = read_clip(clip_path, 16, transform)
+        if not logged_stats:
+            log.info("input clip stats mean=%.4f std=%.4f", clip.mean().item(), clip.std().item())
+            logged_stats = True
         clip = clip.unsqueeze(0).to(device)
         with torch.no_grad():
             out = model(clip)
@@ -123,6 +122,7 @@ def run_inference(video: str, checkpoint: str, segment_time: int, clips_dir: str
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(description="Run play classifier on full game video")
     parser.add_argument("video", help="Full game video file")
     parser.add_argument("--model", required=True, help="Path to trained model checkpoint")

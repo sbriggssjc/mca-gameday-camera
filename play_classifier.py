@@ -74,7 +74,8 @@ class PlayClassifier:
             return (-1, -1, -1, -1)
 
         # convert BGR frame to RGB as expected by YOLO
-        img = frame[:, :, ::-1]
+        img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img = img.astype("float32") / 255.0
         results = self.model(img)
         if results is None or len(results.xyxy[0]) == 0:
             return (-1, -1, -1, -1)
