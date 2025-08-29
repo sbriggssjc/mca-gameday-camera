@@ -1,4 +1,5 @@
 import json, os, pathlib
+import torch
 from analysis import pipeline
 
 
@@ -7,8 +8,8 @@ def test_pipeline_label_mismatch(tmp_path, monkeypatch):
     pb_path = tmp_path / "playbook.json"
     pb_path.write_text(json.dumps(playbook))
 
-    model_ckpt = tmp_path / "model.json"
-    model_ckpt.write_text(json.dumps({"label_map": {"Rit Sweep": 0, "Foo": 1}}))
+    model_ckpt = tmp_path / "model.pt"
+    torch.save({"label_map": {"Rit Sweep": 0, "Foo": 1}}, model_ckpt)
     monkeypatch.setenv("PLAY_CLASSIFIER_MODEL", str(model_ckpt))
 
     run_dir = pipeline.run_pipeline(
@@ -27,3 +28,6 @@ def test_pipeline_label_mismatch(tmp_path, monkeypatch):
     assert "Foo" in warn
     html = (run_dir / "report" / "index.html").read_text()
     assert "0 segments detected" in html
+    log_txt = (run_dir / "pipeline.log").read_text()
+    assert "loading ckpt" in log_txt
+    assert "labels: 2" in log_txt
