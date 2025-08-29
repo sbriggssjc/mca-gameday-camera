@@ -213,6 +213,17 @@ def run_pipeline(
 
     print(f"[pipeline] run complete -> {run_dir}")
 
+
+    # Update the "__latest" symlink for this video base
+    try:
+        repo_root = pathlib.Path(__file__).resolve().parent.parent
+        script = repo_root / "scripts" / "update_latest_symlinks.sh"
+        base = _safe_name(tag)
+        subprocess.run([str(script), base], check=False)
+    except Exception:
+        pass
+
+
     # Update "latest" symlinks for this video
     script = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "update_latest_symlinks.sh"
     try:
@@ -227,6 +238,7 @@ def run_pipeline(
         )
     except Exception as e:  # pragma: no cover - best effort only
         print(f"[pipeline] symlink update failed: {e}")
+
     return run_dir
 
 
