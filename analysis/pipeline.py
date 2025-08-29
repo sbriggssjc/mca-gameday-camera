@@ -176,6 +176,16 @@ def run_pipeline(
             print("⚠️ formation/classifier weak")
 
     print(f"[pipeline] run complete -> {run_dir}")
+
+    # Update the "__latest" symlink for this video base
+    try:
+        repo_root = pathlib.Path(__file__).resolve().parent.parent
+        script = repo_root / "scripts" / "update_latest_symlinks.sh"
+        base = _safe_name(tag)
+        subprocess.run([str(script), base], check=False)
+    except Exception:
+        pass
+
     return run_dir
 
 
