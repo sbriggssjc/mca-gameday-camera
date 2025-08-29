@@ -24,16 +24,31 @@ def _safe_name(s: str) -> str:
     return "".join(c if c.isalnum() or c in "._- " else "_" for c in s)
 
 
-def _load_model_labels(model_path: str | None = None) -> set[str]:
-    """Return classifier label set from a checkpoint or JSON mapping.
+def _load_model_labels(
+    model_path: str | None = None, labels_path: str | None = None
+) -> set[str]:
+    """Return classifier label set from a checkpoint, labels file or JSON mapping.
 
-    The function first attempts to load ``model_path`` using ``torch.load`` to
-    access a ``label_map`` attribute.  If that fails, it falls back to parsing
-    the file as JSON.  When ``model_path`` is ``None`` the environment variable
+    ``labels_path`` takes precedence when provided.  Otherwise the function
+    attempts to load ``model_path`` using ``torch.load`` to access a
+    ``label_map`` attribute.  If that fails, it falls back to parsing the file
+    as JSON.  When ``model_path`` is ``None`` the environment variable
     ``PLAY_CLASSIFIER_MODEL`` is consulted and finally a default checkpoint path
     under ``models/play_classifier/latest.pt`` is used.  Any errors are
     swallowed and an empty set is returned.
     """
+
+    if labels_path:
+        lp = pathlib.Path(labels_path)
+        if lp.exists():
+            try:
+                return {
+                    line.strip()
+                    for line in lp.read_text().splitlines()
+                    if line.strip()
+                }
+            except Exception:
+                return set()
 
     model_path = (
         model_path
@@ -63,6 +78,10 @@ def run_pipeline(
     team: str,
     playbook_path: str,
     out_dir: str,
+    play_ckpt: str | None = None,
+    play_labels: str | None = None,
+    formation_ckpt: str | None = None,
+    formation_labels: str | None = None,
     min_play_gap: float = 1.5,
     min_play_length: float = 3.0,
     max_play_length: float = 12.0,
@@ -75,6 +94,15 @@ def run_pipeline(
 ) -> str:
     video = os.path.abspath(video)
     out_dir = os.path.abspath(out_dir)
+
+    play_ckpt = play_ckpt or os.environ.get("PLAY_CLASSIFIER_MODEL") or os.path.join(
+        "models", "play_classifier", "latest.pt"
+    )
+    formation_ckpt = formation_ckpt or os.path.join("models", "formation", "latest.pt")
+
+    for path in [play_ckpt, play_labels, formation_ckpt, formation_labels]:
+        if path and not os.path.exists(path):
+            raise FileNotFoundError(f"missing required file: {path}")
 
     tag = pathlib.Path(video).stem
     short = hex(
@@ -115,7 +143,7 @@ def run_pipeline(
     # Validate classifier ↔ playbook wiring
     # ------------------------------------------------------------------
     validator_warnings: list[str] = []
-    model_labels = _load_model_labels()
+    model_labels = _load_model_labels(play_ckpt, play_labels)
     if model_labels:
         if hasattr(playbook, "plays"):
             pb_labels = set(playbook.plays.keys())
@@ -150,7 +178,15 @@ def run_pipeline(
             seg.get("activity_ratio", 0.0) < min_activity_ratio and not seg.get("has_whistle")
         )
 
-    classifications = classify_plays(segments, playbook, team)
+    classifications = classify_plays(
+        segments,
+        playbook,
+        team,
+        play_ckpt=play_ckpt,
+        play_labels=play_labels,
+        formation_ckpt=formation_ckpt,
+        formation_labels=formation_labels,
+    )
 
     rows: list[dict] = []
     for seg, det in zip(segments, classifications):
@@ -386,6 +422,10 @@ def main(argv=None) -> None:
     p.add_argument("--team", required=True)
     p.add_argument("--playbook", required=True)
     p.add_argument("--out", required=True)
+    p.add_argument("--play-ckpt", default="models/play_classifier/latest.pt")
+    p.add_argument("--play-labels", default="models/play_classifier/labels.txt")
+    p.add_argument("--formation-ckpt", default="models/formation/latest.pt")
+    p.add_argument("--formation-labels", default="models/formation/labels.txt")
     p.add_argument("--min-play-gap", type=float, default=1.5)
     p.add_argument("--min-play-length", type=float, default=3.0)
     p.add_argument("--max-play-length", type=float, default=12.0)
@@ -405,6 +445,10 @@ def main(argv=None) -> None:
         team=args.team,
         playbook_path=args.playbook,
         out_dir=args.out,
+        play_ckpt=args.play_ckpt,
+        play_labels=args.play_labels,
+        formation_ckpt=args.formation_ckpt,
+        formation_labels=args.formation_labels,
         min_play_gap=args.min_play_gap,
         min_play_length=args.min_play_length,
         max_play_length=args.max_play_length,
