@@ -121,63 +121,132 @@ def build_audio_filter():
     return ",".join(chain)
 
 
-def build_ffmpeg_cmd(video_dev, mic_dev, rtmp_url, out_path, width=1280, height=720, fps=30):
-    enc = _pick_encoder()
+def default_pulse_src() -> str:
+    try:
+        return subprocess.check_output(["pactl", "get-default-source"], text=True).strip()
+    except Exception:
+        return ""
 
-    v_in = [
-        "-f", "v4l2",
-        "-input_format", "mjpeg",
-        "-thread_queue_size", "512",
-        "-framerate", str(fps),
-        "-video_size", f"{width}x{height}",
-        "-i", video_dev,
-    ]
-    a_in = [
-        "-f", "alsa",
-        "-thread_queue_size", "512",
-        "-ar", "48000",
-        "-ac", "1",
-        "-i", mic_dev,
-    ]
 
-    v_out = [
-        *enc,
-        "-pix_fmt", "yuv420p",
-        "-vf", f"scale={width}:{height},format=yuv420p",
-        "-g", str(fps*2),
-        "-bf", "0",
-        "-b:v", os.environ.get("VIDEO_BITRATE","3500k"),
-        "-maxrate", os.environ.get("VIDEO_MAXRATE","4000k"),
-        "-bufsize", os.environ.get("VIDEO_BUFSIZE","6000k"),
-        "-preset", os.environ.get("X264_PRESET","veryfast"),
-        "-tune", os.environ.get("X264_TUNE","zerolatency"),
-    ]
-    a_out = ["-c:a", "aac", "-b:a", "128k", "-flags", "+global_header"]
-
-    tee = os.environ.get("RECORD_MP4","1") == "1"
-    if tee:
-        mp4 = str(Path(out_path).with_suffix(".mp4"))
-        out = ["-f", "tee", f"[f=flv]{rtmp_url}|[f=mp4]{mp4}"]
-    else:
-        out = ["-f", "flv", rtmp_url]
-
-    return [
+def build_ffmpeg_cmd(
+    input_fmt: str,
+    audio_source_mode: str,
+    encode_mode: str,
+    record_file: Path,
+    output_url: str,
+) -> list[str]:
+    cmd = [
         "ffmpeg",
         "-hide_banner",
+        "-loglevel",
+        "info",
         "-nostdin",
+        "-thread_queue_size",
+        "1024",
+        "-f",
+        "v4l2",
+        "-use_wallclock_as_timestamps",
+        "1",
+        "-input_format",
+        input_fmt,
+        "-framerate",
+        "30",
+        "-video_size",
+        "1280x720",
+        "-i",
+        VIDEO_DEV,
+    ]
+
+    if audio_source_mode == "alsa":
+        cmd += [
+            "-thread_queue_size",
+            "512",
+            "-f",
+            "alsa",
+            "-ar",
+            "48000",
+            "-ac",
+            "1",
+            "-i",
+            "hw:1,0",
+        ]
+    elif audio_source_mode == "pulse":
+        cmd += [
+            "-thread_queue_size",
+            "512",
+            "-f",
+            "pulse",
+            "-i",
+            default_pulse_src(),
+        ]
+
+    cmd += [
         "-fflags",
         "+genpts",
-        *v_in,
-        *a_in,
+        "-start_at_zero",
+        "-reset_timestamps",
+        "1",
+        "-vsync",
+        "1",
         "-map",
         "0:v:0",
-        "-map",
-        "1:a:0",
-        *v_out,
-        *a_out,
-        "-shortest",
-        *out,
     ]
+
+    if audio_source_mode != "none":
+        cmd += ["-map", "1:a:0"]
+
+    if encode_mode == "copy":
+        cmd += ["-c:v", "copy"]
+    else:
+        cmd += [
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-tune",
+            "zerolatency",
+            "-pix_fmt",
+            "yuv420p",
+            "-b:v",
+            "3500k",
+            "-maxrate",
+            "4000k",
+            "-bufsize",
+            "6000k",
+            "-g",
+            "60",
+        ]
+
+    if audio_source_mode != "none":
+        cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
+    else:
+        cmd += ["-an"]
+
+    tee = (
+        f"[f=flv:onfail=ignore]{output_url}|[f=mp4:movflags=+frag_keyframe+empty_moov+faststart]{record_file}"
+    )
+    cmd += ["-f", "tee", tee]
+    return cmd
+
+
+def retry_matrix(record_file: Path, output_url: str, log_file: Path) -> int:
+    attempts = [
+        ("h264", "alsa", "copy"),
+        ("h264", "pulse", "copy"),
+        ("h264", "none", "copy"),
+        ("mjpeg", "none", "x264"),
+    ]
+    rc = 1
+    for idx, (fmt, audio, enc) in enumerate(attempts):
+        if idx > 0:
+            logging.error(f"[fallback] retrying with {fmt}/{audio}/{enc}")
+        cmd = build_ffmpeg_cmd(fmt, audio, enc, record_file, output_url)
+        with log_file.open("a") as log_fp:
+            proc = subprocess.run(cmd, stdout=log_fp, stderr=log_fp)
+            rc = proc.returncode
+        if rc == 0:
+            break
+    return rc
 
 
 
@@ -1136,7 +1205,8 @@ def main() -> None:
     parser.add_argument(
         "--keyint_min", type=int, default=30, help="Minimum GOP keyframe interval"
     )
-    parser.add_argument("--record", action="store_true", help="Also record locally")
+    parser.add_argument("--record", action="store_true", default=True, help="Also record locally")
+    parser.add_argument("--record-dir", default="video", help="Directory for recordings")
     parser.add_argument("--audio_meter", action="store_true", help="Overlay audio levels")
     parser.add_argument("--dry_run", action="store_true", help="Test devices only")
     parser.add_argument(
@@ -1155,6 +1225,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # CLI has highest priority, then env, then auto-pick
+    global VIDEO_DEV
     VIDEO_DEV = (
         getattr(args, "video_device", None)
         or os.environ.get("VIDEO_DEVICE")
@@ -1215,31 +1286,19 @@ def main() -> None:
     logging.info(f"📡 Streaming to: {mask_stream_url(RTMP_URL)}")
     logging.info("🎥 Using video device: %s", VIDEO_DEV)
 
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    log_dir = Path("livestream_logs")
-    log_dir.mkdir(exist_ok=True)
-    base_path = log_dir / f"stream_{timestamp}"
-    cmd = build_ffmpeg_cmd(
-        VIDEO_DEV,
-        args.mic_device or "hw:1,0",
-        RTMP_URL,
-        base_path,
-    )
-    logging.info("FFmpeg command: %s", " ".join(shlex.quote(c) for c in cmd))
-
-    with base_path.with_suffix(".log").open("w") as log_fp:
-        proc = subprocess.Popen(cmd, stdout=log_fp, stderr=log_fp)
-        ret = proc.wait()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_dir = Path(__file__).resolve().parent
+    log_dir = (base_dir / "livestream_logs").resolve()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = (base_dir / args.record_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    record_file = unique_path(out_dir / f"game_{timestamp}.mp4")
+    os.environ["FFREPORT"] = f"file={log_dir}/ffmpeg_{timestamp}.log:level=32"
+    log_file = log_dir / f"stream_{timestamp}.log"
+    ret = retry_matrix(record_file, RTMP_URL, log_file)
     if ret != 0:
-        hint = (
-            "FFmpeg exited non-zero.\n"
-            "Hints:\n"
-            " • Hardware encoder failed; set USE_SW_ENC=1 or PREFERRED_ENCODERS=libx264\n"
-            " • Check devices: v4l2-ctl --list-devices; arecord -l\n"
-            f" • See {base_path.with_suffix('.log')} for details.\n"
-        )
-        logging.error(hint)
         sys.exit(ret)
+    logging.info(f"[done] local record: {record_file}")
     return
 
     global WIDTH, HEIGHT, FPS
