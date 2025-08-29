@@ -1,0 +1,5 @@
+++ date +%Y%m%d-%H%M%S
++ ffmpeg -hide_banner -loglevel info -nostdin -thread_queue_size 1024 -f v4l2 -use_wallclock_as_timestamps 1 -input_format h264 -framerate 30 -video_size 1280x720 -i /dev/video0 -thread_queue_size 512 -f alsa -ar 48000 -ac 1 -i hw:1,0 -fflags +genpts -start_at_zero -reset_timestamps 1 -vsync 1 -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a 128k -ar 48000 -f tee '[f=flv]rtmps://a.rtmps.youtube.com/live2/<your-key>|[f=mp4:movflags=+frag_keyframe+empty_moov+faststart]video/game_20250828-224755.mp4'
+Input #0, video4linux2,v4l2, from '/dev/video0':
+  Duration: N/A, start: 1756439275.628470, bitrate: N/A
+  Stream #0:0: Video: h264 (High), yuv420p(progressive), 1280x720, 30 fps, 30 tbr, 1000k tbn, 2000k tbc
