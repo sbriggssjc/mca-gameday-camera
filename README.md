@@ -6,6 +6,35 @@ Large video recordings (`.mp4`) are saved in the `video/` folder but individual 
 
 This project uses a single playbook at `playbooks/mca_5th_playbook.json`.
 
+## Robust game-day capture
+
+`gameday_capture.py` is a single-entry CLI that always records a local MP4 and
+streams to YouTube when possible.  A thin wrapper is provided under
+`scripts/gameday.sh` which loads `.env` and launches the capture.
+
+### One-liner
+
+```bash
+scripts/gameday.sh
+```
+
+### Configure defaults via `.env`
+
+```
+YOUTUBE_RTMP_URL=rtmps://a.rtmps.youtube.com/live2/<key>
+VIDEO_DEV=/dev/video0
+PULSE_DEV=hw:1,0            # or Pulse source name
+RES=1280x720
+FPS=30
+```
+
+### Useful test modes
+
+```bash
+python3 gameday_capture.py --probe-only
+python3 gameday_capture.py --duration 30 --local-only
+```
+
 ## Game-day one-liners
 
 ```
