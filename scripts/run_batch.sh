@@ -15,4 +15,4 @@ for F in "${FILES[@]}"; do
     --generate-clips
 done
 # refresh latest pointers
-bash scripts/update_latest_symlinks.sh
+bash scripts/update_latest_symlinks.sh --clean
