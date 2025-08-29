@@ -24,3 +24,10 @@ def test_pipeline_smoke(tmp_path):
     run_dir = pathlib.Path(run_dir)
     assert (run_dir / "plays_index.csv").exists()
     assert (run_dir / "report.json").exists()
+    index_path = run_dir / "report" / "index.html"
+    assert index_path.exists()
+    html = index_path.read_text()
+    assert "Sanity Checks" in html
+    assert "min_play_length" in html
+    warnings_path = run_dir / "report" / "warnings.txt"
+    assert not warnings_path.exists()
