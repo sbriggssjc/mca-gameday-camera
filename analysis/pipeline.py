@@ -36,6 +36,7 @@ def run_pipeline(
     postroll: float = 0.75,
     generate_report: bool = False,
     generate_clips: bool = False,
+    debug_weak: bool = False,
 ) -> str:
     video = os.path.abspath(video)
     out_dir = os.path.abspath(out_dir)
@@ -80,6 +81,14 @@ def run_pipeline(
                 "formation_confidence": float(det.get("formation_confidence", 0.0)),
                 "play_family": det.get("play_family", "Unknown"),
                 "playcall_confidence": float(det.get("playcall_confidence", 0.0)),
+                # Observability fields
+                "clf_top1": det.get("clf_top1", det.get("play_family", "")),
+                "clf_top1_conf": float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0))),
+                "clf_top3": ";".join(
+                    f"{n}:{s:.2f}" for n, s in det.get("clf_top3", det.get("candidates", []))
+                ),
+                "clf_weak_flag": int(det.get("clf_weak_flag", 0)),
+                "clf_family": det.get("clf_family", ""),
                 "outcome": det.get("outcome") or "",
                 "clip_duration": max(0.0, float(seg["t1"]) - float(seg["t0"])),
                 "candidates": ";".join(
@@ -99,6 +108,11 @@ def run_pipeline(
         "formation_confidence",
         "play_family",
         "playcall_confidence",
+        "clf_top1",
+        "clf_top1_conf",
+        "clf_top3",
+        "clf_weak_flag",
+        "clf_family",
         "outcome",
         "clip_duration",
         "candidates",
@@ -155,6 +169,28 @@ def run_pipeline(
             for r in rows:
                 w.writerow(r)
 
+    # Optional debug frames for weak classifications
+    if debug_weak:
+        dbg_dir = os.path.join(run_dir, "debug", "weak")
+        os.makedirs(dbg_dir, exist_ok=True)
+        for idx, (seg, det) in enumerate(zip(segments, classifications), 1):
+            if det.get("clf_weak_flag"):
+                times = [
+                    float(seg["t0"]),
+                    float(seg["t0"] + seg["t1"]) / 2.0,
+                    float(seg["t1"]),
+                ]
+                for j, t in enumerate(times):
+                    _ffmpeg(
+                        "-ss",
+                        f"{t:.3f}",
+                        "-i",
+                        video,
+                        "-frames:v",
+                        "1",
+                        os.path.join(dbg_dir, f"seg_{idx}_{j}.jpg"),
+                    )
+
     if generate_report:
         report = {
             "video": video,
@@ -207,6 +243,7 @@ def main(argv=None) -> None:
     p.add_argument("--postroll", type=float, default=0.75)
     p.add_argument("--generate-report", action="store_true")
     p.add_argument("--generate-clips", action="store_true")
+    p.add_argument("--debug-weak", action="store_true")
     args = p.parse_args(argv)
 
     run_pipeline(
@@ -221,6 +258,7 @@ def main(argv=None) -> None:
         postroll=args.postroll,
         generate_report=args.generate_report,
         generate_clips=args.generate_clips,
+        debug_weak=args.debug_weak,
     )
 
 
