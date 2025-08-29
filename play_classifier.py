@@ -17,6 +17,7 @@ import argparse
 import json
 import shutil
 import csv
+import math
 from pathlib import Path
 
 try:
@@ -242,8 +243,16 @@ def classify_play(
     clip = torch.stack(frames[:clip_len]).permute(1, 0, 2, 3).unsqueeze(0)
 
     with torch.no_grad():
-        out = model(clip.to(device))
-        probs = torch.softmax(out, dim=1)
+        logits = model(clip.to(device))
+        if not all(math.isfinite(float(x)) for x in logits.flatten()):
+            with open("RUN_FAILED.txt", "w", encoding="utf-8") as f:
+                f.write(
+                    "Non-finite logits detected (NaN/Inf) — check preproc or model weights."
+                )
+            raise ValueError(
+                "Non-finite logits detected (NaN/Inf) — check preproc or model weights."
+            )
+        probs = torch.softmax(logits, dim=1)
         conf, pred = probs.max(1)
 
     label = inv_map.get(int(pred.item()), "unknown")
