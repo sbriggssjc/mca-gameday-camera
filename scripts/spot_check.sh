@@ -17,6 +17,10 @@ fi
 for dir in "${run_dirs[@]}"; do
   echo "$dir"
 
+  if [[ -L "$dir" && "$dir" == *__latest ]]; then
+    echo "  -> $(readlink -f "$dir")"
+  fi
+
   if [[ -f "$dir/plays_index.csv" ]]; then
     head -n 6 "$dir/plays_index.csv" | sed 's/^/  /'
   else
@@ -44,6 +48,16 @@ for dir in "${run_dirs[@]}"; do
     fi
   else
     echo "  missing report/"
+  fi
+
+  if [[ -f "$dir/pipeline.log" ]]; then
+    echo "  pipeline.log (last 20 lines):"
+    tail -n 20 "$dir/pipeline.log" | sed 's/^/    /'
+  fi
+
+  if [[ -f "$dir/RUN_FAILED.txt" ]]; then
+    echo "  RUN_FAILED.txt contents:"
+    sed 's/^/    /' "$dir/RUN_FAILED.txt"
   fi
 
 done
