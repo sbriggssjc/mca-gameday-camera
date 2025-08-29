@@ -88,7 +88,13 @@ def _best_matches_from_playbook(
     pb: Any,
     topk: int = 3,
 ) -> List[Tuple[str, float]]:
-    """Return ``topk`` candidate names and scores from ``pb``."""
+    """Return ``topk`` candidate names and scores from ``pb``.
+
+    The scoring function is intentionally very lightweight – it simply
+    performs a loose formation match and then scores the candidate name based
+    on string similarity.  The resulting "scores" are used downstream as
+    pseudo logits for temporal smoothing heuristics.
+    """
 
     cands: List[Tuple[str, float]] = []
     for p in _iter_playbook_plays(pb):
@@ -108,11 +114,31 @@ def _best_matches_from_playbook(
                     break
             if not formation_match:
                 continue
-        sim = _name_similarity(name, name)  # placeholder self-similarity
+        # Compare the formation text with the play name as a loose proxy for a
+        # classifier score.  This keeps the implementation deterministic while
+        # still yielding a range of confidences for tests to exercise.
+        sim = _name_similarity(formation, name)
         score = min(1.0, sim + (0.2 if formation_match else 0.0))
         cands.append((name, score))
     cands.sort(key=lambda x: x[1], reverse=True)
     return cands[:topk]
+
+
+def _best_family_from_playbook(pb: Any, scores: Dict[str, float]) -> str:
+    """Return the highest scoring family from ``scores`` using ``pb``."""
+
+    fam_scores: Dict[str, float] = {}
+    if not scores:
+        return ""
+    for p in _iter_playbook_plays(pb):
+        name = p.get("name") or ""
+        if name in scores:
+            family = p.get("family") or ""
+            if family:
+                fam_scores[family] = fam_scores.get(family, 0.0) + scores[name]
+    if not fam_scores:
+        return ""
+    return max(fam_scores.items(), key=lambda x: x[1])[0]
 
 
 # ---------------------------------------------------------------------------
@@ -123,23 +149,79 @@ def classify_plays(
     segments: List[Dict[str, float]],
     playbook: Any,
     team: str,
+    *,
+    weak_threshold: float = 0.35,
+    smooth_radius: int = 4,
 ) -> List[Dict[str, Any]]:
-    """Classify each segment and propose candidate play names."""
+    """Classify each segment and propose candidate play names.
+
+    In addition to the top candidate, this helper also records a list of top-3
+    candidates, detects low-confidence ("weak") predictions, applies a simple
+    temporal smoothing fallback and, if necessary, backs off to family-level
+    classification.
+    """
+
+    # ------------------------------------------------------------------
+    # Pre-compute candidate score dictionaries for all segments so that
+    # temporal smoothing can operate on them.
+    # ------------------------------------------------------------------
+    raw_scores: List[Dict[str, float]] = []
+    formations: List[str] = []
+    for seg in segments:
+        formation = seg.get("formation", "") or ""
+        formations.append(formation)
+        cands = _best_matches_from_playbook(formation, playbook, topk=3)
+        raw_scores.append({n: s for n, s in cands})
 
     results: List[Dict[str, Any]] = []
+    total = len(segments)
     for i, seg in enumerate(segments, 1):
-        formation = seg.get("formation", "") or ""
-        candidates = _best_matches_from_playbook(formation, playbook, topk=3)
-        top_name, top_score = (candidates[0] if candidates else ("", 0.0))
+        scores = raw_scores[i - 1]
+        sorted_cands = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        top_name, top_score = (sorted_cands[0] if sorted_cands else ("", 0.0))
+        weak_flag = 0
+        final_scores = scores
+
+        if top_score < weak_threshold:
+            weak_flag = 1
+            # Temporal smoothing over neighbouring segments
+            start = max(0, (i - 1) - smooth_radius)
+            end = min(total, (i - 1) + smooth_radius + 1)
+            window = raw_scores[start:end]
+            names = {n for d in window for n in d}
+            smoothed: Dict[str, float] = {}
+            for n in names:
+                smoothed[n] = sum(d.get(n, 0.0) for d in window) / len(window)
+            final_scores = smoothed
+            sorted_cands = sorted(final_scores.items(), key=lambda x: x[1], reverse=True)
+            top_name, top_score = (sorted_cands[0] if sorted_cands else ("", 0.0))
+
+            # Back off to family-level classification if still weak
+            if top_score < weak_threshold:
+                clf_family = _best_family_from_playbook(playbook, final_scores)
+            else:
+                clf_family = ""
+        else:
+            clf_family = ""
+
+        top3 = sorted_cands[:3]
+
         results.append(
             {
                 "play_id": seg.get("id") or seg.get("play_id") or f"PLAY_{i:03d}",
-                "formation": formation,
+                "formation": formations[i - 1],
                 "formation_confidence": float(seg.get("formation_confidence", 0.0)),
+                # Existing fields for backwards compatibility
                 "play_family": top_name,
                 "playcall_confidence": float(top_score),
-                "candidates": candidates,
+                "candidates": top3,
                 "outcome": seg.get("outcome", ""),
+                # New observability fields
+                "clf_top1": top_name,
+                "clf_top1_conf": float(top_score),
+                "clf_top3": top3,
+                "clf_weak_flag": weak_flag,
+                "clf_family": clf_family,
             }
         )
     return results
