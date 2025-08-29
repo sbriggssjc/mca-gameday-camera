@@ -95,6 +95,19 @@ def run_pipeline(
     run_dir = os.path.join(out_dir, "games", f"{_safe_name(tag)}__{short}")
     report_dir = os.path.join(run_dir, "report")
 
+    # Prepare directories early only when reporting is requested so that we can
+    # always emit a stub report on failure. Otherwise we defer creation so that
+    # a failure during load does not leave a run directory behind.
+    run_dir_created = False
+    index_path = os.path.join(report_dir, "index.html")
+    if generate_report:
+        os.makedirs(run_dir, exist_ok=True)
+        run_dir_created = True
+        os.makedirs(report_dir, exist_ok=True)
+        # Default stub in case we crash before classification.
+        with open(index_path, "w", encoding="utf-8") as f:
+            f.write("<html><body><p>failed before classification</p></body></html>")
+
     playbook = load_playbook(playbook_path)
     print(f"[playbook] source={playbook_path}")
 
@@ -190,7 +203,6 @@ def run_pipeline(
         "candidates",
     ]
     csv_path = os.path.join(run_dir, "plays_index.csv")
-    run_dir_created = False
     try:
         os.makedirs(run_dir, exist_ok=True)
         run_dir_created = True
@@ -318,21 +330,26 @@ def run_pipeline(
     # ------------------------------------------------------------------
     # Basic HTML report with sanity checks
     # ------------------------------------------------------------------
-    index_path = os.path.join(report_dir, "index.html")
-    with open(index_path, "w", encoding="utf-8") as f:
-        f.write("<html><head><meta charset='utf-8'><title>Run Report</title></head><body>\n")
-        f.write(f"<h1>{status_icon.strip()}Analysis Report</h1>\n")
-        f.write("<h2>Sanity Checks</h2>\n<ul>\n")
-        f.write(
-            f"<li>Active thresholds: min_play_gap={min_play_gap}, min_play_length={min_play_length}, "
-            f"max_play_length={max_play_length}</li>\n"
-        )
-        if validator_warnings:
-            for line in validator_warnings:
-                f.write(f"<li>{line}</li>\n")
+    if generate_report:
+        if rows:
+            with open(index_path, "w", encoding="utf-8") as f:
+                f.write("<html><head><meta charset='utf-8'><title>Run Report</title></head><body>\n")
+                f.write(f"<h1>{status_icon.strip()}Analysis Report</h1>\n")
+                f.write("<h2>Sanity Checks</h2>\n<ul>\n")
+                f.write(
+                    f"<li>Active thresholds: min_play_gap={min_play_gap}, min_play_length={min_play_length}, "
+                    f"max_play_length={max_play_length}</li>\n"
+                )
+                if validator_warnings:
+                    for line in validator_warnings:
+                        f.write(f"<li>{line}</li>\n")
+                else:
+                    f.write("<li>No unmapped labels</li>\n")
+                f.write("</ul>\n</body></html>\n")
         else:
-            f.write("<li>No unmapped labels</li>\n")
-        f.write("</ul>\n</body></html>\n")
+            # Stub report when no segments were detected.
+            with open(index_path, "w", encoding="utf-8") as f:
+                f.write("<html><body><p>0 segments detected</p></body></html>")
 
 
     # Update the "__latest" symlink for this video base
