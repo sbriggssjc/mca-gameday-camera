@@ -18,6 +18,7 @@ import json
 import shutil
 import csv
 import math
+import logging
 from pathlib import Path
 
 try:
@@ -35,7 +36,7 @@ except Exception:  # pragma: no cover - optional dependency
 class PlayClassifier:
     """Classifies sequences of frames for touchdown-like events."""
 
-    def __init__(self, model_path: str = "yolov5s.pt", device: str = "cpu") -> None:
+    def __init__(self, model_path: str = "yolov5s.pt", device: str | None = None) -> None:
         """Load a YOLOv5 model.
 
         Parameters
@@ -45,11 +46,19 @@ class PlayClassifier:
             to fetch the model if ``model_path`` points to a known name
             like ``yolov5s.pt``.
         device:
-            Device string understood by ``torch`` (e.g. ``"cpu"`` or
-            ``"cuda"``).
+            Optional device string understood by ``torch``. When ``None``,
+            the device is chosen based on CUDA availability.
         """
         if torch is None:
             raise ImportError("PyTorch is required for PlayClassifier")
+
+        if device is None:
+            device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        elif device != "cpu" and not torch.cuda.is_available():
+            logging.info("[classifier] device=%s unavailable, falling back to cpu", device)
+            device = "cpu"
+
+        logging.info("[classifier] device=%s", device)
 
         # load model via torch.hub (from ultralytics) or local path
         self.model = torch.hub.load(
