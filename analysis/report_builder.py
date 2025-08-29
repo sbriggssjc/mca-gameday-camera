@@ -52,6 +52,25 @@ def build(
     }
     write_json(dashboards / "summary.json", summary)
 
+    # Classifier weakness stats from plays_index.csv
+    weak_count = 0
+    avg_conf = 0.0
+    confs: list[float] = []
+    index_csv = out_dir / "plays_index.csv"
+    if index_csv.exists():
+        with index_csv.open() as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    conf = float(row.get("clf_top1_conf", 0.0))
+                    confs.append(conf)
+                    if int(row.get("clf_weak_flag", 0)):
+                        weak_count += 1
+                except ValueError:
+                    continue
+    if confs:
+        avg_conf = sum(confs) / len(confs)
+
     rows = timeline_rows(joined)
     with (dashboards / "timeline.csv").open("w", newline="") as f:
         writer = csv.writer(f)
@@ -62,6 +81,11 @@ def build(
     md_lines = ["# Game Report", "", f"Total plays: {len(joined)}", ""]
     md_lines.append(f"Median confidence: {median_conf:.2f}")
     md_lines.append(f"Unknown predictions: {unknown_count}")
+    md_lines.append("")
+    md_lines.append("## Classifier Weakness")
+    md_lines.append("|Weak segments|Avg confidence|")
+    md_lines.append("|---|---|")
+    md_lines.append(f"|{weak_count}|{avg_conf:.2f}|")
     md_lines.append("")
 
     md_lines.append("## Unknown Root Causes")
