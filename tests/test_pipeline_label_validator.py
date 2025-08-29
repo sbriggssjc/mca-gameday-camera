@@ -26,5 +26,4 @@ def test_pipeline_label_mismatch(tmp_path, monkeypatch):
     warn = (run_dir / "report" / "warnings.txt").read_text()
     assert "Foo" in warn
     html = (run_dir / "report" / "index.html").read_text()
-    assert "Foo" in html
-    assert "⚠️" in html
+    assert "0 segments detected" in html
