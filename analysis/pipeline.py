@@ -3,6 +3,8 @@ from __future__ import annotations
 import os, sys, json, pathlib, argparse, csv, subprocess, logging, re
 from collections import Counter
 
+from .harmonizer import harmonize
+
 try:
     # When executed as module (recommended)
     from .segmentation import segment_video
@@ -202,7 +204,6 @@ def run_pipeline(
     # Validate classifier ↔ playbook wiring
     # ------------------------------------------------------------------
     validator_warnings: list[str] = []
-    unmapped_pb_norms: set[str] = set()
     missing_in_playbook: list[str] = []
     missing_in_model: list[str] = []
     if clf is not None:
@@ -218,7 +219,6 @@ def run_pipeline(
                 if norm not in norm_pb:
                     missing_in_playbook.append(orig)
             missing_in_model = [orig for norm, orig in norm_pb.items() if norm not in norm_model]
-            unmapped_pb_norms = { _norm_label(lbl) for lbl in missing_in_model }
             if missing_in_playbook:
                 validator_warnings.append(
                     "Model labels not in playbook: " + ", ".join(sorted(missing_in_playbook))
@@ -295,6 +295,9 @@ def run_pipeline(
     for seg, det in zip(segments, classifications):
         pid = det.get("play_id") or f"PLAY_{len(rows)+1:03d}"
 
+        top1 = det.get("clf_top1", det.get("play_family", ""))
+        top1_conf = float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0)))
+
         row = {
             "play_id": pid,
             "t0": float(seg["t0"]),
@@ -303,26 +306,28 @@ def run_pipeline(
             "whistle": float(seg.get("whistle", seg["t1"])),
             "clip_path": "",
             "formation": det.get("formation") or "",
+            "formation_canon": harmonize(det.get("formation") or ""),
             "formation_confidence": float(det.get("formation_confidence", 0.0)),
             "play_family": det.get("play_family", "Unknown"),
             "playcall_confidence": float(det.get("playcall_confidence", 0.0)),
             # Observability fields
-            "clf_top1": det.get("clf_top1", det.get("play_family", "")),
-            "clf_top1_conf": float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0))),
+            "clf_top1": top1,
+            "clf_top1_conf": top1_conf,
+            "clf_top1_canon": harmonize(top1),
             "clf_top3": "|".join(
                 f"{n}:{float(s):.3f}" for n, s in det.get("clf_top3", det.get("candidates", []))
             ),
-            "clf_weak_flag": int(det.get("clf_weak_flag", 0)),
+            "clf_weak_flag": int(top1_conf < 0.35),
             "clf_family": det.get("clf_family", ""),
             "smoothing_applied": int(det.get("smoothing_applied", 0)),
             "clf_disabled": int(det.get("clf_disabled", 0)),
             "outcome": det.get("outcome") or "",
             "clip_duration": max(0.0, float(seg["t1"]) - float(seg["t0"])),
             "low_activity": int(seg.get("low_activity", 0)),
-            "candidates": ";".join(f"{n}:{s:.2f}" for n, s in det.get("candidates", [])),
+            "candidates": ";".join(
+                f"{n}:{float(s):.3f}" for n, s in det.get("candidates", [])
+            ),
         }
-        if _norm_label(row["clf_top1"]) in unmapped_pb_norms:
-            row["clf_weak_flag"] = 1
         rows.append(row)
 
     csv_header = [
@@ -333,11 +338,13 @@ def run_pipeline(
         "whistle",
         "clip_path",
         "formation",
+        "formation_canon",
         "formation_confidence",
         "play_family",
         "playcall_confidence",
         "clf_top1",
         "clf_top1_conf",
+        "clf_top1_canon",
         "clf_top3",
         "clf_weak_flag",
         "clf_family",
