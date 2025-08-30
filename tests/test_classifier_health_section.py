@@ -38,4 +38,8 @@ def test_classifier_health_section(tmp_path, monkeypatch):
     html = (pathlib.Path(run_dir) / "report" / "index.html").read_text()
     assert "Classifier Health" in html
     assert "Segments: 1" in html
+    assert "Clips: 0" in html
+    assert "Weak classifications: 0 (0.0% weak)" in html
     assert "Average top1 confidence: 0.900" in html
+    assert "Top predictions: Rit Sweep (1)" in html
+    assert "Unmapped labels: 0" in html
