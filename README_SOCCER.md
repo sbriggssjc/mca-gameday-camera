@@ -52,3 +52,9 @@ SOC_TITLE="U11_vs_Glenpool_20250903" SOC_SEG_MIN=20 \
 Confirm the last segment plays and has audio (quick scrub in VLC).
 Check the log for dropped-source errors.
 Verify thumbs exist at roughly every N seconds for the full span.
+
+## Filename options
+Set `SOC_TIMESTAMPS=1` to name segments by timestamp. The default uses part counters like `soccer_part000.mp4`.
+
+## MKV segments
+Set `SOC_CONTAINER=mkv` to produce MKV files which can be probed while they are still open. When using the default MP4 container, avoid probing the newest segment until recording stops (the "moov atom not found" message is expected).
