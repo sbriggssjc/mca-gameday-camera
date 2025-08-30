@@ -17,9 +17,10 @@ All notable changes to **mca-gameday-camera** will be documented in this file.
 - **CSV schema unified** (order matters):
 
 
-play_id,t0,t1,snap,whistle,clip_path,formation,formation_confidence,play_family,playcall_confidence,outcome,clip_duration
+play_id,t0,t1,snap,whistle,clip_path,formation,formation_confidence,formation_weak,play_family,playcall_confidence,outcome,clip_duration
 
 - `formation` is always a scalar name in CSV, `formation_confidence` is numeric (defaults to `0.0`).
+- `formation_weak` is `1` when `formation_confidence < 0.35`.
 - `t0`/`t1` are written as blank fields when missing; JSONL uses `null`.
 - **Playbook logging**:
 - Logs at start: `[playbook] source=<arg or path>`
