@@ -39,8 +39,8 @@ check_csv() {
   local header
   header="$(head -n1 "$csv")"
   # We accept either strict or "extended" headers; warn if unexpected, but continue.
-  local ok1='play_id,t0,t1,snap,whistle,clip_path,formation,formation_confidence,play_family,playcall_confidence,outcome,clip_duration'
-  local ok2='play_id,t0,t1,snap,whistle,clip_path,formation,formation_confidence,play_family,playcall_confidence,outcome,clip_duration' # keep for future variants
+  local ok1='play_id,t0,t1,snap,whistle,clip_path,formation,formation_canon,formation_confidence,formation_weak,play_family,playcall_confidence,clf_top1,clf_top1_conf,clf_top3,clf_top1_canon,clf_top3_canon,canon_reason,clf_weak_flag,clf_family,smoothing_applied,clf_disabled,outcome,clip_duration,low_activity,candidates'
+  local ok2="$ok1" # keep for future variants
 
   if [[ "$header" != "$ok1" && "$header" != "$ok2" ]]; then
     echo "⚠️ CSV header is unexpected but proceeding:"
