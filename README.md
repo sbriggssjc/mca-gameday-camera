@@ -137,6 +137,7 @@ for F in "${FILES[@]}"; do
     --out "output" \
     --min-play-gap 1.5 \
     --min-play-length 3.0 \
+    --smooth-frames 4 \
     --report \
     --clips
 done
