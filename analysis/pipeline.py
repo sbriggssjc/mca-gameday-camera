@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os, sys, json, pathlib, argparse, csv, subprocess, logging, re
 from collections import Counter
+import html
 
 from .harmonizer import harmonize
 
@@ -34,6 +35,32 @@ def _safe_name(s: str) -> str:
 def _norm_label(label: str) -> str:
     """Return a normalised version of ``label`` for comparison."""
     return re.sub(r"[\s_-]+", "", label).lower()
+
+
+def _write_warnings(
+    report_dir: str,
+    torch_info: str,
+    device_info: str,
+    model_paths: dict[str, str | None],
+    unmapped: Counter[str],
+    warnings: list[str],
+) -> None:
+    """Write a warnings report with environment and model info."""
+    os.makedirs(report_dir, exist_ok=True)
+    path = os.path.join(report_dir, "warnings.txt")
+    with open(path, "w", encoding="utf-8") as wf:
+        wf.write(f"{torch_info}\n")
+        wf.write(f"{device_info}\n")
+        for name, val in model_paths.items():
+            wf.write(f"{name}: {val}\n")
+        if unmapped:
+            wf.write("unmapped labels:\n")
+            for lbl, cnt in sorted(unmapped.items()):
+                wf.write(f"  {lbl}: {cnt}\n")
+        if warnings:
+            wf.write("warnings:\n")
+            for line in warnings:
+                wf.write(f"  {line}\n")
 
 
 def _load_model_labels(
@@ -142,7 +169,33 @@ def run_pipeline(
     run_dir = os.path.join(out_dir, "games", f"{_safe_name(tag)}__{short}")
     report_dir = os.path.join(run_dir, "report")
     os.makedirs(run_dir, exist_ok=True)
+    os.makedirs(report_dir, exist_ok=True)
     run_dir_created = True
+
+    model_paths = {
+        "play_ckpt": play_ckpt,
+        "play_labels": play_labels,
+        "formation_ckpt": formation_ckpt,
+        "formation_labels": formation_labels,
+    }
+
+    warnings: list[str] = []
+
+    try:
+        import torch  # type: ignore
+
+        torch_info = f"torch: {torch.__version__}"
+        if torch.cuda.is_available():
+            device_info = f"device: cuda:{torch.cuda.get_device_name(0)}"
+        else:
+            device_info = "device: cpu"
+    except Exception as e:  # pragma: no cover - best effort
+        torch_info = f"torch: MISSING ({e})"
+        device_info = "device: N/A"
+        warnings.append(f"torch import failed: {e}")
+        if require_classifier:
+            _write_warnings(report_dir, torch_info, device_info, model_paths, Counter(), warnings)
+            raise
 
     # Configure logging to file under the run directory and to stdout
     log_path = os.path.join(run_dir, "pipeline.log")
@@ -163,11 +216,12 @@ def run_pipeline(
     logging.info(f"[pipeline] formation_ckpt: {formation_ckpt}")
     logging.info(f"[pipeline] formation_labels: {formation_labels}")
 
-    if require_classifier:
-        for path in [play_ckpt, play_labels, formation_ckpt, formation_labels]:
-            if path and not os.path.exists(path):
-                logging.error(f"[pipeline] missing required file: {path}")
-                raise FileNotFoundError(f"missing required file: {path}")
+    missing_paths = [name for name, pth in model_paths.items() if pth and not os.path.exists(pth)]
+    if missing_paths and require_classifier:
+        for name in missing_paths:
+            warnings.append(f"missing required file: {model_paths[name]}")
+        _write_warnings(report_dir, torch_info, device_info, model_paths, Counter(), warnings)
+        raise FileNotFoundError(f"missing required file: {model_paths[missing_paths[0]]}")
 
     index_path = os.path.join(report_dir, "index.html")
     if generate_report:
@@ -194,7 +248,9 @@ def run_pipeline(
         )
         clf = load_models(args_obj)
     except Exception as e:
+        warnings.append(str(e))
         if require_classifier:
+            _write_warnings(report_dir, torch_info, device_info, model_paths, Counter(), warnings)
             raise
         else:
             logging.getLogger().warning(f"[classifier] disabled: {e}")
@@ -297,8 +353,9 @@ def run_pipeline(
                 }
             )
 
+    unmapped_pb_norms = {_norm_label(lbl) for lbl in missing_in_playbook}
     rows: list[dict] = []
-    unmapped_labels: set[str] = set()
+    unmapped_counts: Counter[str] = Counter()
     for seg, det in zip(segments, classifications):
         pid = det.get("play_id") or f"PLAY_{len(rows)+1:03d}"
 
@@ -352,7 +409,7 @@ def run_pipeline(
         }
 
         if canon_reason == "unmapped":
-            unmapped_labels.add(row["clf_top1"])
+            unmapped_counts[row["clf_top1"]] += 1
         if _norm_label(row["clf_top1"]) in unmapped_pb_norms:
             row["clf_weak_flag"] = 1
 
@@ -393,17 +450,12 @@ def run_pipeline(
         os.makedirs(os.path.join(run_dir, "clips"), exist_ok=True)
         os.makedirs(report_dir, exist_ok=True)
 
-        if unmapped_labels:
-            for lbl in sorted(unmapped_labels):
-                validator_warnings.append(f"Unmapped classifier label: {lbl}")
-        if validator_warnings:
-            warn_path = os.path.join(report_dir, "warnings.txt")
-            with open(warn_path, "w", encoding="utf-8") as wf:
-                for line in validator_warnings:
-                    wf.write(line + "\n")
-            for line in validator_warnings:
-                logging.warning(line)
-                print(f"⚠️ {line}")
+        if unmapped_counts:
+            for lbl, cnt in sorted(unmapped_counts.items()):
+                validator_warnings.append(f"Unmapped classifier label: {lbl} ({cnt})")
+        for line in validator_warnings:
+            logging.warning(line)
+            print(f"⚠️ {line}")
 
         with open(csv_path, "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=csv_header)
@@ -418,6 +470,9 @@ def run_pipeline(
             except Exception:
                 pass
         raise
+
+    all_warnings = warnings + validator_warnings
+    _write_warnings(report_dir, torch_info, device_info, model_paths, unmapped_counts, all_warnings)
 
     if generate_clips:
         for r in rows:
@@ -549,6 +604,12 @@ def run_pipeline(
             f"{n} ({c})" for n, c in label_counts.most_common(10) if n
         )
 
+
+        warn_path = os.path.join(report_dir, "warnings.txt")
+        warn_text = pathlib.Path(warn_path).read_text() if os.path.exists(warn_path) else ""
+
+        if rows:
+
         # Parse unmapped labels from warnings
         unmapped_labels: list[str] = []
         for line in validator_warnings:
@@ -558,6 +619,7 @@ def run_pipeline(
         unmapped_labels = sorted(set(unmapped_labels))
 
         if seg_count:
+
             with open(index_path, "w", encoding="utf-8") as f:
                 f.write(
                     "<html><head><meta charset='utf-8'><title>Run Report</title>"
@@ -594,6 +656,12 @@ def run_pipeline(
                     f.write("<li><a href='warnings.txt'>warnings.txt</a></li>\n")
                 f.write("</ul>\n")
 
+                if warn_text:
+                    f.write("<h2>Warnings</h2>\n<pre>\n")
+                    f.write(html.escape(warn_text))
+                    f.write("</pre>\n")
+
+
                 if debug_weak:
                     dbg_dir = os.path.join(run_dir, "debug", "weak")
                     if os.path.isdir(dbg_dir):
@@ -609,13 +677,16 @@ def run_pipeline(
                                 f.write(f"<img src='{rel}' class='thumb'>")
                             f.write("</div>\n")
 
+
                 f.write("</body></html>\n")
         else:
             # Stub report when no segments were detected.
             with open(index_path, "w", encoding="utf-8") as f:
                 f.write("<html><body><p>0 segments detected</p>")
-                if validator_warnings:
-                    f.write("<p><a href='warnings.txt'>warnings.txt</a></p>")
+                if warn_text:
+                    f.write("<h2>Warnings</h2><pre>")
+                    f.write(html.escape(warn_text))
+                    f.write("</pre>")
                 f.write("</body></html>")
 
 
