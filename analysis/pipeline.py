@@ -100,6 +100,7 @@ def run_pipeline(
     min_activity_ratio: float = 0.10,
     preroll: float = 0.75,
     postroll: float = 0.75,
+    smooth_frames: int = 4,
     generate_report: bool = False,
     generate_clips: bool = False,
     debug_weak: bool = False,
@@ -265,6 +266,7 @@ def run_pipeline(
             play_labels=play_labels,
             formation_ckpt=formation_ckpt,
             formation_labels=formation_labels,
+            smooth_frames=smooth_frames,
         )
         for d in classifications:
             d["clf_disabled"] = 0
@@ -312,6 +314,7 @@ def run_pipeline(
             ),
             "clf_weak_flag": int(det.get("clf_weak_flag", 0)),
             "clf_family": det.get("clf_family", ""),
+            "smoothing_applied": int(det.get("smoothing_applied", 0)),
             "clf_disabled": int(det.get("clf_disabled", 0)),
             "outcome": det.get("outcome") or "",
             "clip_duration": max(0.0, float(seg["t1"]) - float(seg["t0"])),
@@ -338,6 +341,7 @@ def run_pipeline(
         "clf_top3",
         "clf_weak_flag",
         "clf_family",
+        "smoothing_applied",
         "clf_disabled",
         "outcome",
         "clip_duration",
@@ -571,6 +575,7 @@ def main(argv=None) -> None:
     p.add_argument("--min-activity-ratio", type=float, default=0.10)
     p.add_argument("--preroll", type=float, default=0.75)
     p.add_argument("--postroll", type=float, default=0.75)
+    p.add_argument("--smooth-frames", type=int, default=4, help="temporal smoothing radius; 0 disables")
     p.add_argument("--generate-report", dest="generate_report", action="store_true", help="write HTML report")
     p.add_argument("--report", dest="generate_report", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--generate-clips", dest="generate_clips", action="store_true", help="export per-play mp4 clips")
@@ -600,6 +605,7 @@ def main(argv=None) -> None:
         min_activity_ratio=args.min_activity_ratio,
         preroll=args.preroll,
         postroll=args.postroll,
+        smooth_frames=args.smooth_frames,
         generate_report=args.generate_report,
         generate_clips=args.generate_clips,
         debug_weak=args.debug_weak,
