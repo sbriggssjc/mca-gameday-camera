@@ -28,6 +28,7 @@ def test_pipeline_label_mismatch(tmp_path, monkeypatch):
     assert "Foo" in warn
     html = (run_dir / "report" / "index.html").read_text()
     assert "0 segments detected" in html
+    assert "Warnings" in html
     log_txt = (run_dir / "pipeline.log").read_text()
     assert "loading ckpt" in log_txt
     assert "labels: 2" in log_txt
