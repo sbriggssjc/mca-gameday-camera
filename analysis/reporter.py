@@ -15,6 +15,7 @@ PLAY_INDEX_FIELDS = [
     "clf_top3_canon",
     "canon_reason",
     "clf_weak_flag",
+    "smoothing_applied",
     "low_activity",
 ]
 
