@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os, sys, json, pathlib, argparse, csv, subprocess, logging, re, types
+import os, sys, json, pathlib, argparse, csv, subprocess, logging, re, types, io
 from collections import Counter
 import html
 
@@ -183,243 +183,220 @@ def run_pipeline(
     device_info = "device: N/A"
     clf = None
 
-    if require_classifier:
-        missing_paths = [
-            name for name, pth in model_paths.items() if pth and not os.path.exists(pth)
-        ]
-        if missing_paths:
-            raise FileNotFoundError(
-                f"[classifier] missing required file: {model_paths[missing_paths[0]]}"
+    pre_log_stream = io.StringIO()
+    pre_log_handler = logging.StreamHandler(pre_log_stream)
+    root_logger = logging.getLogger()
+    root_logger.addHandler(pre_log_handler)
+    try:
+        if require_classifier:
+            missing_paths = [
+                name for name, pth in model_paths.items() if pth and not os.path.exists(pth)
+            ]
+            if missing_paths:
+                raise FileNotFoundError(
+                    f"[classifier] missing required file: {model_paths[missing_paths[0]]}"
+                )
+            try:
+                import torch  # noqa: F401
+                from .classifiers import load_models
+
+                torch_info = f"torch: {torch.__version__}"
+                if torch.cuda.is_available():
+                    device_info = f"device: cuda:{torch.cuda.get_device_name(0)}"
+                else:
+                    device_info = "device: cpu"
+
+                args_obj = types.SimpleNamespace(
+                    play_ckpt=play_ckpt,
+                    play_labels=play_labels,
+                    formation_ckpt=formation_ckpt,
+                    formation_labels=formation_labels,
+                )
+                clf = load_models(args_obj)
+            except Exception as e:  # pragma: no cover - fail fast
+                raise RuntimeError(f"[classifier] required but failed to init: {e}")
+        else:
+            clf = None
+            logger.warning("[classifier] disabled (--no-require-classifier)")
+
+        playbook = load_playbook(playbook_path)
+        print(f"[playbook] source={playbook_path}")
+
+        # ------------------------------------------------------------------
+        # Validate classifier ↔ playbook wiring
+        # ------------------------------------------------------------------
+        validator_warnings: list[str] = []
+        missing_in_playbook: list[str] = []
+        missing_in_model: list[str] = []
+        unmapped_pb_norms: set[str] = set()
+        if clf is not None:
+            model_labels = _load_model_labels(play_ckpt, play_labels)
+            if model_labels:
+                if hasattr(playbook, "plays"):
+                    pb_labels = set(playbook.plays.keys())
+                else:
+                    pb_labels = {p.get("name", "") for p in playbook.get("plays", [])}
+                norm_pb = { _norm_label(p): p for p in pb_labels if p }
+                norm_model = { _norm_label(m): m for m in model_labels if m }
+                for norm, orig in norm_model.items():
+                    if norm not in norm_pb:
+                        missing_in_playbook.append(orig)
+                missing_in_model = [orig for norm, orig in norm_pb.items() if norm not in norm_model]
+                unmapped_pb_norms = { _norm_label(lbl) for lbl in missing_in_model }
+                if missing_in_playbook:
+                    validator_warnings.append(
+                        "Model labels not in playbook: " + ", ".join(sorted(missing_in_playbook))
+                    )
+                if missing_in_model:
+                    validator_warnings.append(
+                        "Playbook labels missing from model: " + ", ".join(sorted(missing_in_model))
+                    )
+                unmapped_pb_norms = { _norm_label(lbl) for lbl in missing_in_playbook }
+                if validator_warnings:
+                    logging.warning("label/playbook mismatch detected")
+        else:
+            model_labels = set()
+            validator_warnings.append(
+                "[classifier] disabled (--require-classifier=false)"
             )
-        try:
-            import torch  # noqa: F401
-            from .classifiers import load_models
 
-            torch_info = f"torch: {torch.__version__}"
-            if torch.cuda.is_available():
-                device_info = f"device: cuda:{torch.cuda.get_device_name(0)}"
-            else:
-                device_info = "device: cpu"
+        segments = segment_video(
+            video,
+            min_play_length=min_play_length,
+            max_play_length=max_play_length,
+            min_play_gap=min_play_gap,
+            preroll=preroll,
+            postroll=postroll,
+        )
+        print(
+            f"[config] min_play_length={min_play_length} max_play_length={max_play_length} min_activity_ratio={min_activity_ratio} "
+            f"min_play_gap={min_play_gap} report={generate_report} clips={generate_clips}"
+        )
+        print(f"[pipeline] segments detected: {len(segments)}")
 
-            args_obj = types.SimpleNamespace(
+        for seg in segments:
+            seg["low_activity"] = int(
+                seg.get("activity_ratio", 0.0) < min_activity_ratio and not seg.get("has_whistle")
+            )
+
+        global classify_plays
+        if classify_plays is not None and segments:
+            classifications = classify_plays(
+                segments,
+                playbook,
+                team,
                 play_ckpt=play_ckpt,
                 play_labels=play_labels,
                 formation_ckpt=formation_ckpt,
                 formation_labels=formation_labels,
+                smooth_frames=smooth_frames,
             )
-            clf = load_models(args_obj)
-        except Exception as e:  # pragma: no cover - fail fast
-            raise RuntimeError(f"[classifier] required but failed to init: {e}")
-    else:
-        logger.warning(
-            "[classifier] disabled (--require-classifier=false); running segmentation/clipping only"
-        )
+            for d in classifications:
+                d["clf_disabled"] = 0
+        elif clf is not None and segments:
+            if classify_plays is None:  # pragma: no cover - lazy import
+                from .play_classifier import classify_plays as _classify_plays
+                classify_plays = _classify_plays
 
-    os.makedirs(run_dir, exist_ok=True)
-    os.makedirs(report_dir, exist_ok=True)
-    run_dir_created = True
-
-    # Configure logging to file under the run directory and to stdout
-    log_path = os.path.join(run_dir, "pipeline.log")
-    root_logger = logging.getLogger()
-    for h in list(root_logger.handlers):
-        root_logger.removeHandler(h)
-    fmt = logging.Formatter("%(asctime)s %(message)s")
-    fh = logging.FileHandler(log_path)
-    fh.setFormatter(fmt)
-    sh = logging.StreamHandler()
-    sh.setFormatter(fmt)
-    root_logger.addHandler(fh)
-    root_logger.addHandler(sh)
-    root_logger.setLevel(logging.INFO)
-
-    logging.info(f"[pipeline] play_ckpt: {play_ckpt}")
-    logging.info(f"[pipeline] play_labels: {play_labels}")
-    logging.info(f"[pipeline] formation_ckpt: {formation_ckpt}")
-    logging.info(f"[pipeline] formation_labels: {formation_labels}")
-
-    index_path = os.path.join(report_dir, "index.html")
-    if generate_report:
-        os.makedirs(report_dir, exist_ok=True)
-        # Default stub in case we crash before classification.
-        with open(index_path, "w", encoding="utf-8") as f:
-            f.write("<html><body><p>failed before classification</p></body></html>")
-
-    playbook = load_playbook(playbook_path)
-    print(f"[playbook] source={playbook_path}")
-
-    # ------------------------------------------------------------------
-    # Validate classifier ↔ playbook wiring
-    # ------------------------------------------------------------------
-    validator_warnings: list[str] = []
-    missing_in_playbook: list[str] = []
-    missing_in_model: list[str] = []
-    unmapped_pb_norms: set[str] = set()
-    if clf is not None:
-        model_labels = _load_model_labels(play_ckpt, play_labels)
-        if model_labels:
-            if hasattr(playbook, "plays"):
-                pb_labels = set(playbook.plays.keys())
-            else:
-                pb_labels = {p.get("name", "") for p in playbook.get("plays", [])}
-            norm_pb = { _norm_label(p): p for p in pb_labels if p }
-            norm_model = { _norm_label(m): m for m in model_labels if m }
-            for norm, orig in norm_model.items():
-                if norm not in norm_pb:
-                    missing_in_playbook.append(orig)
-            missing_in_model = [orig for norm, orig in norm_pb.items() if norm not in norm_model]
-            unmapped_pb_norms = { _norm_label(lbl) for lbl in missing_in_model }
-            if missing_in_playbook:
-                validator_warnings.append(
-                    "Model labels not in playbook: " + ", ".join(sorted(missing_in_playbook))
-                )
-            if missing_in_model:
-                validator_warnings.append(
-                    "Playbook labels missing from model: " + ", ".join(sorted(missing_in_model))
-                )
-            unmapped_pb_norms = { _norm_label(lbl) for lbl in missing_in_playbook }
-            if validator_warnings:
-                logging.warning("label/playbook mismatch detected")
-    else:
-        model_labels = set()
-        validator_warnings.append(
-            "[classifier] disabled (--require-classifier=false)"
-        )
-
-    segments = segment_video(
-        video,
-        min_play_length=min_play_length,
-        max_play_length=max_play_length,
-        min_play_gap=min_play_gap,
-        preroll=preroll,
-        postroll=postroll,
-    )
-    print(
-        f"[config] min_play_length={min_play_length} max_play_length={max_play_length} min_activity_ratio={min_activity_ratio} "
-        f"min_play_gap={min_play_gap} report={generate_report} clips={generate_clips}"
-    )
-    print(f"[pipeline] segments detected: {len(segments)}")
-
-    for seg in segments:
-        seg["low_activity"] = int(
-            seg.get("activity_ratio", 0.0) < min_activity_ratio and not seg.get("has_whistle")
-        )
-
-    global classify_plays
-    if classify_plays is not None and segments:
-        classifications = classify_plays(
-            segments,
-            playbook,
-            team,
-            play_ckpt=play_ckpt,
-            play_labels=play_labels,
-            formation_ckpt=formation_ckpt,
-            formation_labels=formation_labels,
-            smooth_frames=smooth_frames,
-        )
-        for d in classifications:
-            d["clf_disabled"] = 0
-    elif clf is not None and segments:
-        if classify_plays is None:  # pragma: no cover - lazy import
-            from .play_classifier import classify_plays as _classify_plays
-            classify_plays = _classify_plays
-
-        classifications = classify_plays(
-            segments,
-            playbook,
-            team,
-            play_ckpt=play_ckpt,
-            play_labels=play_labels,
-            formation_ckpt=formation_ckpt,
-            formation_labels=formation_labels,
-            smooth_frames=smooth_frames,
-        )
-        for d in classifications:
-            d["clf_disabled"] = 0
-    elif clf is not None:
-        classifications = []
-    else:
-        classifications = []
-        for i, seg in enumerate(segments, 1):
-            classifications.append(
-                {
-                    "play_id": seg.get("id") or seg.get("play_id") or f"PLAY_{i:03d}",
-                    "formation": seg.get("formation") or "",
-                    "formation_confidence": float(seg.get("formation_confidence", 0.0)),
-                    "play_family": "",
-                    "playcall_confidence": 0.0,
-                    "candidates": [],
-                    "outcome": seg.get("outcome", ""),
-                    "clf_top1": "__no_torch__",
-                    "clf_top1_conf": 0.0,
-                    "clf_top3": [],
-                    "clf_weak_flag": 1,
-                    "clf_family": "",
-                    "clf_disabled": 1,
-                }
+            classifications = classify_plays(
+                segments,
+                playbook,
+                team,
+                play_ckpt=play_ckpt,
+                play_labels=play_labels,
+                formation_ckpt=formation_ckpt,
+                formation_labels=formation_labels,
+                smooth_frames=smooth_frames,
             )
+            for d in classifications:
+                d["clf_disabled"] = 0
+        elif clf is not None:
+            classifications = []
+        else:
+            classifications = []
+            for i, seg in enumerate(segments, 1):
+                classifications.append(
+                    {
+                        "play_id": seg.get("id") or seg.get("play_id") or f"PLAY_{i:03d}",
+                        "formation": seg.get("formation") or "",
+                        "formation_confidence": float(seg.get("formation_confidence", 0.0)),
+                        "play_family": "",
+                        "playcall_confidence": 0.0,
+                        "candidates": [],
+                        "outcome": seg.get("outcome", ""),
+                        "clf_top1": "__no_torch__",
+                        "clf_top1_conf": 0.0,
+                        "clf_top3": [],
+                        "clf_weak_flag": 1,
+                        "clf_family": "",
+                        "clf_disabled": 1,
+                    }
+                )
 
-    unmapped_pb_norms = {_norm_label(lbl) for lbl in missing_in_playbook}
-    rows: list[dict] = []
-    unmapped_counts: Counter[str] = Counter()
-    for seg, det in zip(segments, classifications):
-        pid = det.get("play_id") or f"PLAY_{len(rows)+1:03d}"
+        unmapped_pb_norms = {_norm_label(lbl) for lbl in missing_in_playbook}
+        rows: list[dict] = []
+        unmapped_counts: Counter[str] = Counter()
+        for seg, det in zip(segments, classifications):
+            pid = det.get("play_id") or f"PLAY_{len(rows)+1:03d}"
 
 
-        labels_with_scores = det.get("clf_top3", det.get("candidates", []))
-        if not labels_with_scores and det.get("clf_top1"):
-            labels_with_scores = [(
-                det.get("clf_top1"),
-                float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0))),
-            )]
-        canon_top1, canon_top3, canon_reason = map_topk(labels_with_scores)
+            labels_with_scores = det.get("clf_top3", det.get("candidates", []))
+            if not labels_with_scores and det.get("clf_top1"):
+                labels_with_scores = [(
+                    det.get("clf_top1"),
+                    float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0))),
+                )]
+            canon_top1, canon_top3, canon_reason = map_topk(labels_with_scores)
 
-        top1 = det.get("clf_top1", det.get("play_family", ""))
-        top1_conf = float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0)))
+            top1 = det.get("clf_top1", det.get("play_family", ""))
+            top1_conf = float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0)))
 
-        formation_name = det.get("formation") or ""
-        formation_conf = float(det.get("formation_confidence", 0.0))
+            formation_name = det.get("formation") or ""
+            formation_conf = float(det.get("formation_confidence", 0.0))
 
-        row = {
-            "play_id": pid,
-            "t0": float(seg["t0"]),
-            "t1": float(seg["t1"]),
-            "snap": float(seg.get("snap", seg["t0"])),
-            "whistle": float(seg.get("whistle", seg["t1"])),
-            "clip_path": "",
-            "formation": formation_name,
-            "formation_canon": harmonize(formation_name),
-            "formation_confidence": formation_conf,
-            "formation_weak": int(formation_conf < 0.35),
-            "play_family": det.get("play_family", "Unknown"),
-            "playcall_confidence": float(det.get("playcall_confidence", 0.0)),
-            # Observability fields
-            "clf_top1": top1,
-            "clf_top1_conf": top1_conf,
-            "clf_top3": "|".join(
-                f"{n}:{float(s):.3f}" for n, s in labels_with_scores
-            ),
-            "clf_top1_canon": canon_top1,
-            "clf_top3_canon": canon_top3,
-            "canon_reason": canon_reason,
-            "clf_weak_flag": int(top1_conf < 0.35),
-            "clf_family": det.get("clf_family", ""),
-            "smoothing_applied": int(det.get("smoothing_applied", 0)),
-            "clf_disabled": int(det.get("clf_disabled", 0)),
-            "outcome": det.get("outcome") or "",
-            "clip_duration": max(0.0, float(seg["t1"]) - float(seg["t0"])),
-            "low_activity": int(seg.get("low_activity", 0)),
-            "candidates": ";".join(
-                f"{n}:{float(s):.3f}" for n, s in det.get("candidates", [])
-            ),
-        }
+            row = {
+                "play_id": pid,
+                "t0": float(seg["t0"]),
+                "t1": float(seg["t1"]),
+                "snap": float(seg.get("snap", seg["t0"])),
+                "whistle": float(seg.get("whistle", seg["t1"])),
+                "clip_path": "",
+                "formation": formation_name,
+                "formation_canon": harmonize(formation_name),
+                "formation_confidence": formation_conf,
+                "formation_weak": int(formation_conf < 0.35),
+                "play_family": det.get("play_family", "Unknown"),
+                "playcall_confidence": float(det.get("playcall_confidence", 0.0)),
+                # Observability fields
+                "clf_top1": top1,
+                "clf_top1_conf": top1_conf,
+                "clf_top3": "|".join(
+                    f"{n}:{float(s):.3f}" for n, s in labels_with_scores
+                ),
+                "clf_top1_canon": canon_top1,
+                "clf_top3_canon": canon_top3,
+                "canon_reason": canon_reason,
+                "clf_weak_flag": int(top1_conf < 0.35),
+                "clf_family": det.get("clf_family", ""),
+                "smoothing_applied": int(det.get("smoothing_applied", 0)),
+                "clf_disabled": int(det.get("clf_disabled", 0)),
+                "outcome": det.get("outcome") or "",
+                "clip_duration": max(0.0, float(seg["t1"]) - float(seg["t0"])),
+                "low_activity": int(seg.get("low_activity", 0)),
+                "candidates": ";".join(
+                    f"{n}:{float(s):.3f}" for n, s in det.get("candidates", [])
+                ),
+            }
 
-        if canon_reason == "unmapped":
-            unmapped_counts[row["clf_top1"]] += 1
-        if _norm_label(row["clf_top1"]) in unmapped_pb_norms:
-            row["clf_weak_flag"] = 1
+            if canon_reason == "unmapped":
+                unmapped_counts[row["clf_top1"]] += 1
+            if _norm_label(row["clf_top1"]) in unmapped_pb_norms:
+                row["clf_weak_flag"] = 1
 
-        rows.append(row)
+            rows.append(row)
+    finally:
+        root_logger.removeHandler(pre_log_handler)
+        pre_log_lines = pre_log_stream.getvalue().splitlines()
 
     csv_header = [
         "play_id",
@@ -455,6 +432,33 @@ def run_pipeline(
         run_dir_created = True
         os.makedirs(os.path.join(run_dir, "clips"), exist_ok=True)
         os.makedirs(report_dir, exist_ok=True)
+
+        # Configure logging to file under the run directory and to stdout
+        log_path = os.path.join(run_dir, "pipeline.log")
+        root_logger = logging.getLogger()
+        for h in list(root_logger.handlers):
+            root_logger.removeHandler(h)
+        fmt = logging.Formatter("%(asctime)s %(message)s")
+        fh = logging.FileHandler(log_path)
+        fh.setFormatter(fmt)
+        sh = logging.StreamHandler()
+        sh.setFormatter(fmt)
+        root_logger.addHandler(fh)
+        root_logger.addHandler(sh)
+        root_logger.setLevel(logging.INFO)
+
+        for line in pre_log_lines:
+            logging.info(line)
+        logging.info(f"[pipeline] play_ckpt: {play_ckpt}")
+        logging.info(f"[pipeline] play_labels: {play_labels}")
+        logging.info(f"[pipeline] formation_ckpt: {formation_ckpt}")
+        logging.info(f"[pipeline] formation_labels: {formation_labels}")
+
+        index_path = os.path.join(report_dir, "index.html")
+        if generate_report:
+            # Default stub in case we crash before classification.
+            with open(index_path, "w", encoding="utf-8") as f:
+                f.write("<html><body><p>failed before classification</p></body></html>")
 
         if unmapped_counts:
             for lbl, cnt in sorted(unmapped_counts.items()):
