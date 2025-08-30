@@ -12,7 +12,7 @@ TEAM=${TEAM:-WHITE}
 EXPLICIT_PLAYBOOK=${EXPLICIT_PLAYBOOK:-playbooks/mca_5th_playbook.json}
 BAD_PLAYBOOK=${BAD_PLAYBOOK:-does_not_exist.json}
 
-EXPECTED_HEADER="play_id,t0,t1,snap,whistle,clip_path,formation,formation_confidence,play_family,playcall_confidence,outcome,clip_duration"
+EXPECTED_HEADER="play_id,t0,t1,snap,whistle,clip_path,formation,formation_canon,formation_confidence,formation_weak,play_family,playcall_confidence,clf_top1,clf_top1_conf,clf_top3,clf_top1_canon,clf_top3_canon,canon_reason,clf_weak_flag,clf_family,smoothing_applied,clf_disabled,outcome,clip_duration,low_activity,candidates"
 
 # Normalize headers: remove CRs and trailing spaces for strict compare
 EXPECTED_HEADER_NORM=$(printf "%s" "$EXPECTED_HEADER" | tr -d '\r' | sed 's/[[:space:]]*$//')
