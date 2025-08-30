@@ -9,6 +9,7 @@ from the supplied playbook.
 """
 
 from typing import Any, Dict, Iterable, List, Tuple
+import math
 
 # ---------------------------------------------------------------------------
 # Playbook helpers
@@ -177,11 +178,10 @@ def classify_plays(
     for seg in segments:
         formation = seg.get("formation", "") or ""
         formations.append(formation)
-        cands = _best_matches_from_playbook(formation, playbook, topk=3)
+        # Always propose candidates irrespective of formation or activity
+        cands = _best_matches_from_playbook(formation, playbook, topk=5)
         if not cands:
-            cands = _best_matches_from_playbook("", playbook, topk=3)
-        if seg.get("low_activity"):
-            cands = [(n, s * 0.5) for n, s in cands]
+            cands = _best_matches_from_playbook("", playbook, topk=5)
         raw_scores.append({n: s for n, s in cands})
 
     results: List[Dict[str, Any]] = []
@@ -201,11 +201,21 @@ def classify_plays(
             smoothed: Dict[str, float] = {}
             for n in names:
                 smoothed[n] = sum(d.get(n, 0.0) for d in window) / len(window)
-            smoothed_sorted = sorted(smoothed.items(), key=lambda x: x[1], reverse=True)
-            if smoothed_sorted and smoothed_sorted[0][1] > top_score:
+            if smoothed:
+                sorted_cands = sorted(smoothed.items(), key=lambda x: x[1], reverse=True)
                 final_scores = smoothed
-                sorted_cands = smoothed_sorted
-                top_name, top_score = smoothed_sorted[0]
+                top_name, top_score = (sorted_cands[0] if sorted_cands else ("", 0.0))
+
+        # Convert scores to probabilities
+        if final_scores:
+            max_logit = max(final_scores.values())
+            exp_scores = {k: math.exp(v - max_logit) for k, v in final_scores.items()}
+            total = sum(exp_scores.values()) or 1.0
+            probs = {k: v / total for k, v in exp_scores.items()}
+        else:
+            probs = {}
+        sorted_cands = sorted(probs.items(), key=lambda x: x[1], reverse=True)
+        top_name, top_score = (sorted_cands[0] if sorted_cands else ("", 0.0))
 
         # Back off to family-level classification if still weak after smoothing
         if top_score < weak_threshold:
@@ -213,7 +223,7 @@ def classify_plays(
         else:
             clf_family = ""
 
-        weak_flag = 1 if seg.get("low_activity") or top_score < weak_threshold else 0
+        weak_flag = 1 if top_score < weak_threshold else 0
 
         top5 = sorted_cands[:5]
         top3 = sorted_cands[:3]
