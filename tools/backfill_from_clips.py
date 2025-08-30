@@ -125,6 +125,7 @@ def backfill(run_dir: Path) -> int:
             "clip_path",
             "formation",
             "formation_confidence",
+            "formation_weak",
             "playcall",
             "playcall_confidence",
             "play_family",
@@ -193,6 +194,7 @@ def backfill(run_dir: Path) -> int:
                 "t1": t1 if t1 is not None else "",
                 "formation": formation_name,
                 "formation_confidence": float(formation_conf),
+                "formation_weak": int(float(formation_conf) < 0.35),
                 "playcall": {
                     "name": playcall_name if playcall_name else None,
                     "confidence": float(playcall_conf),
@@ -220,6 +222,7 @@ def backfill(run_dir: Path) -> int:
                 "clip_path": str(mp4),
                 "formation": formation_name,
                 "formation_confidence": float(formation_conf),
+                "formation_weak": int(float(formation_conf) < 0.35),
                 "playcall": playcall_name if playcall_name else "",
                 "playcall_confidence": float(playcall_conf),
                 "play_family": play_family,

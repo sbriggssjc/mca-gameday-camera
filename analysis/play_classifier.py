@@ -210,34 +210,15 @@ def classify_plays(
             names = {n for d in window for n in d}
             avg_logits: Dict[str, float] = {}
             for n in names:
-
-                smoothed[n] = sum(d.get(n, 0.0) for d in window) / len(window)
-            if smoothed:
-                sorted_cands = sorted(smoothed.items(), key=lambda x: x[1], reverse=True)
-                final_scores = smoothed
-                top_name, top_score = (sorted_cands[0] if sorted_cands else ("", 0.0))
-
-        # Convert scores to probabilities
-        if final_scores:
-            max_logit = max(final_scores.values())
-            exp_scores = {k: math.exp(v - max_logit) for k, v in final_scores.items()}
-            total = sum(exp_scores.values()) or 1.0
-            probs = {k: v / total for k, v in exp_scores.items()}
-        else:
-            probs = {}
-        sorted_cands = sorted(probs.items(), key=lambda x: x[1], reverse=True)
-        top_name, top_score = (sorted_cands[0] if sorted_cands else ("", 0.0))
-
                 avg_logits[n] = sum(d.get(n, 0.0) for d in window) / len(window)
-            smoothed_probs = _softmax(avg_logits)
-            smoothed_sorted = sorted(smoothed_probs.items(), key=lambda x: x[1], reverse=True)
-            if smoothed_sorted and smoothed_sorted[0][1] > top_score:
-                final_probs = smoothed_probs
-                sorted_cands = smoothed_sorted
-                top_name, top_score = smoothed_sorted[0]
-                smoothing_applied = 1
-
-
+            if avg_logits:
+                smoothed_probs = _softmax(avg_logits)
+                smoothed_sorted = sorted(smoothed_probs.items(), key=lambda x: x[1], reverse=True)
+                if smoothed_sorted and smoothed_sorted[0][1] > top_score:
+                    final_probs = smoothed_probs
+                    sorted_cands = smoothed_sorted
+                    top_name, top_score = smoothed_sorted[0]
+                    smoothing_applied = 1
         if top_score < weak_threshold:
             clf_family = _best_family_from_playbook(playbook, final_probs)
         else:

@@ -207,6 +207,7 @@ def run_pipeline(
     validator_warnings: list[str] = []
     missing_in_playbook: list[str] = []
     missing_in_model: list[str] = []
+    unmapped_pb_norms: set[str] = set()
     if clf is not None:
         model_labels = _load_model_labels(play_ckpt, play_labels)
         if model_labels:
@@ -220,6 +221,7 @@ def run_pipeline(
                 if norm not in norm_pb:
                     missing_in_playbook.append(orig)
             missing_in_model = [orig for norm, orig in norm_pb.items() if norm not in norm_model]
+            unmapped_pb_norms = { _norm_label(lbl) for lbl in missing_in_model }
             if missing_in_playbook:
                 validator_warnings.append(
                     "Model labels not in playbook: " + ", ".join(sorted(missing_in_playbook))
@@ -309,6 +311,8 @@ def run_pipeline(
         top1 = det.get("clf_top1", det.get("play_family", ""))
         top1_conf = float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0)))
 
+        formation_name = det.get("formation") or ""
+        formation_conf = float(det.get("formation_confidence", 0.0))
 
         row = {
             "play_id": pid,
@@ -317,26 +321,22 @@ def run_pipeline(
             "snap": float(seg.get("snap", seg["t0"])),
             "whistle": float(seg.get("whistle", seg["t1"])),
             "clip_path": "",
-            "formation": det.get("formation") or "",
-            "formation_canon": harmonize(det.get("formation") or ""),
-            "formation_confidence": float(det.get("formation_confidence", 0.0)),
+            "formation": formation_name,
+            "formation_canon": harmonize(formation_name),
+            "formation_confidence": formation_conf,
+            "formation_weak": int(formation_conf < 0.35),
             "play_family": det.get("play_family", "Unknown"),
             "playcall_confidence": float(det.get("playcall_confidence", 0.0)),
             # Observability fields
             "clf_top1": top1,
             "clf_top1_conf": top1_conf,
-            "clf_top1_canon": harmonize(top1),
             "clf_top3": "|".join(
                 f"{n}:{float(s):.3f}" for n, s in labels_with_scores
             ),
-
             "clf_top1_canon": canon_top1,
             "clf_top3_canon": canon_top3,
             "canon_reason": canon_reason,
-            "clf_weak_flag": int(det.get("clf_weak_flag", 0)),
-
             "clf_weak_flag": int(top1_conf < 0.35),
-
             "clf_family": det.get("clf_family", ""),
             "smoothing_applied": int(det.get("smoothing_applied", 0)),
             "clf_disabled": int(det.get("clf_disabled", 0)),
@@ -365,11 +365,11 @@ def run_pipeline(
         "formation",
         "formation_canon",
         "formation_confidence",
+        "formation_weak",
         "play_family",
         "playcall_confidence",
         "clf_top1",
         "clf_top1_conf",
-        "clf_top1_canon",
         "clf_top3",
         "clf_top1_canon",
         "clf_top3_canon",
