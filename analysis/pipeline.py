@@ -513,6 +513,18 @@ def run_pipeline(
                 )
             r["clip_path"] = mp4
 
+            # Add a symlink with the predicted play name for easier review
+            canon = r.get("clf_top1_canon") or r.get("play_family") or ""
+            safe = _safe_name(canon).replace(" ", "_")
+            if safe:
+                link = os.path.join(run_dir, "clips", f"{pid}__{safe}")
+                try:
+                    if os.path.lexists(link):
+                        os.unlink(link)
+                    os.symlink(pid, link)
+                except Exception:
+                    pass
+
         with open(csv_path, "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=csv_header)
             w.writeheader()
