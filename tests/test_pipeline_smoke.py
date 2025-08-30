@@ -1,4 +1,4 @@
-import json, os, pathlib, torch
+import csv, json, os, pathlib, torch
 from analysis import pipeline
 
 
@@ -26,7 +26,8 @@ def test_pipeline_smoke(tmp_path):
     )
 
     run_dir = pathlib.Path(run_dir)
-    assert (run_dir / "plays_index.csv").exists()
+    csv_path = run_dir / "plays_index.csv"
+    assert csv_path.exists()
     assert (run_dir / "report.json").exists()
     index_path = run_dir / "report" / "index.html"
     assert index_path.exists()
@@ -34,3 +35,8 @@ def test_pipeline_smoke(tmp_path):
     assert "0 segments detected" in html
     warnings_path = run_dir / "report" / "warnings.txt"
     assert not warnings_path.exists()
+
+    with csv_path.open() as f:
+        reader = csv.reader(f)
+        header = next(reader)
+    assert "smoothing_applied" in header
