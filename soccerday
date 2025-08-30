@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VIDEO_DEV="${VIDEO_DEV:-/dev/video0}"
+AUDIO_SRC="${AUDIO_SRC:-default}"
+SOC_FPS="${SOC_FPS:-30}"
+SOC_RES="${SOC_RES:-1280x720}"
+SOC_CRF="${SOC_CRF:-18}"
+SOC_PRESET="${SOC_PRESET:-veryfast}"
+SOC_OUTDIR="${SOC_OUTDIR:-output/soccer}"
+SOC_SEG_MIN="${SOC_SEG_MIN:-15}"
+SOC_TITLE="${SOC_TITLE:-soccer}"
+SOC_PROXY="${SOC_PROXY:-0}"
+SOC_THUMB_EVERY="${SOC_THUMB_EVERY:-10}"
+SOC_INPUT_FORMAT="${SOC_INPUT_FORMAT:-mjpeg}"
+
+# activate virtual environment if present
+if [[ -d "venv" ]]; then
+  source venv/bin/activate
+elif [[ -d ".venv" ]]; then
+  source .venv/bin/activate
+fi
+
+PYTHONPATH=. python3 -m soccer.recorder \
+  --video-dev "$VIDEO_DEV" \
+  --audio-src "$AUDIO_SRC" \
+  --framerate "$SOC_FPS" \
+  --resolution "$SOC_RES" \
+  --crf "$SOC_CRF" \
+  --preset "$SOC_PRESET" \
+  --segment-min "$SOC_SEG_MIN" \
+  --outdir "$SOC_OUTDIR" \
+  --title "$SOC_TITLE" \
+  --thumb-every "$SOC_THUMB_EVERY" \
+  --input-format "$SOC_INPUT_FORMAT" \
+  $( [ "$SOC_PROXY" = "1" ] && echo --proxy )
