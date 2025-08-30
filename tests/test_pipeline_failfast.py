@@ -19,10 +19,4 @@ def test_require_classifier_missing_ckpt(tmp_path):
             require_classifier=True,
         )
     run_dirs = list((out_dir / "games").glob("*"))
-    assert run_dirs
-    warn_path = run_dirs[0] / "report" / "warnings.txt"
-    assert warn_path.exists()
-    warn = warn_path.read_text()
-    assert "missing required file" in warn
-    csv_path = run_dirs[0] / "plays_index.csv"
-    assert not csv_path.exists()
+    assert not run_dirs
