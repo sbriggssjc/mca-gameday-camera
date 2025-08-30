@@ -10,6 +10,12 @@ def test_classifier_health_section(tmp_path, monkeypatch):
     ckpt = tmp_path / "model.pt"
     torch.save({"label_map": {"Rit Sweep": 0}}, ckpt)
     monkeypatch.setenv("PLAY_CLASSIFIER_MODEL", str(ckpt))
+    labels = tmp_path / "labels.txt"
+    labels.write_text("Rit Sweep\n")
+    f_ckpt = tmp_path / "formation.pt"
+    torch.save({}, f_ckpt)
+    f_labels = tmp_path / "formation_labels.txt"
+    f_labels.write_text("Rit\n")
 
     def fake_segment_video(video, **kwargs):
         return [{"t0": 0.0, "t1": 5.0}]
@@ -32,6 +38,9 @@ def test_classifier_health_section(tmp_path, monkeypatch):
         team="WHITE",
         playbook_path=str(pb_path),
         out_dir=str(tmp_path / "out"),
+        play_labels=str(labels),
+        formation_ckpt=str(f_ckpt),
+        formation_labels=str(f_labels),
         generate_report=True,
     )
 
