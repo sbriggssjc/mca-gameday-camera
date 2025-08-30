@@ -5,11 +5,11 @@ import os
 from typing import List, Tuple
 
 import torch
-import torch.nn as nn  # <-- this was missing
+import torch.nn as nn  # <-- add this
 from torchvision import models, transforms
 
 if not torch.cuda.is_available():
-    print("[warn] CUDA not available – running classifier on CPU")
+    print("[warn] CUDA not available – running smoke test on CPU")
 
 
 class ToFloatNormalize(nn.Module):
