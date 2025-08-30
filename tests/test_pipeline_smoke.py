@@ -13,12 +13,21 @@ def test_pipeline_smoke(tmp_path):
     ckpt = tmp_path / "model.pt"
     torch.save({"label_map": {"Rit Sweep": 0}}, ckpt)
     os.environ["PLAY_CLASSIFIER_MODEL"] = str(ckpt)
+    labels = tmp_path / "labels.txt"
+    labels.write_text("Rit Sweep\n")
+    f_ckpt = tmp_path / "formation.pt"
+    torch.save({}, f_ckpt)
+    f_labels = tmp_path / "formation_labels.txt"
+    f_labels.write_text("Rit\n")
 
     run_dir = pipeline.run_pipeline(
         video=video,
         team="WHITE",
         playbook_path=str(playbook_path),
         out_dir=str(out_dir),
+        play_labels=str(labels),
+        formation_ckpt=str(f_ckpt),
+        formation_labels=str(f_labels),
         min_play_gap=1.5,
         min_play_length=3.0,
         generate_report=True,
