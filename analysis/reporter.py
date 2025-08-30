@@ -12,6 +12,7 @@ PLAY_INDEX_FIELDS = [
     "clf_top1_conf",
     "clf_top3",
     "clf_weak_flag",
+    "smoothing_applied",
     "low_activity",
 ]
 
