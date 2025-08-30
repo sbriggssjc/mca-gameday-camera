@@ -34,7 +34,10 @@ def test_pipeline_smoke(tmp_path):
     html = index_path.read_text()
     assert "0 segments detected" in html
     warnings_path = run_dir / "report" / "warnings.txt"
-    assert not warnings_path.exists()
+    assert warnings_path.exists()
+    warn_txt = warnings_path.read_text()
+    assert "torch:" in warn_txt
+    assert "Warnings" in html
 
     with csv_path.open() as f:
         reader = csv.reader(f)
