@@ -18,7 +18,10 @@ for dir in "${run_dirs[@]}"; do
   echo "$dir"
 
   if [[ -L "$dir" && "$dir" == *__latest ]]; then
-    echo "  -> $(readlink -f "$dir")"
+    python3 - "$dir" <<'PY'
+import os, sys
+print("  -> " + os.path.realpath(sys.argv[1]))
+PY
   fi
 
   CSV="$dir/plays_index.csv"
