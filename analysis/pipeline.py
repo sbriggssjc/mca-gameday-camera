@@ -3,6 +3,8 @@ from __future__ import annotations
 import os, sys, json, pathlib, argparse, csv, subprocess, logging, re
 from collections import Counter
 
+from .harmonizer import harmonize
+
 try:
     # When executed as module (recommended)
     from .segmentation import segment_video
@@ -101,6 +103,7 @@ def run_pipeline(
     min_activity_ratio: float = 0.10,
     preroll: float = 0.75,
     postroll: float = 0.75,
+    smooth_frames: int = 4,
     generate_report: bool = False,
     generate_clips: bool = False,
     debug_weak: bool = False,
@@ -109,15 +112,16 @@ def run_pipeline(
     video = os.path.abspath(video)
     out_dir = os.path.abspath(out_dir)
 
-    play_ckpt = play_ckpt or os.environ.get("PLAY_CLASSIFIER_MODEL") or os.path.join(
-        "models", "play_classifier", "latest.pt"
+    play_ckpt = os.path.abspath(
+        play_ckpt
+        or os.environ.get("PLAY_CLASSIFIER_MODEL")
+        or os.path.join("models", "play_classifier", "latest.pt")
     )
-    formation_ckpt = formation_ckpt or os.path.join("models", "formation", "latest.pt")
-
-    if require_classifier:
-        for path in [play_ckpt, play_labels, formation_ckpt, formation_labels]:
-            if path and not os.path.exists(path):
-                raise FileNotFoundError(f"missing required file: {path}")
+    play_labels = os.path.abspath(play_labels) if play_labels else None
+    formation_ckpt = os.path.abspath(
+        formation_ckpt or os.path.join("models", "formation", "latest.pt")
+    )
+    formation_labels = os.path.abspath(formation_labels) if formation_labels else None
 
     tag = pathlib.Path(video).stem
     short = hex(
@@ -153,6 +157,17 @@ def run_pipeline(
     root_logger.addHandler(fh)
     root_logger.addHandler(sh)
     root_logger.setLevel(logging.INFO)
+
+    logging.info(f"[pipeline] play_ckpt: {play_ckpt}")
+    logging.info(f"[pipeline] play_labels: {play_labels}")
+    logging.info(f"[pipeline] formation_ckpt: {formation_ckpt}")
+    logging.info(f"[pipeline] formation_labels: {formation_labels}")
+
+    if require_classifier:
+        for path in [play_ckpt, play_labels, formation_ckpt, formation_labels]:
+            if path and not os.path.exists(path):
+                logging.error(f"[pipeline] missing required file: {path}")
+                raise FileNotFoundError(f"missing required file: {path}")
 
     index_path = os.path.join(report_dir, "index.html")
     if generate_report:
@@ -190,7 +205,6 @@ def run_pipeline(
     # Validate classifier ↔ playbook wiring
     # ------------------------------------------------------------------
     validator_warnings: list[str] = []
-    unmapped_pb_norms: set[str] = set()
     missing_in_playbook: list[str] = []
     missing_in_model: list[str] = []
     if clf is not None:
@@ -206,7 +220,6 @@ def run_pipeline(
                 if norm not in norm_pb:
                     missing_in_playbook.append(orig)
             missing_in_model = [orig for norm, orig in norm_pb.items() if norm not in norm_model]
-            unmapped_pb_norms = { _norm_label(lbl) for lbl in missing_in_model }
             if missing_in_playbook:
                 validator_warnings.append(
                     "Model labels not in playbook: " + ", ".join(sorted(missing_in_playbook))
@@ -254,6 +267,7 @@ def run_pipeline(
             play_labels=play_labels,
             formation_ckpt=formation_ckpt,
             formation_labels=formation_labels,
+            smooth_frames=smooth_frames,
         )
         for d in classifications:
             d["clf_disabled"] = 0
@@ -283,6 +297,7 @@ def run_pipeline(
     for seg, det in zip(segments, classifications):
         pid = det.get("play_id") or f"PLAY_{len(rows)+1:03d}"
 
+
         labels_with_scores = det.get("clf_top3", det.get("candidates", []))
         if not labels_with_scores and det.get("clf_top1"):
             labels_with_scores = [(
@@ -290,6 +305,11 @@ def run_pipeline(
                 float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0))),
             )]
         canon_top1, canon_top3, canon_reason = map_topk(labels_with_scores)
+
+        top1 = det.get("clf_top1", det.get("play_family", ""))
+        top1_conf = float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0)))
+
+
         row = {
             "play_id": pid,
             "t0": float(seg["t0"]),
@@ -298,30 +318,41 @@ def run_pipeline(
             "whistle": float(seg.get("whistle", seg["t1"])),
             "clip_path": "",
             "formation": det.get("formation") or "",
+            "formation_canon": harmonize(det.get("formation") or ""),
             "formation_confidence": float(det.get("formation_confidence", 0.0)),
             "play_family": det.get("play_family", "Unknown"),
             "playcall_confidence": float(det.get("playcall_confidence", 0.0)),
             # Observability fields
-            "clf_top1": det.get("clf_top1", det.get("play_family", "")),
-            "clf_top1_conf": float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0))),
+            "clf_top1": top1,
+            "clf_top1_conf": top1_conf,
+            "clf_top1_canon": harmonize(top1),
             "clf_top3": "|".join(
                 f"{n}:{float(s):.3f}" for n, s in labels_with_scores
             ),
+
             "clf_top1_canon": canon_top1,
             "clf_top3_canon": canon_top3,
             "canon_reason": canon_reason,
             "clf_weak_flag": int(det.get("clf_weak_flag", 0)),
+
+            "clf_weak_flag": int(top1_conf < 0.35),
+
             "clf_family": det.get("clf_family", ""),
+            "smoothing_applied": int(det.get("smoothing_applied", 0)),
             "clf_disabled": int(det.get("clf_disabled", 0)),
             "outcome": det.get("outcome") or "",
             "clip_duration": max(0.0, float(seg["t1"]) - float(seg["t0"])),
             "low_activity": int(seg.get("low_activity", 0)),
-            "candidates": ";".join(f"{n}:{s:.2f}" for n, s in det.get("candidates", [])),
+            "candidates": ";".join(
+                f"{n}:{float(s):.3f}" for n, s in det.get("candidates", [])
+            ),
         }
+
         if canon_reason == "unmapped":
             unmapped_labels.add(row["clf_top1"])
         if _norm_label(row["clf_top1"]) in unmapped_pb_norms:
             row["clf_weak_flag"] = 1
+
         rows.append(row)
 
     csv_header = [
@@ -332,17 +363,20 @@ def run_pipeline(
         "whistle",
         "clip_path",
         "formation",
+        "formation_canon",
         "formation_confidence",
         "play_family",
         "playcall_confidence",
         "clf_top1",
         "clf_top1_conf",
+        "clf_top1_canon",
         "clf_top3",
         "clf_top1_canon",
         "clf_top3_canon",
         "canon_reason",
         "clf_weak_flag",
         "clf_family",
+        "smoothing_applied",
         "clf_disabled",
         "outcome",
         "clip_duration",
@@ -579,6 +613,7 @@ def main(argv=None) -> None:
     p.add_argument("--min-activity-ratio", type=float, default=0.10)
     p.add_argument("--preroll", type=float, default=0.75)
     p.add_argument("--postroll", type=float, default=0.75)
+    p.add_argument("--smooth-frames", type=int, default=4, help="temporal smoothing radius; 0 disables")
     p.add_argument("--generate-report", dest="generate_report", action="store_true", help="write HTML report")
     p.add_argument("--report", dest="generate_report", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--generate-clips", dest="generate_clips", action="store_true", help="export per-play mp4 clips")
@@ -608,6 +643,7 @@ def main(argv=None) -> None:
         min_activity_ratio=args.min_activity_ratio,
         preroll=args.preroll,
         postroll=args.postroll,
+        smooth_frames=args.smooth_frames,
         generate_report=args.generate_report,
         generate_clips=args.generate_clips,
         debug_weak=args.debug_weak,
