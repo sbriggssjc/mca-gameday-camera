@@ -519,27 +519,47 @@ def run_pipeline(
             for r in rows:
                 w.writerow(r)
 
-    # Optional debug frames for weak classifications
+    # Optional debug frames for weak segments
     if debug_weak:
+        import cv2
+
+        def _fmt_timecode(t: float) -> str:
+            m, s = divmod(t, 60)
+            return f"{int(m):02d}:{s:05.2f}"
+
         dbg_dir = os.path.join(run_dir, "debug", "weak")
         os.makedirs(dbg_dir, exist_ok=True)
-        for idx, (seg, det) in enumerate(zip(segments, classifications), 1):
-            if det.get("clf_weak_flag"):
-                times = [
-                    float(seg["t0"]),
-                    float(seg["t0"] + seg["t1"]) / 2.0,
-                    float(seg["t1"]),
-                ]
-                for j, t in enumerate(times):
-                    _ffmpeg(
-                        "-ss",
-                        f"{t:.3f}",
-                        "-i",
-                        video,
-                        "-frames:v",
-                        "1",
-                        os.path.join(dbg_dir, f"seg_{idx}_{j}.jpg"),
-                    )
+        for row in rows:
+            if int(row.get("clf_weak_flag", 0)) or int(row.get("formation_weak", 0)):
+                pid = row["play_id"]
+                t0 = float(row["t0"])
+                t1 = float(row["t1"])
+                times = [("t0", t0), ("mid", (t0 + t1) / 2.0), ("t1", t1)]
+                for suffix, t in times:
+                    cap = cv2.VideoCapture(video)
+                    cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
+                    ok, frame = cap.read()
+                    cap.release()
+                    if not ok:
+                        continue
+
+                    text_lines = [
+                        _fmt_timecode(t),
+                        f"{row['clf_top1']} ({float(row['clf_top1_conf']):.2f})",
+                        f"{row['formation']} ({float(row['formation_confidence']):.2f})",
+                    ]
+                    for i, line in enumerate(text_lines):
+                        cv2.putText(
+                            frame,
+                            line,
+                            (10, 30 + i * 30),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.7,
+                            (255, 255, 255),
+                            2,
+                        )
+                    out_path = os.path.join(dbg_dir, f"{pid}_{suffix}.jpg")
+                    cv2.imwrite(out_path, frame)
 
     if generate_report:
         report = {
@@ -607,8 +627,6 @@ def run_pipeline(
 
         warn_path = os.path.join(report_dir, "warnings.txt")
         warn_text = pathlib.Path(warn_path).read_text() if os.path.exists(warn_path) else ""
-
-        if rows:
 
         # Parse unmapped labels from warnings
         unmapped_labels: list[str] = []
