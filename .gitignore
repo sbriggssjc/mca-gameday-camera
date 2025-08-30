@@ -1,27 +1,3 @@
-.install/firefox-esr/
-.install/firefox-esr/libxul.so
-firefox-esr/
-.env
-
-# Video recordings
-/video/*.mp4
-video/*_play_log.csv
-video/uploaded/
-video/manual_uploads/*.mp4
-*.mp4
-*.mov
-*.mkv
-output.mp4
-livestream_logs/
-output/
-!output/.gitkeep
-config/credentials.json
-credentials.json# Google/GCP service account keys (never commit these)
-*.sa.json
-*.gcp.json
-*service-account*.json
-*credentials*.json
-modular-conduit-*-*.json
 video/
 *.mp4
 *.flv
