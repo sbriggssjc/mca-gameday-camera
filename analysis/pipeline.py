@@ -102,6 +102,7 @@ def run_pipeline(
     min_activity_ratio: float = 0.10,
     preroll: float = 0.75,
     postroll: float = 0.75,
+    smooth_frames: int = 4,
     generate_report: bool = False,
     generate_clips: bool = False,
     debug_weak: bool = False,
@@ -110,15 +111,16 @@ def run_pipeline(
     video = os.path.abspath(video)
     out_dir = os.path.abspath(out_dir)
 
-    play_ckpt = play_ckpt or os.environ.get("PLAY_CLASSIFIER_MODEL") or os.path.join(
-        "models", "play_classifier", "latest.pt"
+    play_ckpt = os.path.abspath(
+        play_ckpt
+        or os.environ.get("PLAY_CLASSIFIER_MODEL")
+        or os.path.join("models", "play_classifier", "latest.pt")
     )
-    formation_ckpt = formation_ckpt or os.path.join("models", "formation", "latest.pt")
-
-    if require_classifier:
-        for path in [play_ckpt, play_labels, formation_ckpt, formation_labels]:
-            if path and not os.path.exists(path):
-                raise FileNotFoundError(f"missing required file: {path}")
+    play_labels = os.path.abspath(play_labels) if play_labels else None
+    formation_ckpt = os.path.abspath(
+        formation_ckpt or os.path.join("models", "formation", "latest.pt")
+    )
+    formation_labels = os.path.abspath(formation_labels) if formation_labels else None
 
     tag = pathlib.Path(video).stem
     short = hex(
@@ -154,6 +156,17 @@ def run_pipeline(
     root_logger.addHandler(fh)
     root_logger.addHandler(sh)
     root_logger.setLevel(logging.INFO)
+
+    logging.info(f"[pipeline] play_ckpt: {play_ckpt}")
+    logging.info(f"[pipeline] play_labels: {play_labels}")
+    logging.info(f"[pipeline] formation_ckpt: {formation_ckpt}")
+    logging.info(f"[pipeline] formation_labels: {formation_labels}")
+
+    if require_classifier:
+        for path in [play_ckpt, play_labels, formation_ckpt, formation_labels]:
+            if path and not os.path.exists(path):
+                logging.error(f"[pipeline] missing required file: {path}")
+                raise FileNotFoundError(f"missing required file: {path}")
 
     index_path = os.path.join(report_dir, "index.html")
     if generate_report:
@@ -253,6 +266,7 @@ def run_pipeline(
             play_labels=play_labels,
             formation_ckpt=formation_ckpt,
             formation_labels=formation_labels,
+            smooth_frames=smooth_frames,
         )
         for d in classifications:
             d["clf_disabled"] = 0
@@ -305,6 +319,7 @@ def run_pipeline(
             ),
             "clf_weak_flag": int(top1_conf < 0.35),
             "clf_family": det.get("clf_family", ""),
+            "smoothing_applied": int(det.get("smoothing_applied", 0)),
             "clf_disabled": int(det.get("clf_disabled", 0)),
             "outcome": det.get("outcome") or "",
             "clip_duration": max(0.0, float(seg["t1"]) - float(seg["t0"])),
@@ -333,6 +348,7 @@ def run_pipeline(
         "clf_top3",
         "clf_weak_flag",
         "clf_family",
+        "smoothing_applied",
         "clf_disabled",
         "outcome",
         "clip_duration",
@@ -566,6 +582,7 @@ def main(argv=None) -> None:
     p.add_argument("--min-activity-ratio", type=float, default=0.10)
     p.add_argument("--preroll", type=float, default=0.75)
     p.add_argument("--postroll", type=float, default=0.75)
+    p.add_argument("--smooth-frames", type=int, default=4, help="temporal smoothing radius; 0 disables")
     p.add_argument("--generate-report", dest="generate_report", action="store_true", help="write HTML report")
     p.add_argument("--report", dest="generate_report", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--generate-clips", dest="generate_clips", action="store_true", help="export per-play mp4 clips")
@@ -595,6 +612,7 @@ def main(argv=None) -> None:
         min_activity_ratio=args.min_activity_ratio,
         preroll=args.preroll,
         postroll=args.postroll,
+        smooth_frames=args.smooth_frames,
         generate_report=args.generate_report,
         generate_clips=args.generate_clips,
         debug_weak=args.debug_weak,
