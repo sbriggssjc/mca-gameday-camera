@@ -770,18 +770,52 @@ def main(argv=None) -> None:
     p.add_argument("--min-activity-ratio", type=float, default=0.10)
     p.add_argument("--preroll", type=float, default=0.75)
     p.add_argument("--postroll", type=float, default=0.75)
-    p.add_argument("--smooth-frames", type=int, default=4, help="temporal smoothing radius; 0 disables")
-    p.add_argument("--generate-report", dest="generate_report", action="store_true", help="write HTML report")
-    p.add_argument("--report", dest="generate_report", action="store_true", help=argparse.SUPPRESS)
-    p.add_argument("--generate-clips", dest="generate_clips", action="store_true", help="export per-play mp4 clips")
-    p.add_argument("--clips", dest="generate_clips", action="store_true", help=argparse.SUPPRESS)
-    p.add_argument("--debug-weak", action="store_true")
     p.add_argument(
-        "--require-classifier",
-        action="store_true",
-        default=True,
-        help="If True, raise on classifier init failure; if False, continue without predictions.",
+        "--smooth-frames",
+        type=int,
+        default=4,
+        help="temporal smoothing radius; 0 disables",
     )
+    p.add_argument(
+        "--generate-report",
+        dest="generate_report",
+        action="store_true",
+        help="write HTML report",
+    )
+    p.add_argument(
+        "--report",
+        dest="generate_report",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    p.add_argument(
+        "--generate-clips",
+        dest="generate_clips",
+        action="store_true",
+        help="export per-play mp4 clips",
+    )
+    p.add_argument(
+        "--clips",
+        dest="generate_clips",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    p.add_argument("--debug-weak", action="store_true")
+
+    group = p.add_mutually_exclusive_group()
+    group.add_argument(
+        "--require-classifier",
+        dest="require_classifier",
+        action="store_true",
+        help="Require classifier; fail run if torch/models not available.",
+    )
+    group.add_argument(
+        "--no-require-classifier",
+        dest="require_classifier",
+        action="store_false",
+        help="Disable classifier; do segmentation/clipping only.",
+    )
+    p.set_defaults(require_classifier=True)
     args = p.parse_args(argv)
     print(f"[pipeline] config: {json.dumps(vars(args), sort_keys=True)}")
 
