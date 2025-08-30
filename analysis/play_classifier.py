@@ -10,6 +10,7 @@ from the supplied playbook.
 
 import math
 from typing import Any, Dict, Iterable, List, Tuple
+import math
 
 # ---------------------------------------------------------------------------
 # Playbook helpers
@@ -178,11 +179,10 @@ def classify_plays(
     for seg in segments:
         formation = seg.get("formation", "") or ""
         formations.append(formation)
-        cands = _best_matches_from_playbook(formation, playbook, topk=3)
+        # Always propose candidates irrespective of formation or activity
+        cands = _best_matches_from_playbook(formation, playbook, topk=5)
         if not cands:
-            cands = _best_matches_from_playbook("", playbook, topk=3)
-        if seg.get("low_activity"):
-            cands = [(n, s * 0.5) for n, s in cands]
+            cands = _best_matches_from_playbook("", playbook, topk=5)
         raw_scores.append({n: s for n, s in cands})
 
     def _softmax(d: Dict[str, float]) -> Dict[str, float]:
@@ -210,6 +210,24 @@ def classify_plays(
             names = {n for d in window for n in d}
             avg_logits: Dict[str, float] = {}
             for n in names:
+
+                smoothed[n] = sum(d.get(n, 0.0) for d in window) / len(window)
+            if smoothed:
+                sorted_cands = sorted(smoothed.items(), key=lambda x: x[1], reverse=True)
+                final_scores = smoothed
+                top_name, top_score = (sorted_cands[0] if sorted_cands else ("", 0.0))
+
+        # Convert scores to probabilities
+        if final_scores:
+            max_logit = max(final_scores.values())
+            exp_scores = {k: math.exp(v - max_logit) for k, v in final_scores.items()}
+            total = sum(exp_scores.values()) or 1.0
+            probs = {k: v / total for k, v in exp_scores.items()}
+        else:
+            probs = {}
+        sorted_cands = sorted(probs.items(), key=lambda x: x[1], reverse=True)
+        top_name, top_score = (sorted_cands[0] if sorted_cands else ("", 0.0))
+
                 avg_logits[n] = sum(d.get(n, 0.0) for d in window) / len(window)
             smoothed_probs = _softmax(avg_logits)
             smoothed_sorted = sorted(smoothed_probs.items(), key=lambda x: x[1], reverse=True)
@@ -219,12 +237,13 @@ def classify_plays(
                 top_name, top_score = smoothed_sorted[0]
                 smoothing_applied = 1
 
+
         if top_score < weak_threshold:
             clf_family = _best_family_from_playbook(playbook, final_probs)
         else:
             clf_family = ""
 
-        weak_flag = 1 if seg.get("low_activity") or top_score < weak_threshold else 0
+        weak_flag = 1 if top_score < weak_threshold else 0
 
         top5 = sorted_cands[:5]
         top3 = sorted_cands[:3]
