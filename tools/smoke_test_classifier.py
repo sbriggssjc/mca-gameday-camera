@@ -5,7 +5,7 @@ import os
 from typing import List, Tuple
 
 import torch
-import torch.nn as nn  # <-- add this
+import torch.nn as nn
 from torchvision import models, transforms
 
 if not torch.cuda.is_available():
