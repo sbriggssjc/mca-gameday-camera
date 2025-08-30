@@ -9,12 +9,13 @@ try:
     # When executed as module (recommended)
     from .segmentation import segment_video
     from .playbook import load_playbook
+    from .label_harmonizer import map_topk
 except ImportError:  # pragma: no cover - fallback for script execution
     # Fallback when run as a script from repo root
     sys.path.append(str(pathlib.Path(__file__).resolve().parent.parent))
     from analysis.segmentation import segment_video
     from analysis.playbook import load_playbook
-
+    from analysis.label_harmonizer import map_topk
 # ``classify_plays`` is loaded lazily so that the pipeline can operate without
 # the heavy classifier dependency when needed.  Tests may monkeypatch this
 # symbol, hence it is defined at module scope.
@@ -292,11 +293,22 @@ def run_pipeline(
             )
 
     rows: list[dict] = []
+    unmapped_labels: set[str] = set()
     for seg, det in zip(segments, classifications):
         pid = det.get("play_id") or f"PLAY_{len(rows)+1:03d}"
 
+
+        labels_with_scores = det.get("clf_top3", det.get("candidates", []))
+        if not labels_with_scores and det.get("clf_top1"):
+            labels_with_scores = [(
+                det.get("clf_top1"),
+                float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0))),
+            )]
+        canon_top1, canon_top3, canon_reason = map_topk(labels_with_scores)
+
         top1 = det.get("clf_top1", det.get("play_family", ""))
         top1_conf = float(det.get("clf_top1_conf", det.get("playcall_confidence", 0.0)))
+
 
         row = {
             "play_id": pid,
@@ -315,9 +327,16 @@ def run_pipeline(
             "clf_top1_conf": top1_conf,
             "clf_top1_canon": harmonize(top1),
             "clf_top3": "|".join(
-                f"{n}:{float(s):.3f}" for n, s in det.get("clf_top3", det.get("candidates", []))
+                f"{n}:{float(s):.3f}" for n, s in labels_with_scores
             ),
+
+            "clf_top1_canon": canon_top1,
+            "clf_top3_canon": canon_top3,
+            "canon_reason": canon_reason,
+            "clf_weak_flag": int(det.get("clf_weak_flag", 0)),
+
             "clf_weak_flag": int(top1_conf < 0.35),
+
             "clf_family": det.get("clf_family", ""),
             "smoothing_applied": int(det.get("smoothing_applied", 0)),
             "clf_disabled": int(det.get("clf_disabled", 0)),
@@ -328,6 +347,12 @@ def run_pipeline(
                 f"{n}:{float(s):.3f}" for n, s in det.get("candidates", [])
             ),
         }
+
+        if canon_reason == "unmapped":
+            unmapped_labels.add(row["clf_top1"])
+        if _norm_label(row["clf_top1"]) in unmapped_pb_norms:
+            row["clf_weak_flag"] = 1
+
         rows.append(row)
 
     csv_header = [
@@ -346,6 +371,9 @@ def run_pipeline(
         "clf_top1_conf",
         "clf_top1_canon",
         "clf_top3",
+        "clf_top1_canon",
+        "clf_top3_canon",
+        "canon_reason",
         "clf_weak_flag",
         "clf_family",
         "smoothing_applied",
@@ -362,6 +390,9 @@ def run_pipeline(
         os.makedirs(os.path.join(run_dir, "clips"), exist_ok=True)
         os.makedirs(report_dir, exist_ok=True)
 
+        if unmapped_labels:
+            for lbl in sorted(unmapped_labels):
+                validator_warnings.append(f"Unmapped classifier label: {lbl}")
         if validator_warnings:
             warn_path = os.path.join(report_dir, "warnings.txt")
             with open(warn_path, "w", encoding="utf-8") as wf:
