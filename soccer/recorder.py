@@ -16,7 +16,8 @@ from .space_check import require_free_gb
 class Recorder:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
-        self.outdir = Path(args.outdir)
+        # resolve the output directory to an absolute Path
+        self.outdir = Path(args.outdir).resolve()
         self.log_file = None
         self.procs: List[subprocess.Popen] = []
 
@@ -222,20 +223,27 @@ class Recorder:
 
     def run(self) -> int:
         a = self.args
-        # prepare dirs
-        for sub in ["full", "proxy", "thumbs", "logs", "meta"]:
-            (self.outdir / sub).mkdir(parents=True, exist_ok=True)
+        # prepare directories using Path joins
+        full_dir = self.outdir / "full"
+        proxy_dir = self.outdir / "proxy"
+        thumbs_dir = self.outdir / "thumbs"
+        logs_dir = self.outdir / "logs"
+        meta_dir = self.outdir / "meta"
+        for d in (full_dir, proxy_dir, thumbs_dir, logs_dir, meta_dir):
+            d.mkdir(parents=True, exist_ok=True)
 
         require_free_gb(self.outdir, a.min_free_gb)
 
         ts = self.base_ts
-        full_pattern = str(self.outdir / "full" / "%Y%m%d-%H%M%S_" + a.title + "_part%03d.mp4")
-        proxy_pattern = str(self.outdir / "proxy" / "%Y%m%d-%H%M%S_" + a.title + "_part%03d.mp4")
-        thumb_pattern = str(self.outdir / "thumbs" / "%Y%m%d-%H%M%S_" + a.title + "_%06d.jpg")
+        title = a.title
+        # build output patterns as strings for ffmpeg
+        full_pattern = str(full_dir / f"%Y%m%d-%H%M%S_{title}_part%03d.mp4")
+        proxy_pattern = str(proxy_dir / f"%Y%m%d-%H%M%S_{title}_part%03d.mp4")
+        thumb_pattern = str(thumbs_dir / f"%Y%m%d-%H%M%S_{title}_%06d.jpg")
 
         self._open_log()
 
-        meta_path = self.outdir / "meta" / f"{ts}-{a.title}.json"
+        meta_path = meta_dir / f"{ts}-{title}.json"
         meta = {
             "video_dev": a.video_dev,
             "audio_src": a.audio_src,
@@ -256,7 +264,7 @@ class Recorder:
         thumb_cmd = self.build_thumb_cmd(thumb_pattern)
         self._launch(thumb_cmd)
 
-        prepare_for_recognition(a.outdir, str(self.outdir / "thumbs"), str(self.outdir / "proxy"))
+        prepare_for_recognition(str(self.outdir), str(thumbs_dir), str(proxy_dir))
 
         def handle_signal(signum, frame):
             for p in self.procs:
