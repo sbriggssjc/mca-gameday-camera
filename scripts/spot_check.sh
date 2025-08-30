@@ -21,53 +21,28 @@ for dir in "${run_dirs[@]}"; do
     echo "  -> $(readlink -f "$dir")"
   fi
 
-  if [[ -f "$dir/plays_index.csv" ]]; then
-    head -n 6 "$dir/plays_index.csv" | sed 's/^/  /'
-    awk -F, '
-NR==1 {
-  for (i = 1; i <= NF; i++) {
-    gsub(/"/, "", $i)
-    if ($i == "clf_weak_flag") weak_i = i
-    if ($i == "clf_top1_conf") conf_i = i
-    if (!canon_i && $i ~ /_canon$/) canon_i = i
-  }
-  next
-}
-{
-  N++
-  if (weak_i) weak += $weak_i
-  if (conf_i) conf += $conf_i
-  if (canon_i) {
-    key = $canon_i
-    if (key != "") {
-      canon[key]++
-      canon_non_empty = 1
-    }
-  }
-}
-END {
-  pct = (N ? 100 * weak / N : 0)
-  avg = (N ? conf / N : 0)
-  printf "stats: segments=%d weak=%d (%.1f%%) avg_conf=%.2f\n", N, weak, pct, avg
-  if (canon_i) {
-    if (canon_non_empty) {
-      asorti(canon, idx, "@val_num_desc")
-      printf "top canon plays: "
-      shown = 0
-      for (j = 1; j <= length(idx) && shown < 5; j++) {
-        k = idx[j]
-        printf "%s (%d)", k, canon[k]
-        shown++
-        if (shown < length(idx) && shown < 5) printf ", "
-      }
-      printf "\n"
-    } else {
-      print "no canonical mapping"
-    }
-  } else {
-    print "no canonical mapping"
-  }
-}' "$dir/plays_index.csv" | sed 's/^/  /'
+  CSV="$dir/plays_index.csv"
+  if [[ -f "$CSV" ]]; then
+    head -n 6 "$CSV" | sed 's/^/  /'
+    python3 - <<'PY' "$CSV"
+import csv, sys, collections
+p=sys.argv[1]
+rows=list(csv.DictReader(open(p, newline='')))
+n=len(rows)
+if n==0:
+    print("  stats: segments=0")
+    raise SystemExit
+weak=sum(int((r.get("clf_weak_flag") or "0").strip() or 0) for r in rows)
+try:
+    avg=sum(float((r.get("clf_top1_conf") or "0").strip() or 0.0) for r in rows)/n
+except Exception:
+    avg=0.0
+top=collections.Counter([(r.get("clf_top1_canon") or r.get("clf_top1") or "").strip() for r in rows])
+top.pop("", None)
+best=", ".join(f"{k} ({v})" for k,v in top.most_common(5)) if top else "no canonical mapping"
+print(f"  stats: segments={n} weak={weak} ({(100.0*weak/n):.1f}%) avg_conf={avg:.3f}")
+print(f"  top plays: {best}")
+PY
   else
     echo "  missing plays_index.csv"
   fi
