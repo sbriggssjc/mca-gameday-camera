@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os, sys, json, pathlib, argparse, csv, subprocess, logging, re
+import os, sys, json, pathlib, argparse, csv, subprocess, logging, re, types
 from collections import Counter
 import html
 
@@ -21,6 +21,7 @@ except ImportError:  # pragma: no cover - fallback for script execution
 # the heavy classifier dependency when needed.  Tests may monkeypatch this
 # symbol, hence it is defined at module scope.
 classify_plays = None  # type: ignore
+logger = logging.getLogger(__name__)
 
 
 def _ffmpeg(*args: str) -> subprocess.CompletedProcess:
@@ -168,9 +169,7 @@ def run_pipeline(
     )[2:]
     run_dir = os.path.join(out_dir, "games", f"{_safe_name(tag)}__{short}")
     report_dir = os.path.join(run_dir, "report")
-    os.makedirs(run_dir, exist_ok=True)
-    os.makedirs(report_dir, exist_ok=True)
-    run_dir_created = True
+    run_dir_created = False
 
     model_paths = {
         "play_ckpt": play_ckpt,
@@ -180,22 +179,45 @@ def run_pipeline(
     }
 
     warnings: list[str] = []
+    torch_info = "torch: disabled"
+    device_info = "device: N/A"
+    clf = None
 
-    try:
-        import torch  # type: ignore
+    if require_classifier:
+        missing_paths = [
+            name for name, pth in model_paths.items() if pth and not os.path.exists(pth)
+        ]
+        if missing_paths:
+            raise FileNotFoundError(
+                f"[classifier] missing required file: {model_paths[missing_paths[0]]}"
+            )
+        try:
+            import torch  # noqa: F401
+            from .classifiers import load_models
 
-        torch_info = f"torch: {torch.__version__}"
-        if torch.cuda.is_available():
-            device_info = f"device: cuda:{torch.cuda.get_device_name(0)}"
-        else:
-            device_info = "device: cpu"
-    except Exception as e:  # pragma: no cover - best effort
-        torch_info = f"torch: MISSING ({e})"
-        device_info = "device: N/A"
-        warnings.append(f"torch import failed: {e}")
-        if require_classifier:
-            _write_warnings(report_dir, torch_info, device_info, model_paths, Counter(), warnings)
-            raise
+            torch_info = f"torch: {torch.__version__}"
+            if torch.cuda.is_available():
+                device_info = f"device: cuda:{torch.cuda.get_device_name(0)}"
+            else:
+                device_info = "device: cpu"
+
+            args_obj = types.SimpleNamespace(
+                play_ckpt=play_ckpt,
+                play_labels=play_labels,
+                formation_ckpt=formation_ckpt,
+                formation_labels=formation_labels,
+            )
+            clf = load_models(args_obj)
+        except Exception as e:  # pragma: no cover - fail fast
+            raise RuntimeError(f"[classifier] required but failed to init: {e}")
+    else:
+        logger.warning(
+            "[classifier] disabled (--require-classifier=false); running segmentation/clipping only"
+        )
+
+    os.makedirs(run_dir, exist_ok=True)
+    os.makedirs(report_dir, exist_ok=True)
+    run_dir_created = True
 
     # Configure logging to file under the run directory and to stdout
     log_path = os.path.join(run_dir, "pipeline.log")
@@ -216,13 +238,6 @@ def run_pipeline(
     logging.info(f"[pipeline] formation_ckpt: {formation_ckpt}")
     logging.info(f"[pipeline] formation_labels: {formation_labels}")
 
-    missing_paths = [name for name, pth in model_paths.items() if pth and not os.path.exists(pth)]
-    if missing_paths and require_classifier:
-        for name in missing_paths:
-            warnings.append(f"missing required file: {model_paths[name]}")
-        _write_warnings(report_dir, torch_info, device_info, model_paths, Counter(), warnings)
-        raise FileNotFoundError(f"missing required file: {model_paths[missing_paths[0]]}")
-
     index_path = os.path.join(report_dir, "index.html")
     if generate_report:
         os.makedirs(report_dir, exist_ok=True)
@@ -232,30 +247,6 @@ def run_pipeline(
 
     playbook = load_playbook(playbook_path)
     print(f"[playbook] source={playbook_path}")
-
-    import types
-
-    clf = None
-    clf_error: str | None = None
-    try:
-        from .classifiers import load_models
-
-        args_obj = types.SimpleNamespace(
-            play_ckpt=play_ckpt,
-            play_labels=play_labels,
-            formation_ckpt=formation_ckpt,
-            formation_labels=formation_labels,
-        )
-        clf = load_models(args_obj)
-    except Exception as e:
-        warnings.append(str(e))
-        if require_classifier:
-            _write_warnings(report_dir, torch_info, device_info, model_paths, Counter(), warnings)
-            raise
-        else:
-            logging.getLogger().warning(f"[classifier] disabled: {e}")
-            clf_error = str(e)
-            clf = None
 
     # ------------------------------------------------------------------
     # Validate classifier ↔ playbook wiring
@@ -291,8 +282,10 @@ def run_pipeline(
                 logging.warning("label/playbook mismatch detected")
     else:
         model_labels = set()
-        msg = f"classifier disabled: {clf_error}" if clf_error else "classifier disabled"
-        validator_warnings.append(msg)
+        validator_warnings.append(
+            "[classifier] disabled (--require-classifier=false)"
+        )
+
     segments = segment_video(
         video,
         min_play_length=min_play_length,
@@ -312,8 +305,21 @@ def run_pipeline(
             seg.get("activity_ratio", 0.0) < min_activity_ratio and not seg.get("has_whistle")
         )
 
-    if clf is not None and segments:
-        global classify_plays
+    global classify_plays
+    if classify_plays is not None and segments:
+        classifications = classify_plays(
+            segments,
+            playbook,
+            team,
+            play_ckpt=play_ckpt,
+            play_labels=play_labels,
+            formation_ckpt=formation_ckpt,
+            formation_labels=formation_labels,
+            smooth_frames=smooth_frames,
+        )
+        for d in classifications:
+            d["clf_disabled"] = 0
+    elif clf is not None and segments:
         if classify_plays is None:  # pragma: no cover - lazy import
             from .play_classifier import classify_plays as _classify_plays
             classify_plays = _classify_plays
