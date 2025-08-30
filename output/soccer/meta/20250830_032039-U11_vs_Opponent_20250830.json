@@ -1,0 +1,10 @@
+{
+  "video_dev": "/dev/video0",
+  "audio_src": "alsa_input.platform-sound.analog-stereo",
+  "resolution": "1280x720",
+  "fps": 30,
+  "start_time": "20250830_032039",
+  "full_pattern": "/home/scott/mca-gameday-camera/output/soccer/full/%Y%m%d-%H%M%S_U11_vs_Opponent_20250830_part%03d.mp4",
+  "proxy_pattern": null,
+  "thumb_pattern": "/home/scott/mca-gameday-camera/output/soccer/thumbs/%Y%m%d-%H%M%S_U11_vs_Opponent_20250830_%06d.jpg"
+}
