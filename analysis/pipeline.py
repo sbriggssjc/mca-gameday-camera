@@ -230,6 +230,7 @@ def run_pipeline(
                 validator_warnings.append(
                     "Playbook labels missing from model: " + ", ".join(sorted(missing_in_model))
                 )
+            unmapped_pb_norms = { _norm_label(lbl) for lbl in missing_in_playbook }
             if validator_warnings:
                 logging.warning("label/playbook mismatch detected")
     else:
@@ -255,7 +256,7 @@ def run_pipeline(
             seg.get("activity_ratio", 0.0) < min_activity_ratio and not seg.get("has_whistle")
         )
 
-    if clf is not None:
+    if clf is not None and segments:
         global classify_plays
         if classify_plays is None:  # pragma: no cover - lazy import
             from .play_classifier import classify_plays as _classify_plays
@@ -273,6 +274,8 @@ def run_pipeline(
         )
         for d in classifications:
             d["clf_disabled"] = 0
+    elif clf is not None:
+        classifications = []
     else:
         classifications = []
         for i, seg in enumerate(segments, 1):
@@ -516,22 +519,51 @@ def run_pipeline(
     # Basic HTML report with sanity checks
     # ------------------------------------------------------------------
     if generate_report:
-        seg_count = len(rows)
-        weak_count = sum(r.get("clf_weak_flag", 0) for r in rows)
+        # Report statistics derived from plays_index.csv for transparency
+        seg_count = weak_count = clips_count = 0
+        conf_sum = 0.0
+        label_counts: Counter = Counter()
+        csv_path = os.path.join(run_dir, "plays_index.csv")
+        if os.path.exists(csv_path):
+            with open(csv_path) as cf:
+                reader = csv.DictReader(cf)
+                for row in reader:
+                    seg_count += 1
+                    if row.get("clip_path"):
+                        clips_count += 1
+                    try:
+                        conf_sum += float(row.get("clf_top1_conf", 0.0))
+                    except ValueError:
+                        pass
+                    try:
+                        if int(row.get("clf_weak_flag", 0)):
+                            weak_count += 1
+                    except ValueError:
+                        pass
+                    lbl = row.get("clf_top1_canon") or row.get("clf_top1") or ""
+                    if lbl:
+                        label_counts[lbl] += 1
         weak_pct = (weak_count / seg_count * 100.0) if seg_count else 0.0
-        avg_conf = (
-            sum(r.get("clf_top1_conf", 0.0) for r in rows) / seg_count if seg_count else 0.0
-        )
-        label_counts = Counter(r.get("clf_top1", "") for r in rows)
+        avg_conf = (conf_sum / seg_count) if seg_count else 0.0
         top_labels = ", ".join(
-            f"{n} ({c})" for n, c in label_counts.most_common(5) if n
+            f"{n} ({c})" for n, c in label_counts.most_common(10) if n
         )
-        disabled_count = sum(r.get("clf_disabled", 0) for r in rows)
-        unmapped_labels = sorted(set(missing_in_playbook + missing_in_model))
 
-        if rows:
+        # Parse unmapped labels from warnings
+        unmapped_labels: list[str] = []
+        for line in validator_warnings:
+            if ":" in line:
+                _, vals = line.split(":", 1)
+                unmapped_labels.extend([v.strip() for v in vals.split(",") if v.strip()])
+        unmapped_labels = sorted(set(unmapped_labels))
+
+        if seg_count:
             with open(index_path, "w", encoding="utf-8") as f:
-                f.write("<html><head><meta charset='utf-8'><title>Run Report</title></head><body>\n")
+                f.write(
+                    "<html><head><meta charset='utf-8'><title>Run Report</title>"
+                    "<style>body{font-family:sans-serif;} .thumb{height:80px;margin:2px;}</style>"
+                    "</head><body>\n"
+                )
                 f.write(f"<h1>{status_icon.strip()}Analysis Report</h1>\n")
                 f.write("<h2>Sanity Checks</h2>\n<ul>\n")
                 f.write(
@@ -546,20 +578,38 @@ def run_pipeline(
 
                 f.write("<h2>Classifier Health</h2>\n<ul>\n")
                 f.write(f"<li>Segments: {seg_count}</li>\n")
-                f.write(f"<li>Classifier disabled: {disabled_count}</li>\n")
+                f.write(f"<li>Clips: {clips_count}</li>\n")
                 f.write(
                     f"<li>Weak classifications: {weak_count} ({weak_pct:.1f}% weak)</li>\n"
                 )
                 f.write(f"<li>Average top1 confidence: {avg_conf:.3f}</li>\n")
                 if top_labels:
                     f.write(f"<li>Top predictions: {top_labels}</li>\n")
+                f.write(f"<li>Unmapped labels: {len(unmapped_labels)}</li>\n")
                 if unmapped_labels:
                     f.write(
-                        "<li>Unmapped labels: " + ", ".join(unmapped_labels) + "</li>\n"
+                        f"<li>Labels: {', '.join(unmapped_labels)}</li>\n"
                     )
                 if validator_warnings:
                     f.write("<li><a href='warnings.txt'>warnings.txt</a></li>\n")
-                f.write("</ul>\n</body></html>\n")
+                f.write("</ul>\n")
+
+                if debug_weak:
+                    dbg_dir = os.path.join(run_dir, "debug", "weak")
+                    if os.path.isdir(dbg_dir):
+                        imgs = [
+                            n
+                            for n in sorted(os.listdir(dbg_dir))
+                            if n.lower().endswith((".jpg", ".jpeg", ".png"))
+                        ]
+                        if imgs:
+                            f.write("<h2>Weak Thumbnails</h2><div>\n")
+                            for n in imgs:
+                                rel = os.path.join("..", "debug", "weak", n).replace("\\", "/")
+                                f.write(f"<img src='{rel}' class='thumb'>")
+                            f.write("</div>\n")
+
+                f.write("</body></html>\n")
         else:
             # Stub report when no segments were detected.
             with open(index_path, "w", encoding="utf-8") as f:
