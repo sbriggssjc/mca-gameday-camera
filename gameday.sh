@@ -34,6 +34,7 @@ log "Starting full game recording..."
 FULLGAME_FILE="$FULL_DIR/fullgame_${TIMESTAMP}.mp4"
 LOG_FILE="$FULL_DIR/fullgame_ffmpeg.log"
 <<<<<<< HEAD
+<<<<<<< HEAD
 cmd=(ffmpeg -loglevel verbose -f v4l2 -input_format mjpeg -framerate 30 -video_size 640x480 -i /dev/video0 \
     -vf format=yuv420p \
     -c:v h264_v4l2m2m -preset ultrafast -b:v 2500k -maxrate 3000k -bufsize 4000k -t 03:00:00 \
@@ -41,6 +42,11 @@ cmd=(ffmpeg -loglevel verbose -f v4l2 -input_format mjpeg -framerate 30 -video_s
 cmd=(ffmpeg -loglevel verbose -f v4l2 -framerate 30 -video_size 1280x720 -i /dev/video0 \
     -c:v libx264 -b:v 13500k -maxrate 13500k -bufsize 27000k -t 03:00:00 -pix_fmt yuv420p \
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+cmd=(ffmpeg -loglevel verbose -f v4l2 -input_format mjpeg -framerate 30 -video_size 640x480 -i /dev/video0 \
+    -vf format=yuv420p \
+    -c:v h264_v4l2m2m -preset ultrafast -b:v 2500k -maxrate 3000k -bufsize 4000k -t 03:00:00 \
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     -c:a aac -b:a 128k "$FULLGAME_FILE")
 echo "Running FFmpeg command: ${cmd[*]}" | tee "$LOG_FILE"
 "${cmd[@]}" >>"$LOG_FILE" 2>&1 &

@@ -3,9 +3,13 @@ import shutil
 import subprocess
 from pathlib import Path
 <<<<<<< HEAD
+<<<<<<< HEAD
 from ffmpeg_utils import build_ffmpeg_args
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+from ffmpeg_utils import build_ffmpeg_args
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
 
 def load_env(env_path: str = ".env") -> None:
@@ -57,6 +61,9 @@ def test_stream(url: str | None = None, *, duration: int = 5, log_path: str = "t
 
         log.write("\nStarting ffmpeg test stream...\n")
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
         cmd = build_ffmpeg_args(
             video_source="testsrc=size=640x480:rate=30",
             audio_device=None,
@@ -67,6 +74,7 @@ def test_stream(url: str | None = None, *, duration: int = 5, log_path: str = "t
             video_format="lavfi",
             extra_args=["-t", str(duration)],
         )
+<<<<<<< HEAD
 =======
         cmd = [
             ensure_ffmpeg(),
@@ -78,6 +86,8 @@ def test_stream(url: str | None = None, *, duration: int = 5, log_path: str = "t
             url,
         ]
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
         result = subprocess.run(cmd, capture_output=True)
         stdout = result.stdout.decode("utf-8", errors="ignore")
         stderr = result.stderr.decode("utf-8", errors="ignore")

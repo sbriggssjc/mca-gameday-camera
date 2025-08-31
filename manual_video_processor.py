@@ -70,6 +70,7 @@ def process_uploaded_game_film(
 
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     playbook = load_playbook()
 =======
     playbook_file = (
@@ -79,6 +80,9 @@ def process_uploaded_game_film(
     )
     playbook = load_playbook(playbook_file)
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    playbook = load_playbook()
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
     frame_logs: List[Dict[str, object]] = []
     jersey_counts: Dict[int, int] = {}

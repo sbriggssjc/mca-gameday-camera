@@ -2,18 +2,26 @@
 from __future__ import annotations
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 import json
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 from tools.json_io import load_json_safe
 
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+from tools.json_io import load_json_safe
+
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 from play_recommender import recommend_play
 
 import pandas as pd
@@ -34,6 +42,7 @@ def load_json(path: Path) -> Any:
     if not path.exists():
         return None
 <<<<<<< HEAD
+<<<<<<< HEAD
     return load_json_safe(path, default=None)
 =======
     try:
@@ -42,6 +51,9 @@ def load_json(path: Path) -> Any:
     except Exception:
         return None
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    return load_json_safe(path, default=None)
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
 
 def compute_player_counts(metadata: List[Dict[str, Any]]) -> Counter:

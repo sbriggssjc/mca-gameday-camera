@@ -1,17 +1,23 @@
 from __future__ import annotations
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 import os
 from pathlib import Path
 
 from tools.json_io import load_json_safe, dump_json_safe
 
+<<<<<<< HEAD
 =======
 import json
 import os
 from pathlib import Path
 
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 from flask import Flask, jsonify, render_template, request
 
 from predict_next_play import predict_play
@@ -25,6 +31,9 @@ OPPONENT = os.environ.get("OPPONENT_NAME", "Victory Christian")
 
 def load_scouting() -> list[dict]:
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     data = load_json_safe(SCOUTING_PATH, default=[])
     if isinstance(data, list):
         return [d for d in data if isinstance(d, dict)]
@@ -32,6 +41,7 @@ def load_scouting() -> list[dict]:
         pats = data.get("patterns", [])
         if isinstance(pats, list):
             return [d for d in pats if isinstance(d, dict)]
+<<<<<<< HEAD
 =======
     try:
         with SCOUTING_PATH.open("r", encoding="utf-8") as f:
@@ -45,6 +55,8 @@ def load_scouting() -> list[dict]:
     except Exception:
         pass
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     return []
 
 app = Flask(__name__)
@@ -53,6 +65,7 @@ SCOUTING_PATTERNS = load_scouting()
 
 
 def load_plays() -> list[dict]:
+<<<<<<< HEAD
 <<<<<<< HEAD
     plays = load_json_safe(LOG_PATH, default=[])
     if isinstance(plays, list):
@@ -66,10 +79,16 @@ def load_plays() -> list[dict]:
     except Exception:
         pass
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    plays = load_json_safe(LOG_PATH, default=[])
+    if isinstance(plays, list):
+        return plays
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     return []
 
 
 def load_score() -> dict:
+<<<<<<< HEAD
 <<<<<<< HEAD
     score = load_json_safe(SCORE_PATH, default={})
     if isinstance(score, dict):
@@ -83,15 +102,24 @@ def load_score() -> dict:
     except Exception:
         pass
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    score = load_json_safe(SCORE_PATH, default={})
+    if isinstance(score, dict):
+        return {"MCA": int(score.get("MCA", 0)), "Opp": int(score.get("Opp", 0))}
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     return {"MCA": 0, "Opp": 0}
 
 
 def save_score(score: dict) -> None:
 <<<<<<< HEAD
+<<<<<<< HEAD
     dump_json_safe(SCORE_PATH, score)
 =======
     SCORE_PATH.write_text(json.dumps(score), encoding="utf-8")
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    dump_json_safe(SCORE_PATH, score)
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
 
 @app.route("/")

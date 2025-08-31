@@ -1,25 +1,47 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+<<<<<<< HEAD
 VIDEO_DEV="${VIDEO_DEV:-/dev/video0}"
 : "${AUDIO_SRC:=alsa_input.platform-sound.analog-stereo}"  # or "default"
 export AUDIO_SRC
+=======
+# ----- Defaults you can override via env -----
+VIDEO_DEV="${VIDEO_DEV:-/dev/video0}"
+AUDIO_SRC="${AUDIO_SRC:-alsa_input.platform-sound.analog-stereo}"
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 SOC_FPS="${SOC_FPS:-30}"
 SOC_RES="${SOC_RES:-1280x720}"
 SOC_CRF="${SOC_CRF:-18}"
 SOC_PRESET="${SOC_PRESET:-veryfast}"
 SOC_OUTDIR="${SOC_OUTDIR:-output/soccer}"
+<<<<<<< HEAD
 SOC_SEG_MIN="${SOC_SEG_MIN:-15}"
+=======
+SOC_SEG_MIN="${SOC_SEG_MIN:-20}"
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 SOC_TITLE="${SOC_TITLE:-soccer}"
 SOC_PROXY="${SOC_PROXY:-0}"
 SOC_THUMB_EVERY="${SOC_THUMB_EVERY:-10}"
 SOC_INPUT_FORMAT="${SOC_INPUT_FORMAT:-mjpeg}"
+<<<<<<< HEAD
 
 # activate virtual environment if present
 if [[ -d "venv" ]]; then
   source venv/bin/activate
 elif [[ -d ".venv" ]]; then
   source .venv/bin/activate
+=======
+SOC_CONTAINER="${SOC_CONTAINER:-mp4}"     # mp4|mkv
+SOC_TIMESTAMPS="${SOC_TIMESTAMPS:-0}"     # 1 = use -strftime timestamps
+
+# Camera lock so we don't collide with another recorder
+lockfile="/tmp/soccer_${VIDEO_DEV//\//_}.lock"
+exec 9>"$lockfile"
+if ! flock -n 9; then
+  echo "Camera busy: ${VIDEO_DEV}"
+  exit 1
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 fi
 
 PYTHONPATH=. python3 -m soccer.recorder \
@@ -34,4 +56,10 @@ PYTHONPATH=. python3 -m soccer.recorder \
   --title "$SOC_TITLE" \
   --thumb-every "$SOC_THUMB_EVERY" \
   --input-format "$SOC_INPUT_FORMAT" \
+<<<<<<< HEAD
   $( [ "$SOC_PROXY" = "1" ] && echo --proxy )
+=======
+  --container "$SOC_CONTAINER" \
+  $( [ "$SOC_PROXY" = "1" ] && echo --proxy ) \
+  $( [ "$SOC_TIMESTAMPS" = "1" ] && echo --timestamps )
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb

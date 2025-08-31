@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+import logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 import argparse
 import json
 from pathlib import Path
@@ -56,11 +62,15 @@ def main() -> None:
         with open(output_dir / "predictions.json", "w", encoding="utf-8") as f:
             json.dump(preds, f, indent=2)
 <<<<<<< HEAD
+<<<<<<< HEAD
         logging.info(f"\u2705 Saved predictions to {output_dir / 'predictions.json'}")
 =======
         print(f"\u2705 Saved predictions to {output_dir / 'predictions.json'}")
 
 
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+        logging.info(f"\u2705 Saved predictions to {output_dir / 'predictions.json'}")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 if __name__ == "__main__":
     main()

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 import sys
 
 try:
@@ -12,8 +15,11 @@ except ModuleNotFoundError:
     print("[play_count_tracker] 'schedule' not installed; tracker disabled. Run: pip install schedule", file=sys.stderr)
     SCHEDULE_AVAILABLE = False
 
+<<<<<<< HEAD
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 import argparse
 import csv
 import os
@@ -21,9 +27,12 @@ import time
 from typing import Dict, Iterable, List
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 import schedule
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 from colorama import Fore, Style, init as colorama_init
 
 from email_alerts import load_env, send_email
@@ -171,11 +180,17 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
 <<<<<<< HEAD
+<<<<<<< HEAD
     if not SCHEDULE_AVAILABLE:
         # Don't crash the whole app if optional dependency is missing
         return
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    if not SCHEDULE_AVAILABLE:
+        # Don't crash the whole app if optional dependency is missing
+        return
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     args = parse_args()
     colorama_init()
     env = load_env()
