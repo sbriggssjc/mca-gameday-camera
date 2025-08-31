@@ -1,12 +1,19 @@
 """Streamlit dashboard for visualizing play data."""
 from __future__ import annotations
 
+<<<<<<< HEAD
+=======
+import json
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List
 
+<<<<<<< HEAD
 from tools.json_io import load_json_safe
 
+=======
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 from play_recommender import recommend_play
 
 import pandas as pd
@@ -26,7 +33,15 @@ def load_json(path: Path) -> Any:
     """Load JSON data if the file exists."""
     if not path.exists():
         return None
+<<<<<<< HEAD
     return load_json_safe(path, default=None)
+=======
+    try:
+        with path.open('r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return None
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 
 
 def compute_player_counts(metadata: List[Dict[str, Any]]) -> Counter:

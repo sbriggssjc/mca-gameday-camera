@@ -4,7 +4,10 @@ import json
 from collections import defaultdict
 from pathlib import Path
 from typing import List, Dict, Tuple
+<<<<<<< HEAD
 from tools.json_io import load_json_safe
+=======
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 
 try:
     from fpdf import FPDF  # type: ignore
@@ -76,8 +79,14 @@ def load_patterns(opponent: str) -> List[str]:
     path = Path("analysis") / f"{safe}_scouting_report.json"
     if not path.exists():
         return []
+<<<<<<< HEAD
     data = load_json_safe(path, default={})
     if not isinstance(data, dict):
+=======
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
         return []
     lines: List[str] = []
     for p in data.get("patterns", []):

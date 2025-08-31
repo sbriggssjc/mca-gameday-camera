@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+<<<<<<< HEAD
 import sys
 
 try:
@@ -11,12 +12,18 @@ except ModuleNotFoundError:
     print("[play_count_tracker] 'schedule' not installed; tracker disabled. Run: pip install schedule", file=sys.stderr)
     SCHEDULE_AVAILABLE = False
 
+=======
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 import argparse
 import csv
 import os
 import time
 from typing import Dict, Iterable, List
 
+<<<<<<< HEAD
+=======
+import schedule
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 from colorama import Fore, Style, init as colorama_init
 
 from email_alerts import load_env, send_email
@@ -163,9 +170,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+<<<<<<< HEAD
     if not SCHEDULE_AVAILABLE:
         # Don't crash the whole app if optional dependency is missing
         return
+=======
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
     args = parse_args()
     colorama_init()
     env = load_env()

@@ -1,0 +1,560 @@
+{
+  "Rit Dive": {
+    "formation": "Rit",
+    "type": "Inside Run",
+    "direction": "Right",
+    "blocking_scheme": "Down/Combo",
+    "assignments": {
+      "RT": "Base block DE (head-up or outside)",
+      "RG": "Combo DT with C if needed, or down block if uncovered",
+      "C": "Combo DT with RG or cut off backside shade",
+      "LG": "Cut off backside pursuit or down block if 2i",
+      "LT": "Reach block DE or hinge backside",
+      "F": "Lead block through B-gap. Hit LB stacked behind DT"
+    },
+    "backfield": {
+      "QB": "Reverse pivot handoff to T. Carry out boot fake left",
+      "H": "Downhill path to B-gap, no bounce",
+      "S": "Block play-side LB or follow RG through hole"
+    },
+    "tags": [
+      "bread-and-butter",
+      "safe",
+      "play action setup"
+    ]
+  },
+  "Lit Sweep": {
+    "formation": "Lit",
+    "type": "Outside Run",
+    "direction": "Left",
+    "blocking_scheme": "Sweep / Reach + Pull",
+    "assignments": {
+      "LT": "Reach step, seal edge defender",
+      "LG": "Pull and kick out first defender past TE",
+      "C": "Reach nose or climb to LB",
+      "RG": "Pull and lead inside of LG\u2019s kick block",
+      "RT": "Hinge or cutoff pursuit",
+      "F": "Arc release to seal force (CB or OLB)"
+    },
+    "backfield": {
+      "QB": "Open left, toss or sweep handoff",
+      "H": "Sprint left, plant and cut upfield",
+      "S": "Lead block on edge"
+    },
+    "tags": [
+      "outside run",
+      "leverage",
+      "perimeter speed"
+    ]
+  },
+  "Rit Power R": {
+    "formation": "Rit",
+    "type": "Power Run",
+    "direction": "Right",
+    "blocking_scheme": "Power (Gap Scheme)",
+    "assignments": {
+      "RT": "Combo block with RG on DE or 5-tech",
+      "RG": "Double with RT to strong-side LB",
+      "C": "Block backside A-gap DT or help front side",
+      "LG": "Pull right, lead through B-gap",
+      "LT": "Hinge block backside end",
+      "F": "Kick-out block on edge defender (DE/OLB)"
+    },
+    "backfield": {
+      "QB": "Open right, reverse pivot, handoff to H",
+      "H": "Take handoff and follow LG inside kick-out",
+      "S": "Fake or lead"
+    },
+    "tags": [
+      "short yardage",
+      "gap run",
+      "physical"
+    ]
+  },
+  "Lit Dive": {
+    "formation": "Lit",
+    "type": "Inside Run",
+    "direction": "Left",
+    "blocking_scheme": "Down/Combo",
+    "assignments": {
+      "LT": "Base block DE (head-up or outside)",
+      "LG": "Combo DT with C or down block",
+      "C": "Combo with LG or cutoff shade",
+      "RG": "Cutoff backside pursuit",
+      "RT": "Hinge/reach backside DE",
+      "F": "Lead through B-gap \u2013 hit play-side LB"
+    },
+    "backfield": {
+      "QB": "Reverse pivot handoff left, boot fake right",
+      "H": "Downhill left B-gap run \u2013 no bounce",
+      "S": "Block play-side LB or follow RG"
+    },
+    "tags": [
+      "mirrored",
+      "safe",
+      "inside run"
+    ]
+  },
+  "Rit Sweep": {
+    "formation": "Rit",
+    "type": "Outside Run",
+    "direction": "Right",
+    "blocking_scheme": "Sweep / Reach + Pull",
+    "assignments": {
+      "RT": "Reach step outside, seal edge defender inside",
+      "RG": "Pull, kick out first defender past the TE",
+      "C": "Reach nose/shade or climb to MLB",
+      "LG": "Pull, lead up field inside RG\u2019s kick block",
+      "LT": "Down block backside DE or hinge",
+      "S": "Arc release to lead edge, seal force player"
+    },
+    "backfield": {
+      "QB": "Open right, pitch or sweep handoff to T",
+      "H": "Lateral run, plant and cut up field",
+      "F": "Leads outside-in, adjust based on defender"
+    },
+    "tags": [
+      "outside",
+      "pulling guards",
+      "leverage"
+    ]
+  },
+  "Lit F Counter": {
+    "formation": "Lit",
+    "type": "Counter Run",
+    "direction": "Right",
+    "blocking_scheme": "Counter Gap Scheme",
+    "assignments": {
+      "LT": "Down block DE",
+      "LG": "Down block DT",
+      "C": "Combo to backside LB",
+      "RG": "Pull, kick out DE or OLB (right side)",
+      "RT": "Down block or hinge",
+      "F": "Counter step left, then lead block right through B gap"
+    },
+    "backfield": {
+      "QB": "Open left, reverse pivot handoff right",
+      "H": "Jab left, fake sweep",
+      "S": "Follow RG and F through hole"
+    },
+    "tags": [
+      "misdirection",
+      "pulling guard",
+      "edge"
+    ]
+  },
+  "Lit Power L": {
+    "formation": "Lit",
+    "type": "Power Run",
+    "direction": "Left",
+    "blocking_scheme": "Power (Gap Scheme)",
+    "assignments": {
+      "LT": "Combo with LG on DE or 5-tech",
+      "LG": "Double with LT to strong-side LB",
+      "C": "Block backside A-gap DT or help if uncovered",
+      "RG": "Pull left, lead through B-gap",
+      "RT": "Hinge backside DE",
+      "F": "Kick-out block on DE/OLB"
+    },
+    "backfield": {
+      "QB": "Open left, reverse pivot, handoff to H",
+      "H": "Follow RG through B-gap",
+      "S": "Lead or fake iso path"
+    },
+    "tags": [
+      "gap run",
+      "downhill",
+      "mirrored"
+    ]
+  },
+  "Rit F Counter": {
+    "formation": "Rit",
+    "type": "Counter Run",
+    "direction": "Left",
+    "blocking_scheme": "Counter Gap Scheme",
+    "assignments": {
+      "RT": "Down block DE",
+      "RG": "Down block DT",
+      "C": "Combo backside DT with LG or climb to LB",
+      "LG": "Pull, kick out edge",
+      "LT": "Down block or hinge on 5-tech",
+      "H": "Counter step, follow LG into hole"
+    },
+    "backfield": {
+      "QB": "Open right, reverse pivot left handoff",
+      "F": "Step right, plant hard, take handoff left"
+    },
+    "tags": [
+      "misdirection",
+      "trap",
+      "pull"
+    ]
+  },
+  "Rit Jet Sweep": {
+    "formation": "Rit (with Jet Motion)",
+    "type": "Outside Run",
+    "direction": "Right",
+    "blocking_scheme": "Reach and Arc",
+    "assignments": {
+      "RT": "Reach block DE/OLB",
+      "RG": "Reach DT or combo to MLB",
+      "C": "Reach or cutoff NT",
+      "LG": "Scoop backside",
+      "LT": "Hinge backside end",
+      "F": "Arc outside to block force defender"
+    },
+    "backfield": {
+      "QB": "Snap on motion step, handoff at full speed",
+      "Y": "Jet motion across formation, take handoff",
+      "H": "Fake dive path right"
+    },
+    "tags": [
+      "speed",
+      "edge",
+      "motion"
+    ]
+  },
+  "Lit Jet Sweep": {
+    "formation": "Lit",
+    "type": "Outside Run",
+    "direction": "Left",
+    "blocking_scheme": "Reach and Arc",
+    "assignments": {
+      "LT": "Reach block DE or OLB",
+      "LG": "Reach DT or climb to LB",
+      "C": "Reach shade or cutoff",
+      "RG": "Scoop backside",
+      "RT": "Hinge cutoff",
+      "F": "Arc block on CB or apex"
+    },
+    "backfield": {
+      "QB": "Snap with Y in stride \u2014 clean handoff",
+      "Y": "Jet motion across formation, take handoff",
+      "H": "Fake Dive or boot carryout"
+    },
+    "tags": [
+      "jet",
+      "motion",
+      "sideline"
+    ]
+  },
+  "Rit 8 Option": {
+    "formation": "Rit",
+    "type": "Option",
+    "direction": "Right",
+    "blocking_scheme": "Reach + Arc",
+    "assignments": {
+      "RT": "Reach or widen DE",
+      "RG": "Reach DT or combo to LB",
+      "C": "Reach play side A-gap",
+      "LG": "Scoop backside",
+      "LT": "Cut off or hinge backside DE",
+      "F": "Arc outside to block force defender"
+    },
+    "backfield": {
+      "QB": "Sprint right, read edge defender, pitch or keep",
+      "H": "Trail 3\u20134 yards behind QB, wide angle for pitch",
+      "F": "Lead path and seal edge"
+    },
+    "tags": [
+      "perimeter",
+      "decision",
+      "QB run"
+    ]
+  },
+  "Lit 8 Option": {
+    "formation": "Lit",
+    "type": "Option",
+    "direction": "Left",
+    "blocking_scheme": "Reach + Arc",
+    "assignments": {
+      "LT": "Reach/widen DE",
+      "LG": "Reach DT or combo to LB",
+      "C": "Reach strong-side A-gap",
+      "RG": "Scoop backside DT",
+      "RT": "Cut off backside DE",
+      "F": "Arc outside to block force defender"
+    },
+    "backfield": {
+      "QB": "Sprint left, read DE, pitch or keep",
+      "H": "Trail QB with wide pitch angle",
+      "S": "Lead block or fake dive"
+    },
+    "tags": [
+      "read",
+      "QB option",
+      "edge conflict"
+    ]
+  },
+  "Reo F Stick": {
+    "formation": "Reo Bunch",
+    "type": "Quick Pass",
+    "direction": "Right",
+    "blocking_scheme": "Quick Pass \u2013 Slide Right",
+    "assignments": {
+      "F": "5-yard Stick",
+      "Y": "Speed Flat",
+      "H": "Vertical Seam",
+      "X": "Slant or Fade",
+      "S": "Swing or blitz pickup"
+    },
+    "backfield": {
+      "QB": "Read flat defender: Stick \u2192 Flat \u2192 Seam"
+    },
+    "tags": [
+      "high percentage",
+      "zone beater",
+      "triangle read"
+    ]
+  },
+  "Leo F Stick": {
+    "formation": "Leo",
+    "type": "Quick Pass",
+    "direction": "Left",
+    "blocking_scheme": "Quick Pass \u2013 Slide Left",
+    "assignments": {
+      "F": "Stick route \u2013 5 yd sit or out",
+      "H": "Vertical seam",
+      "X": "1 Step Out",
+      "Y": "Fade or slant",
+      "S": "Swing or blitz pickup"
+    },
+    "backfield": {
+      "QB": "Read LB on F: Stick \u2192 Flat \u2192 Seam"
+    },
+    "tags": [
+      "quick throw",
+      "spacing",
+      "spread"
+    ]
+  },
+  "Rit Flare Boot": {
+    "formation": "Rit",
+    "type": "Play Action Pass",
+    "direction": "Left (Bootleg)",
+    "blocking_scheme": "Boot Protection",
+    "assignments": {
+      "RT": "Sell run block to right",
+      "RG": "Sell run block to right",
+      "C": "Sell zone run, hinge backside",
+      "LG": "Hinge backside",
+      "LT": "Hinge backside",
+      "H": "Chip DE, then release to flat",
+      "F": "Flare or deep flag route",
+      "Y": "8-yard Drag",
+      "X": "Comeback or clear out"
+    },
+    "backfield": {
+      "QB": "Fake Sweep right, boot left, read: F \u2192 Y \u2192 X"
+    },
+    "tags": [
+      "play action",
+      "rollout",
+      "layered routes"
+    ]
+  },
+  "Leo Flare Boot": {
+    "formation": "Leo",
+    "type": "Play Action Pass",
+    "direction": "Left",
+    "blocking_scheme": "Boot Protection \u2013 Seal Right",
+    "assignments": {
+      "LT": "Sell run left, hinge",
+      "LG": "Sell run left, hinge",
+      "C": "Hinge right",
+      "RG": "Seal right",
+      "RT": "Seal right",
+      "H": "Chip DE, release to flat",
+      "Y": "Drag",
+      "X": "Comeback",
+      "Z": "Post or go"
+    },
+    "backfield": {
+      "QB": "Fake to S or Jet, boot left, read: H \u2192 Y \u2192 X"
+    },
+    "tags": [
+      "deception",
+      "bootleg",
+      "flag route"
+    ]
+  },
+  "Rit F Screen": {
+    "formation": "Rit",
+    "type": "Screen Pass",
+    "direction": "Middle",
+    "blocking_scheme": "Screen Release",
+    "assignments": {
+      "RT/RG": "Set up pass look, then release",
+      "C": "Invite pressure, release and lead",
+      "LG/LT": "Protect then release to 2nd level",
+      "X/Y": "Stalk block or run defenders off"
+    },
+    "backfield": {
+      "QB": "Drop, pump fake, flip to F",
+      "F": "Delay-release middle",
+      "H/S": "Fake flare or protect"
+    },
+    "tags": [
+      "delayed",
+      "vs blitz",
+      "middle screen"
+    ]
+  },
+  "Lit F Screen": {
+    "formation": "Lit",
+    "type": "Screen Pass",
+    "direction": "Left",
+    "blocking_scheme": "Screen Release",
+    "assignments": {
+      "LT/LG": "Quick pass set, then release left",
+      "C": "Invite pressure, lead up middle",
+      "RG/RT": "Optional release",
+      "X/Y": "Stalk block or run off"
+    },
+    "backfield": {
+      "QB": "Drop, pause, flip to F",
+      "F": "Delay-release left",
+      "H/S": "Fake flare"
+    },
+    "tags": [
+      "delayed",
+      "left screen",
+      "pull defenders"
+    ]
+  },
+  "Reo Flood": {
+    "formation": "Reo Bunch",
+    "type": "Flood Pass",
+    "direction": "Right",
+    "blocking_scheme": "Pass Pro / Half Slide",
+    "assignments": {
+      "H": "10\u201312 yd Corner/Flag",
+      "F": "5\u20136 yd Out",
+      "Y": "1\u20132 yd Flat",
+      "X": "Post or Drag",
+      "S": "Check-release or swing"
+    },
+    "backfield": {
+      "QB": "Roll slightly right, read: H \u2192 F \u2192 Y"
+    },
+    "tags": [
+      "zone beater",
+      "3-level",
+      "sideline stretch"
+    ]
+  },
+  "Leo Flood": {
+    "formation": "Leo",
+    "type": "Flood Pass",
+    "direction": "Left",
+    "blocking_scheme": "Half-Slide Left",
+    "assignments": {
+      "H": "10\u201312 yd Corner",
+      "F": "5\u20136 yd Out",
+      "X": "1\u20132 yd Flat",
+      "Y": "Post or Drag",
+      "S": "Blitz pickup or delayed swing"
+    },
+    "backfield": {
+      "QB": "Roll left, read: H \u2192 F \u2192 X"
+    },
+    "tags": [
+      "layered",
+      "sideline read",
+      "left flood"
+    ]
+  },
+  "Reo Quick Screen": {
+    "formation": "Reo",
+    "type": "Screen Pass",
+    "direction": "Right",
+    "blocking_scheme": "Perimeter Stalk/Release",
+    "assignments": {
+      "Y": "Catch screen, cut up",
+      "F": "Block apex/CB",
+      "H": "Block inside-out",
+      "OL": "Quick protect, C/RG/RT release",
+      "X": "Stalk opposite",
+      "S": "Fake bubble"
+    },
+    "backfield": {
+      "QB": "Snap, throw immediately to Y"
+    },
+    "tags": [
+      "fast throw",
+      "bubble screen",
+      "spacing"
+    ]
+  },
+  "Leo Quick Screen": {
+    "formation": "Leo",
+    "type": "Screen Pass",
+    "direction": "Left",
+    "blocking_scheme": "Perimeter Stalk + Release",
+    "assignments": {
+      "X": "Catch and go",
+      "F": "Block CB/apex",
+      "H": "Block OLB",
+      "OL": "C, LG, LT release if uncovered",
+      "S": "Fake flare"
+    },
+    "backfield": {
+      "QB": "Snap, throw left instantly"
+    },
+    "tags": [
+      "quick screen",
+      "spacing",
+      "edge"
+    ]
+  },
+  "Reo Jet Sweep Left": {
+    "formation": "Reo",
+    "type": "Jet Sweep",
+    "direction": "Left",
+    "blocking_scheme": "Reach and Arc",
+    "assignments": {
+      "LT": "Reach block edge",
+      "LG": "Scoop backside",
+      "C": "Cutoff nose",
+      "RG/RT": "Seal inside",
+      "F": "Crack OLB",
+      "Y": "Stalk corner",
+      "S": "Lead block"
+    },
+    "backfield": {
+      "H": "Full speed motion, handoff",
+      "QB": "Time snap with motion",
+      "X": "Stalk CB"
+    },
+    "tags": [
+      "motion",
+      "stretch",
+      "left edge"
+    ]
+  },
+  "Leo Jet Sweep Right": {
+    "formation": "Leo",
+    "type": "Jet Sweep",
+    "direction": "Right",
+    "blocking_scheme": "Reach and Arc",
+    "assignments": {
+      "RT": "Reach edge defender",
+      "RG": "Reach DT",
+      "C": "Reach NT",
+      "LG": "Scoop backside",
+      "LT": "Hinge backside end",
+      "Y": "Stalk CB",
+      "F": "Crack apex",
+      "X": "Push vertical"
+    },
+    "backfield": {
+      "H": "Motion left to right, receive handoff",
+      "QB": "Time snap, clean handoff"
+    },
+    "tags": [
+      "jet motion",
+      "right edge",
+      "speed"
+    ]
+  }
+}

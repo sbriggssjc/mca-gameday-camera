@@ -69,7 +69,16 @@ def process_uploaded_game_film(
     scoreboard = ScoreboardReader()
 
 
+<<<<<<< HEAD
     playbook = load_playbook()
+=======
+    playbook_file = (
+        "mca_full_playbook_final.json"
+        if Path("mca_full_playbook_final.json").exists()
+        else "mca_playbook.json"
+    )
+    playbook = load_playbook(playbook_file)
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 
     frame_logs: List[Dict[str, object]] = []
     jersey_counts: Dict[int, int] = {}

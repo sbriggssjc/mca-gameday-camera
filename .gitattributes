@@ -1,3 +1,6 @@
 *.mp4 filter=lfs diff=lfs merge=lfs -text
+<<<<<<< HEAD
 *.MP4 filter=lfs diff=lfs merge=lfs -text
+=======
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 video/game_20250726_182529.mp4 filter=lfs diff=lfs merge=lfs -text
