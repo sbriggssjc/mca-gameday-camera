@@ -89,14 +89,57 @@ def _load_ckpt(path: str) -> Any:
     raise RuntimeError(f"unsupported or corrupted checkpoint format: {ap}")
 
 
-def _load_labels(label_path: str) -> List[str]:
-    """Load label mapping from a plain text file with logging."""
-    with open(label_path, "r", encoding="utf-8") as f:
+def _load_labels(path: str) -> List[str]:
+    """Load label mapping from ``path`` with logging and sanity checks."""
+
+    ap = os.path.abspath(path)
+    with open(ap, "r", encoding="utf-8") as f:
         labels = [ln.strip() for ln in f if ln.strip()]
-    log.info(
-        f"[classifier] labels: {len(labels)} loaded from {label_path}; sample={labels[:5]}"
-    )
+    log.info(f"[labels] {len(labels)} from {ap}; sample={labels[:5]}")
     return labels
+
+
+def build_play_model(num_classes: int):
+    """Create the play classification model (placeholder)."""
+
+    import torch.nn as nn
+    from torchvision.models import resnet18
+
+    model = resnet18(weights=None)
+    model.fc = nn.Linear(model.fc.in_features, num_classes)
+    return model
+
+
+def build_formation_model(num_classes: int):
+    """Create the formation classification model (placeholder)."""
+
+    import torch.nn as nn
+    from torchvision.models import resnet18
+
+    model = resnet18(weights=None)
+    model.fc = nn.Linear(model.fc.in_features, num_classes)
+    return model
+
+
+def _init_from_ckpt(entry: dict, num_classes: int, builder):
+    """Initialize a model from ``entry`` using ``builder``."""
+
+    import torch
+
+    if entry["type"] == "state_dict":
+        model = builder(num_classes)
+        msg = model.load_state_dict(entry["state_dict"], strict=False)
+        log.info(
+            f"[ckpt] load_state_dict: missing={len(msg.missing_keys)} "
+            f"unexpected={len(msg.unexpected_keys)}"
+        )
+        model.eval()
+        return model
+    elif entry["type"] == "torchscript":
+        ts = entry["module"]
+        return ts.eval()
+    else:  # pragma: no cover - defensive
+        raise RuntimeError("unknown ckpt entry type")
 
 
 def load_models(args: Any) -> dict:
@@ -113,45 +156,34 @@ def load_models(args: Any) -> dict:
     play_labels = _load_labels(play_labels_path)
     formation_labels = _load_labels(formation_labels_path)
 
-    play_info = _load_ckpt(args.play_ckpt)
-    formation_info = _load_ckpt(args.formation_ckpt)
+    play_entry = _load_ckpt(args.play_ckpt)
+    formation_entry = _load_ckpt(args.formation_ckpt)
 
-    def build_model(info: dict, num_classes: int) -> torch.nn.Module:
-        if info.get("type") == "state_dict":
-            from torchvision import models
+    play_model = _init_from_ckpt(play_entry, len(play_labels), build_play_model)
+    formation_model = _init_from_ckpt(
+        formation_entry, len(formation_labels), build_formation_model
+    )
 
-            model = models.resnet18(weights=None)
-            model.fc = torch.nn.Linear(model.fc.in_features, num_classes)
-            res = model.load_state_dict(info["state_dict"], strict=False)
-            if res.missing_keys:
-                log.warning(f"[ckpt] missing keys: {res.missing_keys}")
-            if res.unexpected_keys:
-                log.warning(f"[ckpt] unexpected keys: {res.unexpected_keys}")
-            model.eval()
-            return model
-        if info.get("type") == "torchscript":
-            module = info["module"]
-
-            class _TSAdapter(torch.nn.Module):
-                def __init__(self, m: torch.jit.ScriptModule):
-                    super().__init__()
-                    self.module = m
-
-                def forward(self, images):
-                    return self.module(images)
-
-            model = _TSAdapter(module)
-            model.eval()
-            return model
-        raise RuntimeError("unsupported checkpoint result")
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    log.info(f"[classifier] device={device}")
+    play_model.to(device)
+    formation_model.to(device)
 
     models: dict = {
-        "play": build_model(play_info, len(play_labels)),
+        "play": play_model,
         "play_labels": play_labels,
-        "formation": build_model(formation_info, len(formation_labels)),
+        "formation": formation_model,
         "formation_labels": formation_labels,
     }
     return models
 
 
-__all__ = ["_load_ckpt", "_load_labels", "load_models", "log"]
+__all__ = [
+    "_load_ckpt",
+    "_load_labels",
+    "load_models",
+    "log",
+    "build_play_model",
+    "build_formation_model",
+    "_init_from_ckpt",
+]
