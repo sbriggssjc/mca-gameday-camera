@@ -5,9 +5,13 @@ from collections import defaultdict
 from pathlib import Path
 from typing import List, Dict, Tuple
 <<<<<<< HEAD
+<<<<<<< HEAD
 from tools.json_io import load_json_safe
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+from tools.json_io import load_json_safe
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
 try:
     from fpdf import FPDF  # type: ignore
@@ -80,6 +84,7 @@ def load_patterns(opponent: str) -> List[str]:
     if not path.exists():
         return []
 <<<<<<< HEAD
+<<<<<<< HEAD
     data = load_json_safe(path, default={})
     if not isinstance(data, dict):
 =======
@@ -87,6 +92,10 @@ def load_patterns(opponent: str) -> List[str]:
         data = json.loads(path.read_text())
     except Exception:
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    data = load_json_safe(path, default={})
+    if not isinstance(data, dict):
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
         return []
     lines: List[str] = []
     for p in data.get("patterns", []):

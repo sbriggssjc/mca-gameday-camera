@@ -1,6 +1,7 @@
 {
   "play_id": 5,
 <<<<<<< HEAD
+<<<<<<< HEAD
   "video": "IMG_4129.MP4",
   "timestamp": "00:00:09",
   "play_type": "Rit F Counter",
@@ -9,6 +10,11 @@
   "timestamp": "00:00:09",
   "play_type": "Rit Dive",
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+  "video": "IMG_4129.MP4",
+  "timestamp": "00:00:09",
+  "play_type": "Rit F Counter",
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
   "formation": "Rit",
   "frame_id": 271,
   "jersey_numbers": [],

@@ -63,10 +63,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Process practice clips for training")
     parser.add_argument("folder", help="Folder containing practice videos")
 <<<<<<< HEAD
+<<<<<<< HEAD
     parser.add_argument("--playbook", default="playbooks/mca_5th_playbook.json", help="Playbook JSON")
 =======
     parser.add_argument("--playbook", default="mca_full_playbook_final.json", help="Playbook JSON")
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    parser.add_argument("--playbook", default="playbooks/mca_5th_playbook.json", help="Playbook JSON")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     parser.add_argument("--output", default="training_set.json", help="Output training JSON")
     args = parser.parse_args()
 

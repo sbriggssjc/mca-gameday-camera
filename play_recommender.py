@@ -7,10 +7,14 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 PLAYBOOK_PATH = Path("playbooks/mca_5th_playbook.json")
 =======
 PLAYBOOK_PATH = Path("plays/playbook.json")
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+PLAYBOOK_PATH = Path("playbooks/mca_5th_playbook.json")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
 
 def _load_playbook() -> List[Dict[str, Any]]:
@@ -21,6 +25,7 @@ def _load_playbook() -> List[Dict[str, Any]]:
         with PLAYBOOK_PATH.open("r", encoding="utf-8") as f:
             data = json.load(f)
 <<<<<<< HEAD
+<<<<<<< HEAD
         if isinstance(data, dict) and isinstance(data.get("plays"), list):
             return [d for d in data["plays"] if isinstance(d, dict)]
 =======
@@ -29,6 +34,10 @@ def _load_playbook() -> List[Dict[str, Any]]:
         if isinstance(data, dict):
             return [dict(name=k, **v) for k, v in data.items() if isinstance(v, dict)]
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+        if isinstance(data, dict) and isinstance(data.get("plays"), list):
+            return [d for d in data["plays"] if isinstance(d, dict)]
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     except Exception:
         pass
     return []

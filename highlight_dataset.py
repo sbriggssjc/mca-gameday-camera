@@ -36,11 +36,16 @@ class HighlightClipDataset(torch.utils.data.Dataset):
         while success and len(frames) < self.clip_len:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 <<<<<<< HEAD
+<<<<<<< HEAD
             frame = frame.astype("float32") / 255.0
             tensor = torch.from_numpy(frame).permute(2, 0, 1)
 =======
             tensor = torch.from_numpy(frame).permute(2, 0, 1).float()
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+            frame = frame.astype("float32") / 255.0
+            tensor = torch.from_numpy(frame).permute(2, 0, 1)
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             if self.transform:
                 tensor = self.transform(tensor)
             frames.append(tensor)

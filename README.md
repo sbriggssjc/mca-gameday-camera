@@ -6,6 +6,237 @@ This repository contains utilities for tracking play participation during a game
 
 Large video recordings (`.mp4`) are saved in the `video/` folder but individual recording files are ignored by Git. Use `upload_to_drive.py` to sync these videos to Google Drive instead of committing them.
 
+This project uses a single playbook at `playbooks/mca_5th_playbook.json`.
+
+## Development setup
+
+On Jetson devices running JetPack 6.x, run the setup script to install
+PyTorch and related dependencies:
+
+```bash
+scripts/dev_setup.sh
+```
+
+The script detects your L4T version, installs the matching NVIDIA PyTorch
+wheel, and falls back to NVIDIA's official L4T PyTorch container if needed.
+
+## Robust game-day capture
+
+`gameday_capture.py` is a single-entry CLI that always records a local MP4 and
+streams to YouTube when possible.  A thin wrapper is provided under
+`scripts/gameday.sh` which loads `.env` and launches the capture.
+
+### One-liner
+
+```bash
+scripts/gameday.sh
+```
+
+### Configure defaults via `.env`
+
+```
+YOUTUBE_RTMP_URL=rtmps://a.rtmps.youtube.com/live2/<key>
+VIDEO_DEV=/dev/video0
+PULSE_DEV=hw:1,0            # or Pulse source name
+RES=1280x720
+FPS=30
+```
+
+### Useful test modes
+
+```bash
+python3 gameday_capture.py --probe-only
+python3 gameday_capture.py --duration 30 --local-only
+```
+
+## Game-day one-liners
+
+```
+USE_LOUDNORM=true ./gameday --audio-source pulse          # auto-gain to ~−16 dB
+EXTRA_GAIN_DB=4 ./gameday --audio-source pulse            # manual tweak
+./gameday --dry-run | less                                # inspect command
+```
+
+## Quick Start (YouTube Live)
+
+```bash
+# 0) First time: check system basics
+scripts/doctor.sh
+
+# 1) Set your stream key (NO angle brackets, no spaces)
+export YT_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/<your_key>'
+# (``YOUTUBE_RTMP_URL`` is also accepted)
+
+# 2) Optional: override devices (else put them in config/gameday.json)
+export VIDEO_DEV=/dev/video0
+export PULSE_DEV='alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_XXXXXXXX-00.mono-fallback'
+
+# 3) Run
+./gameday
+```
+
+If 443/rtmps is flaky, try:
+
+rtmps://b.rtmps.youtube.com/live2/<key>
+
+If port 1935 is open and you prefer RTMP:
+
+rtmp://a.rtmp.youtube.com/live2/<key>
+
+Notes
+
+The launcher prints a one-line “Launch -> …” status to stderr and emits JSON config to stdout internally. If it says missing or invalid RTMP URL, fix your key.
+
+If YouTube shows “No data” or a very low bitrate, verify network, try b.rtmps, or switch to rtmp:// if 1935 is open.
+
+We avoid aresample min_comp/max_comp entirely for compatibility.
+
+MJPEG → H.264 path adds in_range=jpeg:out_range=tv to prevent washed/incorrect levels on YT.
+
+---
+
+## Optional: test generators (keep for debugging)
+
+```bash
+ffmpeg -hide_banner -loglevel info -re \
+  -f lavfi -i testsrc2=size=1280x720:rate=30 \
+  -f lavfi -i sine=frequency=1000:sample_rate=48000 \
+  -c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p \
+  -b:v 3500k -maxrate 4000k -bufsize 6000k -g 60 -r 30 \
+  -c:a aac -b:a 128k -ar 48000 -ac 1 \
+  -flvflags no_duration_filesize \
+  -f flv "$YOUTUBE_RTMP_URL"
+```
+
+## Automated Film Analysis
+
+The `analysis` package provides a small end-to-end pipeline that ingests a
+full game video, performs lightweight play recognition and writes summary
+artefacts. Run it with:
+
+```bash
+python -m analysis.pipeline --video path/to/game.mp4 --team WHITE --playbook playbooks/mca_5th_playbook.json --out output/ --generate-report
+```
+
+The command creates JSON lines files and, when `--generate-report` is used, a
+coach report under `output/reports/`.
+
+The coach summary report includes per-play tables and player grades. A
+sample output is generated during tests under `tests/data`.
+
+### Batch fresh analyses
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+export PYTHONPATH=.
+FILES=("IMG_4129.MP4" "Scrimmage 2 - Part 1.MP4" "Scrimmage 2 - Part 2.MP4")
+for F in "${FILES[@]}"; do
+  python -m analysis.pipeline \
+    --video "video/manual_uploads/${F}" \
+    --team WHITE \
+    --playbook "playbooks/mca_5th_playbook.json" \
+    --out "output" \
+    --min-play-gap 1.5 \
+    --min-play-length 3.0 \
+    --smooth-frames 4 \
+    --report \
+    --clips
+done
+# Update symlinks for all
+bash scripts/update_latest_symlinks.sh
+```
+
+Or run `scripts/run_batch.sh` to use this loop.
+
+
+
+### One-click end-to-end analysis
+
+Run the entire processing pipeline and summary generation with a single command:
+
+```bash
+python3 scripts/one_click_analyze.py \
+  --video video/manual_uploads/IMG_4129.MP4 \
+  --team WHITE \
+  --opponent "Victory Christian" \
+  --date 2025-08-08
+```
+
+## Google Drive sync & storage cleanup
+
+One-time setup:
+
+1. Create a Google Cloud service account with the Drive API enabled.
+2. Share the target Drive folders (`GDRIVE_FOLDER_RAW`, `GDRIVE_FOLDER_ANALYZED`) with the service account email.
+3. Save the JSON key locally and set `GDRIVE_CREDENTIALS_JSON` in your `.env`.
+
+Uploads are verified via MD5/SHA1 before any local file is removed. Each upload is
+recorded in `output/manifest.jsonl` with checksums and the Drive file ID. Use
+`--verify-drive` and `--purge-now` to require verified uploads before deletion.
+
+Example commands:
+
+```bash
+cd ~/mca-gameday-camera
+OUT=output/IMG_4129_$(date +%Y%m%d_%H%M)
+mkdir -p "$OUT"
+
+PYTHONPATH=. python3 -m analysis.pipeline \
+  --video video/manual_uploads/IMG_4129.MP4 \
+  --team WHITE \
+  --playbook playbooks/mca_5th_playbook.json \
+  --out "$OUT" \
+  --sync-to-drive
+
+# Run sync/cleanup anytime (requires verified Drive uploads)
+python3 tools/sync_and_cleanup.py --verify-drive --purge-now
+
+# Cloud-first flow: download new Drive files since Aug 1, 2025
+python3 tools/sync_and_cleanup.py --cloud-first --since 2025-08-01
+
+# Download a specific Drive file id
+python3 tools/sync_and_cleanup.py --cloud-first --id <drive_id>
+```
+
+To automate syncing every hour via `systemd`:
+
+```bash
+sudo cp systemd/mca-sync.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now mca-sync.timer
+systemctl list-timers | grep mca-sync
+```
+
+Or add a cron entry:
+
+```
+15 * * * * cd ~/mca-gameday-camera && /usr/bin/env -S bash -lc 'source .env && python3 tools/sync_and_cleanup.py --verify-drive --purge-now' >> ~/mca-gameday-camera/logs/sync.log 2>&1
+```
+
+## Playbook
+
+Playbooks may be authored in a legacy flat list format or using the
+new `split_sections` schema.  The latter separates offense and defense
+sections:
+
+```json
+{
+  "schema": "split_sections",
+  "offense": {"plays": [{"name": "Rit Dive", "formation": "Rit"}]},
+  "defense": {
+    "positions": [{"name": "DT1", "gap": "A"}],
+    "calls": [{"cue": "RUN", "trigger": "downfield blocking"}]
+  }
+}
+```
+
+When using `split_sections` the `defense.positions` array is required and
+the pipeline will raise an error if it is missing.  Defensive grading weights
+can be customised by editing
+`analysis/configs/grading_weights_defense.yaml`; defaults are used when the
+file is absent.
+
 ## Processing uploaded game film
 
 Place a video inside `video/manual_uploads/` and run:
@@ -34,6 +265,7 @@ python motion_detector.py path/to/video.mp4
 ```
 
 You can adjust the detection sensitivity using `--threshold` and minimum segment length with `--min-duration`.
+<<<<<<< HEAD
 This repository provides simple scripts for streaming and recording a camera
 feed. Frames can be captured with OpenCV and piped to `ffmpeg` for encoding and
 upload.
@@ -54,6 +286,8 @@ scripts/dev_setup.sh
 
 The script detects your L4T version, installs the matching NVIDIA PyTorch
 wheel, and falls back to NVIDIA's official L4T PyTorch container if needed.
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
 <<<<<<< HEAD
 ## Robust game-day capture
@@ -77,8 +311,8 @@ Run it with:
 python stream_to_youtube.py
 ```
 
-The default settings use the software `libx264` encoder at
-1920x1080 and 30fps with a bitrate around **9&nbsp;Mbps**.
+The default settings use the Jetson `h264_v4l2m2m` hardware encoder at
+640x480 and 30fps with a bitrate around **2.5&nbsp;Mbps**.
 Output is written with `tee` so a local MP4 recording is saved
 alongside the live RTMP stream.
 
@@ -90,8 +324,62 @@ dedicated subfolder named after the game timestamp.
 Additional options:
 
 ```bash
-python stream_to_youtube.py --output-size 1280x720 --debug
+python stream_to_youtube.py --output-size 640x480 --debug
 ```
+
+### Audio tuning
+
+The mic input can be adjusted on the fly via environment variables. Defaults
+favor sideline speech but can be tweaked for different environments:
+
+```bash
+# Stronger leveling for a noisy crowd
+export AUDIO_MODE=crowd
+export AUDIO_GAIN_DB=10
+
+# Cut more wind/rumble
+export AUDIO_HIGHPASS=150
+
+# If things sound over-compressed
+export AUDIO_GAIN_DB=6  # or set AUDIO_MODE=off
+```
+```bash
+# Encoder preferences (comma-separated)
+PREFERRED_ENCODERS=h264_v4l2m2m,libx264
+
+# Force software (emergency switch)
+USE_SW_ENC=0     # set to 1 to force libx264
+
+# Bitrate tuning
+VIDEO_BITRATE=3500k
+VIDEO_MAXRATE=4000k
+VIDEO_BUFSIZE=6000k
+
+# Local recording of stream
+RECORD_MP4=1
+```
+
+### Audio device quick start
+
+List devices:
+
+```bash
+PYTHONPATH=. python3 -m tools.list_audio
+```
+
+Pulse explicit mic (replace with your exact pactl name from your log):
+
+```bash
+MIC_PULSE_NAME="alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_17477F5D-00.mono-fallback" \
+  ./gameday --audio-source pulse
+```
+
+Allow-silent bypass (not recommended):
+
+```bash
+ALLOW_SILENT_STREAM=true ./gameday
+```
+
 
 ## Requirements
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
@@ -109,10 +397,9 @@ Install FFmpeg on Jetson with:
 sudo apt-get update && sudo apt-get install ffmpeg
 ```
 
-For best performance on Jetson devices, build FFmpeg with the Jetson
-accelerated encoders (`h264_nvmpi` or `h264_nvv4l2enc`). The streaming
-scripts automatically fall back to `libx264` when these encoders are
-unavailable.
+For best performance on Jetson devices, the scripts use the Jetson
+hardware encoder `h264_v4l2m2m` by default and automatically fall back
+to `libx264` when no hardware encoder is available.
 
 This repository contains simple utilities for analyzing football plays.
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
@@ -121,6 +408,7 @@ This repository contains simple utilities for analyzing football plays.
 scripts/gameday.sh
 ```
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 ### Configure defaults via `.env`
 
@@ -350,17 +638,23 @@ This repository contains tools for processing sports game footage. The `motion_d
 
 ## Usage
 =======
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 - `play_classifier.py` – includes the `PlayClassifier` class for touchdown detection
   and a `classify_play` function to label short clips using a pretrained video model.
   Run `python play_classifier.py --folder clips/ --output predictions.json` to classify
   a directory of clips.
+<<<<<<< HEAD
 - `record_video.py` – records 1280x720 video from /dev/video0 to output.mp4
+=======
+- `record_video.py` – records 640x480 video from /dev/video0 to output.mp4
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 - `highlight_recorder.py` – automatically captures 10-second clips when motion is detected
-- `play_recognizer.py` – identifies plays based on formations in `mca_playbook.json` and writes results to `play_log.json`.
+- `play_recognizer.py` – identifies plays based on formations in `playbooks/mca_5th_playbook.json` and writes results to `play_log.json`.
 - `practice_trainer.py` – analyzes labeled practice clips and stores motion
   statistics in `training_set.json` for use by `play_recognizer.py`.
 ```bash
-python play_recognizer.py path/to/game.mp4 --playbook mca_playbook.json --output play_log.csv
+python play_recognizer.py path/to/game.mp4 --playbook playbooks/mca_5th_playbook.json --output play_log.csv
 ```
 You can generate training data from practice clips:
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
@@ -377,6 +671,7 @@ You can also build a dataset from highlight clips:
 python build_highlight_dataset.py highlights/ dataset/
 ```
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 You can adjust the detection sensitivity using `--threshold` and minimum segment length with `--min-duration`.
 
@@ -515,6 +810,8 @@ You can also build a dataset from highlight clips:
 python build_highlight_dataset.py highlights/ dataset/
 ```
 
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 This copies the clips into `dataset` and creates `dataset/metadata.csv`:
 
 ```csv
@@ -522,6 +819,7 @@ filepath,label,quarter,time,player
 dataset/TD_JaxonBrunner_Jet_Sweep_Q2_05m12s.mp4,Jet Sweep,Q2,05:12,JaxonBrunner
 ```
 
+<<<<<<< HEAD
 =======
 This copies the clips into `dataset` and creates `dataset/metadata.csv`:
 
@@ -531,6 +829,8 @@ dataset/TD_JaxonBrunner_Jet_Sweep_Q2_05m12s.mp4,Jet Sweep,Q2,05:12,JaxonBrunner
 ```
 
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 The `HighlightClipDataset` class in `highlight_dataset.py` loads these clips as
 PyTorch tensors for training models.
 
@@ -877,6 +1177,7 @@ The capture script stops PipeWire for reliability.  To restore audio services af
 ```bash
 systemctl --user start pipewire pipewire-media-session
 ```
+<<<<<<< HEAD
 =======
 ```
 
@@ -965,3 +1266,5 @@ python generate_hudl_csv.py --week 3 --opponent "Victory Christian"
 
 Use `--player 23` to limit rows to a specific jersey number.
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb

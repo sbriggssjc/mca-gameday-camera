@@ -5,9 +5,13 @@ import argparse
 import csv
 import json
 <<<<<<< HEAD
+<<<<<<< HEAD
 import logging
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+import logging
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
@@ -16,6 +20,9 @@ try:
     import torch
     from torchvision import transforms
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     from torchvision.transforms import InterpolationMode
 except Exception:  # pragma: no cover - optional
     torch = None  # type: ignore
@@ -23,12 +30,15 @@ except Exception:  # pragma: no cover - optional
 from play_inference import load_model, read_clip, MEAN, STD
 
 log = logging.getLogger(__name__)
+<<<<<<< HEAD
 =======
 except Exception:  # pragma: no cover - optional
     torch = None  # type: ignore
 
 from play_inference import ToFloatNormalize, load_model, read_clip
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
 LOG_PATH = Path("logs/learning_log.json")
 
@@ -92,6 +102,9 @@ def reclassify(
     model_path = find_latest_model(model_dir)
     model, inv_map = load_model(str(model_path), device)
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     transform = transforms.Compose([
         transforms.Resize((224, 224), interpolation=InterpolationMode.BILINEAR),
         transforms.Normalize(mean=MEAN, std=STD),
@@ -100,12 +113,15 @@ def reclassify(
     dataset_dir = dataset_path.parent
     updated = False
     logged_stats = False
+<<<<<<< HEAD
 =======
     transform = transforms.Compose([transforms.Resize((224, 224)), ToFloatNormalize()])
 
     dataset_dir = dataset_path.parent
     updated = False
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     for item in entries:
         rel_clip = Path(item["filepath"])
         clip_path = rel_clip if rel_clip.is_absolute() else dataset_dir / rel_clip
@@ -116,11 +132,17 @@ def reclassify(
 
         clip = read_clip(clip_path, clip_len, transform)
 <<<<<<< HEAD
+<<<<<<< HEAD
         if not logged_stats:
             log.info("input clip stats mean=%.4f std=%.4f", clip.mean().item(), clip.std().item())
             logged_stats = True
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+        if not logged_stats:
+            log.info("input clip stats mean=%.4f std=%.4f", clip.mean().item(), clip.std().item())
+            logged_stats = True
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
         clip = clip.unsqueeze(0).to(device)
         with torch.no_grad():
             output = model(clip)
@@ -155,9 +177,13 @@ def reclassify(
 
 def main() -> None:
 <<<<<<< HEAD
+<<<<<<< HEAD
     logging.basicConfig(level=logging.INFO)
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    logging.basicConfig(level=logging.INFO)
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     parser = argparse.ArgumentParser(description="Reclassify highlight clips")
     parser.add_argument(
         "dataset",

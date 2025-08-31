@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+import logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 import os
 import shutil
 import subprocess
@@ -16,11 +22,17 @@ import threading
 from datetime import datetime
 from pathlib import Path
 <<<<<<< HEAD
+<<<<<<< HEAD
 from ffmpeg_utils import build_ffmpeg_args, detect_encoder
 from queue import Queue, Full
 
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+from ffmpeg_utils import build_ffmpeg_args, detect_encoder
+from queue import Queue, Full
+
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
 import argparse
 import cv2
@@ -34,15 +46,20 @@ from upload_to_drive import upload_to_drive
 def upload_after_stream(video_path: Path, folder_id: str) -> None:
     """Upload ``video_path`` to Google Drive once streaming finishes."""
 <<<<<<< HEAD
+<<<<<<< HEAD
     logging.info("Streaming finished, uploading to Drive...")
 =======
     print("Streaming finished, uploading to Drive...")
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    logging.info("Streaming finished, uploading to Drive...")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     try:
         file_id, url_view = upload_to_drive(video_path, folder_id)
         uploaded_dir = Path("video/uploaded")
         uploaded_dir.mkdir(exist_ok=True)
         video_path.rename(uploaded_dir / video_path.name)
+<<<<<<< HEAD
 <<<<<<< HEAD
         logging.info(f"Upload successful: {video_path.name} -> {file_id}")
     except ImportError:
@@ -53,15 +70,22 @@ def upload_after_stream(video_path: Path, folder_id: str) -> None:
         logging.info(f"Upload failed: {exc}")
 =======
         print(f"Upload successful: {video_path.name} -> {file_id}")
+=======
+        logging.info(f"Upload successful: {video_path.name} -> {file_id}")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     except ImportError:
-        print(
+        logging.info(
             "PyDrive is not installed. Run `pip install PyDrive google-api-python-client oauth2client` to enable Google Drive uploads."
         )
     except Exception as exc:
+<<<<<<< HEAD
         print(f"Upload failed: {exc}")
 
 
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+        logging.info(f"Upload failed: {exc}")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 def load_env(env_path: str = ".env") -> None:
     if not os.path.exists(env_path):
         return
@@ -81,6 +105,7 @@ def ensure_ffmpeg() -> str:
     return path
 
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 def log_ffmpeg_stderr(stderr, log_file=None, buffer=None) -> None:
     """Continuously read and print FFmpeg stderr."""
@@ -132,16 +157,27 @@ def select_codec() -> str:
 
 
 def log_ffmpeg_stderr(stderr, log_file=None) -> None:
+=======
+def log_ffmpeg_stderr(stderr, log_file=None, buffer=None) -> None:
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     """Continuously read and print FFmpeg stderr."""
     for line in stderr:
         text = line.decode("utf-8", errors="ignore")
+        if buffer is not None:
+            buffer.append(text)
         if log_file is not None:
             log_file.write(text)
-        print("[FFMPEG]", text, end="")
-
-
-def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Path) -> list[str]:
+            log_file.flush()
+        logging.info("[FFMPEG]", text, end="")
+def build_ffmpeg_command(
+    url: str,
+    size: tuple[int, int],
+    fps: float,
+    output: Path,
+    video_encoder: str,
+) -> list[str]:
     width, height = size
+<<<<<<< HEAD
     return [
         ensure_ffmpeg(),
         "-loglevel",
@@ -190,6 +226,28 @@ def build_ffmpeg_command(url: str, size: tuple[int, int], fps: float, output: Pa
         f"[f=flv]{url}|[f=mp4]{output}",
     ]
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    return build_ffmpeg_args(
+        video_source="-",
+        audio_device=None,
+        output_url=f"[f=flv]{url}|[f=mp4]{output}",
+        audio_gain_db=0.0,
+        resolution=f"{width}x{height}",
+        framerate=int(fps),
+        video_codec=video_encoder,
+        video_is_pipe=True,
+        extra_args=[
+            "-maxrate",
+            "4500k",
+            "-bufsize",
+            "9000k",
+            "-g",
+            "120",
+            "-f",
+            "tee",
+        ],
+    )
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
 
 def main() -> None:
@@ -223,6 +281,7 @@ def main() -> None:
     if not fps or fps <= 1:
         fps = 30.0
 <<<<<<< HEAD
+<<<<<<< HEAD
     logging.info(f"Capture settings: {width}x{height} @ {fps}fps")
     tracker = SmartAutoTracker()
 
@@ -238,6 +297,17 @@ def main() -> None:
     tracker = SmartAutoTracker()
 
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    logging.info(f"Capture settings: {width}x{height} @ {fps}fps")
+    tracker = SmartAutoTracker()
+
+    try:
+        video_encoder = detect_encoder()
+    except RuntimeError as exc:
+        logging.info(exc)
+        return
+    logging.info("[INFO] Streaming raw BGR → FFmpeg rawvideo → RTMP using", video_encoder)
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     retries = 0
     max_retries = 1
     while True:
@@ -246,15 +316,20 @@ def main() -> None:
         output_dir.mkdir(exist_ok=True)
         record_file = output_dir / f"game_{timestamp}.mp4"
 <<<<<<< HEAD
+<<<<<<< HEAD
         cmd = build_ffmpeg_command(url, (out_width, out_height), fps, record_file, video_encoder)
 =======
         cmd = build_ffmpeg_command(url, (out_width, out_height), fps, record_file)
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+        cmd = build_ffmpeg_command(url, (out_width, out_height), fps, record_file, video_encoder)
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
         log_dir = Path("livestream_logs")
         log_dir.mkdir(exist_ok=True)
         log_file = log_dir / f"smart_crop_{timestamp}.log"
         lf = log_file.open("w", encoding="utf-8", errors="ignore")
         cmd_str = " ".join(cmd)
+<<<<<<< HEAD
 <<<<<<< HEAD
         logging.info("Starting FFmpeg stream...")
         logging.info("Running FFmpeg command:", cmd_str)
@@ -262,6 +337,10 @@ def main() -> None:
         print("Starting FFmpeg stream...")
         print("Running FFmpeg command:", cmd_str)
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+        logging.info("Starting FFmpeg stream...")
+        logging.info("Running FFmpeg command:", cmd_str)
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
         lf.write("Running FFmpeg command: " + cmd_str + "\n")
         process = subprocess.Popen(
             cmd,
@@ -272,6 +351,7 @@ def main() -> None:
             bufsize=10**8,
         )
 <<<<<<< HEAD
+<<<<<<< HEAD
 
         stderr_lines: list[str] = []
 =======
@@ -279,10 +359,15 @@ def main() -> None:
             print("FFmpeg failed to launch. Exiting...")
             return
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+
+        stderr_lines: list[str] = []
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
         def _reader(pipe, logf):
             for raw in pipe:
                 line = raw.decode("utf-8", errors="ignore")
+<<<<<<< HEAD
 <<<<<<< HEAD
                 logging.info(line, end="")
                 logf.write(line)
@@ -333,13 +418,59 @@ def main() -> None:
 
 =======
                 print(line, end="")
+=======
+                logging.info(line, end="")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                 logf.write(line)
 
         thread_out = threading.Thread(target=_reader, args=(process.stdout, lf), daemon=True)
-        thread_err = threading.Thread(target=log_ffmpeg_stderr, args=(process.stderr, lf), daemon=True)
+        thread_err = threading.Thread(
+            target=log_ffmpeg_stderr, args=(process.stderr, lf, stderr_lines), daemon=True
+        )
         thread_out.start()
         thread_err.start()
+<<<<<<< HEAD
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+
+        start = time.time()
+        while time.time() - start < 15:
+            if process.poll() is not None:
+                err = "".join(stderr_lines)
+                logging.info("FFmpeg failed to launch. Exiting...", err)
+                lf.write(err)
+                lf.close()
+                return
+            time.sleep(0.5)
+
+        frame_queue: Queue[bytes] = Queue(maxsize=30)
+
+        def encode_worker() -> None:
+            frame_interval = 1.0 / fps
+            frame_count = 0
+            while True:
+                start_time = time.time()
+                frame_bytes = frame_queue.get()
+                if frame_bytes is None:
+                    break
+                try:
+                    process.stdin.write(frame_bytes)
+                    process.stdin.flush()
+                    frame_count += 1
+                    if frame_count % 100 == 0:
+                        logging.info(f"🟢 {frame_count} frames sent to FFmpeg")
+                except BrokenPipeError:
+                    logging.info("❌ FFmpeg pipe broken — exiting stream loop")
+                    break
+                elapsed = time.time() - start_time
+                delay = frame_interval - elapsed
+                if delay > 0:
+                    time.sleep(delay)
+
+        encoder_thread = threading.Thread(target=encode_worker, daemon=True)
+        encoder_thread.start()
+
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
         first_frame = True
         try:
             while True:
@@ -347,6 +478,7 @@ def main() -> None:
                 if not ret:
                     break
                 if first_frame:
+<<<<<<< HEAD
 <<<<<<< HEAD
                     logging.info("Frame shape:", frame.shape, "dtype:", frame.dtype)
                     cv2.imwrite("debug_frame.jpg", frame)
@@ -358,14 +490,21 @@ def main() -> None:
                         logging.info("Warning: frame is not bgr24 format")
 =======
                     print("Frame shape:", frame.shape, "dtype:", frame.dtype)
+=======
+                    logging.info("Frame shape:", frame.shape, "dtype:", frame.dtype)
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                     cv2.imwrite("debug_frame.jpg", frame)
                     if frame.shape[0] != height or frame.shape[1] != width:
-                        print(
+                        logging.info(
                             f"Warning: frame size {frame.shape[1]}x{frame.shape[0]} != {width}x{height}"
                         )
                     if frame.dtype != "uint8" or (len(frame.shape) > 2 and frame.shape[2] != 3):
+<<<<<<< HEAD
                         print("Warning: frame is not bgr24 format")
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+                        logging.info("Warning: frame is not bgr24 format")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                     first_frame = False
                 x, y, w, h = tracker.track(frame)
                 crop = frame[y : y + h, x : x + w]
@@ -373,12 +512,16 @@ def main() -> None:
                 if crop.shape != (out_height, out_width, 3) or crop.dtype != np.uint8:
                     raise ValueError(f"Crop frame has shape {crop.shape} and dtype {crop.dtype}")
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                 logging.info(f"Queuing frame of shape {crop.shape} for FFmpeg")
                 try:
                     frame_yuv = cv2.cvtColor(crop, cv2.COLOR_BGR2YUV_I420)
                     frame_queue.put_nowait(frame_yuv.tobytes())
                 except Full:
                     logging.info("[WARNING] Encoding queue full; dropping frame")
+<<<<<<< HEAD
         except KeyboardInterrupt:
             pass
         finally:
@@ -393,16 +536,27 @@ def main() -> None:
             pass
         finally:
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+        except KeyboardInterrupt:
+            pass
+        finally:
+            frame_queue.put(None)
+            encoder_thread.join()
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             if process.stdin:
                 process.stdin.close()
             ret = process.wait()
             thread_out.join()
             thread_err.join()
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             err_output = "".join(stderr_lines)
             if err_output:
                 logging.info(err_output)
                 lf.write(err_output)
+<<<<<<< HEAD
             lf.write(f"\nffmpeg exited with code {ret}\n")
             lf.close()
             if ret != 0:
@@ -416,14 +570,20 @@ def main() -> None:
                 if err_output:
                     print(err_output)
                     lf.write(err_output)
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             lf.write(f"\nffmpeg exited with code {ret}\n")
             lf.close()
             if ret != 0:
-                print("FFmpeg exited with error:", ret)
+                logging.info("FFmpeg exited with error:", ret)
         if ret != 0 and retries < max_retries:
             retries += 1
+<<<<<<< HEAD
             print(f"FFmpeg failed with code {ret}. Restarting (attempt {retries})")
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+            logging.info(f"FFmpeg failed with code {ret}. Restarting (attempt {retries})")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             time.sleep(2)
             continue
         # after each run break

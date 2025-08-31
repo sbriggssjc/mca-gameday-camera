@@ -1,9 +1,13 @@
 import argparse
 import csv
 <<<<<<< HEAD
+<<<<<<< HEAD
 import logging
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+import logging
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 import os
 import subprocess
 from pathlib import Path
@@ -15,14 +19,19 @@ try:
     from torch import nn
     from torchvision import models, transforms
 <<<<<<< HEAD
+<<<<<<< HEAD
     from torchvision.transforms import InterpolationMode
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    from torchvision.transforms import InterpolationMode
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 except Exception:  # pragma: no cover - optional dependency
     cv2 = None
     torch = None
 
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
@@ -40,6 +49,11 @@ class ToFloatNormalize(nn.Module):
         x = x / 255.0
         return (x - self.mean) / self.std
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+MEAN = [0.485, 0.456, 0.406]
+STD = [0.229, 0.224, 0.225]
+log = logging.getLogger(__name__)
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
 
 def seconds_to_time(secs: float) -> str:
@@ -85,11 +99,16 @@ def read_clip(path: Path, clip_len: int, transform) -> torch.Tensor:
     while success and len(frames) < clip_len:
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 <<<<<<< HEAD
+<<<<<<< HEAD
         frame = frame.astype("float32") / 255.0
         tensor = torch.from_numpy(frame).permute(2, 0, 1)
 =======
         tensor = torch.from_numpy(frame).permute(2, 0, 1).float()
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+        frame = frame.astype("float32") / 255.0
+        tensor = torch.from_numpy(frame).permute(2, 0, 1)
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
         if transform:
             tensor = transform(tensor)
         frames.append(tensor)
@@ -115,30 +134,45 @@ def run_inference(video: str, checkpoint: str, segment_time: int, clips_dir: str
 
     transform = transforms.Compose([
 <<<<<<< HEAD
+<<<<<<< HEAD
         transforms.Resize((224, 224), interpolation=InterpolationMode.BILINEAR),
         transforms.Normalize(mean=MEAN, std=STD),
 =======
         transforms.Resize((224, 224)),
         ToFloatNormalize(),
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+        transforms.Resize((224, 224), interpolation=InterpolationMode.BILINEAR),
+        transforms.Normalize(mean=MEAN, std=STD),
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     ])
 
     log_rows = []
     clip_files = sorted(clip_dir.glob("clip_*.mp4"))
 <<<<<<< HEAD
+<<<<<<< HEAD
     logged_stats = False
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    logged_stats = False
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     for idx, clip_path in enumerate(clip_files):
         start = idx * segment_time
         end = start + segment_time
         clip = read_clip(clip_path, 16, transform)
+<<<<<<< HEAD
 <<<<<<< HEAD
         if not logged_stats:
             log.info("input clip stats mean=%.4f std=%.4f", clip.mean().item(), clip.std().item())
             logged_stats = True
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+        if not logged_stats:
+            log.info("input clip stats mean=%.4f std=%.4f", clip.mean().item(), clip.std().item())
+            logged_stats = True
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
         clip = clip.unsqueeze(0).to(device)
         with torch.no_grad():
             out = model(clip)
@@ -158,9 +192,13 @@ def run_inference(video: str, checkpoint: str, segment_time: int, clips_dir: str
 
 def main() -> None:
 <<<<<<< HEAD
+<<<<<<< HEAD
     logging.basicConfig(level=logging.INFO)
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    logging.basicConfig(level=logging.INFO)
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     parser = argparse.ArgumentParser(description="Run play classifier on full game video")
     parser.add_argument("video", help="Full game video file")
     parser.add_argument("--model", required=True, help="Path to trained model checkpoint")

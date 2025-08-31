@@ -3,9 +3,13 @@ from __future__ import annotations
 
 import argparse
 <<<<<<< HEAD
+<<<<<<< HEAD
 import logging
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+import logging
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -14,13 +18,18 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import models, transforms
 <<<<<<< HEAD
+<<<<<<< HEAD
 from torchvision.transforms import InterpolationMode
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+from torchvision.transforms import InterpolationMode
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
 from highlight_dataset import HighlightClipDataset
 
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
@@ -38,6 +47,11 @@ class ToFloatNormalize(torch.nn.Module):
         x = x / 255.0
         return (x - self.mean) / self.std
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+MEAN = [0.485, 0.456, 0.406]
+STD = [0.229, 0.224, 0.225]
+log = logging.getLogger(__name__)
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
 
 class PlayVideoDataset(HighlightClipDataset):
@@ -46,12 +60,17 @@ class PlayVideoDataset(HighlightClipDataset):
     def __init__(self, csv_file: str | Path, label_map: Dict[str, int], clip_len: int = 16) -> None:
         transform = transforms.Compose([
 <<<<<<< HEAD
+<<<<<<< HEAD
             transforms.Resize((224, 224), interpolation=InterpolationMode.BILINEAR),
             transforms.Normalize(mean=MEAN, std=STD),
 =======
             transforms.Resize((224, 224)),
             ToFloatNormalize(),
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+            transforms.Resize((224, 224), interpolation=InterpolationMode.BILINEAR),
+            transforms.Normalize(mean=MEAN, std=STD),
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
         ])
         super().__init__(csv_file, clip_len=clip_len, transform=transform)
         self.label_map = label_map
@@ -73,14 +92,20 @@ def train_epoch(model: nn.Module, loader: DataLoader, criterion: nn.Module, opti
     correct = 0
     total = 0
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     logged_stats = False
     for clips, labels in loader:
         if not logged_stats:
             log.info("input batch stats mean=%.4f std=%.4f", clips.mean().item(), clips.std().item())
             logged_stats = True
+<<<<<<< HEAD
 =======
     for clips, labels in loader:
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
         clips = clips.to(device)
         labels = labels.to(device)
         optimizer.zero_grad()
@@ -99,9 +124,13 @@ def train_epoch(model: nn.Module, loader: DataLoader, criterion: nn.Module, opti
 
 def main() -> None:
 <<<<<<< HEAD
+<<<<<<< HEAD
     logging.basicConfig(level=logging.INFO)
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    logging.basicConfig(level=logging.INFO)
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     parser = argparse.ArgumentParser(description="Train play classification model")
     parser.add_argument("csv", help="metadata CSV with filepath and label columns")
     parser.add_argument("--epochs", type=int, default=5)

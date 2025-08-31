@@ -1,9 +1,13 @@
 import cv2
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 import os, subprocess, shlex
 import time, signal
 import numpy as np
 import glob
+<<<<<<< HEAD
 import re
 import threading
 import queue
@@ -24,6 +28,17 @@ from collections import deque
 from urllib.parse import urlparse
 import argparse
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+import re
+import threading
+import queue
+import socket
+from collections import deque
+from urllib.parse import urlparse
+import argparse
+import logging
+from env_loader import load_env, require
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
 import roster
 import csv
@@ -46,11 +61,15 @@ except Exception:
 from datetime import datetime
 from pathlib import Path
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 from ffmpeg_utils import build_ffmpeg_args, run_ffmpeg_command, detect_encoder
 from config import StreamConfig, load_config
 
 load_env()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+<<<<<<< HEAD
 
 
 def _pick_encoder():
@@ -700,6 +719,615 @@ HEIGHT = 720
 FPS = 30
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 
+=======
+
+
+def _pick_encoder():
+    preferred = os.environ.get("PREFERRED_ENCODERS")
+    if os.environ.get("USE_SW_ENC", "0") == "1":
+        pref_list = ["libx264"]
+    elif preferred:
+        pref_list = [p.strip() for p in preferred.split(",") if p.strip()]
+    else:
+        pref_list = None
+    enc_name = detect_encoder(pref_list)
+    return ["-c:v", enc_name]
+
+
+def choose_free_video_device(preferred=("0", "1", "2", "3")):
+    """
+    Return the first /dev/videoN that is not in use.
+    Falls back to /dev/video0 if uncertain or none found.
+    """
+    import os, glob, subprocess
+    # Candidate list: preferred order, then any other /dev/video*
+    candidates = [f"/dev/video{n}" for n in preferred]
+    others = sorted(glob.glob("/dev/video*"))
+    seen = set()
+    devices = [d for d in candidates + others if (d not in seen and not seen.add(d))]
+
+    for dev in devices:
+        if not os.path.exists(dev):
+            continue
+        in_use = False
+        try:
+            # fuser -s returns 0 when IN USE
+            in_use = subprocess.run(["fuser", "-s", dev]).returncode == 0
+        except FileNotFoundError:
+            # If fuser is missing, assume free (best effort)
+            in_use = False
+        if not in_use:
+            return dev
+
+    return devices[0] if devices else "/dev/video0"
+
+
+def build_audio_filter():
+    """
+    Returns a low-latency audio filter chain:
+      - volume: primary gain boost (in dB, default +8 dB)
+      - highpass: remove rumble/wind (default 120 Hz)
+      - acompressor: tame peaks (3:1 ratio, low threshold)
+      - alimiter: hard ceiling to prevent clipping (-1.0 dBTP)
+      - dynaudnorm (optional): gentle auto-normalization for speech/crowd
+
+    Tunable via env vars:
+      AUDIO_GAIN_DB   -> default 8    (use 6–12 for field mics)
+      AUDIO_HIGHPASS  -> default 120  (Hz)
+      AUDIO_MODE      -> "speech" | "crowd" | "off"
+                         "speech": adds light dynaudnorm
+                         "crowd":  stronger dynaudnorm
+                         "off":    no dynaudnorm (lowest latency)
+    """
+    gain_db = float(os.environ.get("AUDIO_GAIN_DB", "8"))
+    highpass_hz = int(os.environ.get("AUDIO_HIGHPASS", "120"))
+    mode = os.environ.get("AUDIO_MODE", "speech").strip().lower()
+
+    # Core filters: gain -> highpass -> compressor -> limiter
+    chain = [
+        f"volume={gain_db}dB",
+        f"highpass=f={highpass_hz}",
+        "acompressor=threshold=-24dB:ratio=3:attack=5:release=100:makeup=6",
+        "alimiter=limit=-1.0dB"
+    ]
+
+    # Optional adaptive normalizer (single pass, live-safe)
+    if mode == "speech":
+        # Mild
+        chain.append("dynaudnorm=f=250:g=5:n=1:p=0.9")
+    elif mode == "crowd":
+        # Stronger leveling for noisy environments
+        chain.append("dynaudnorm=f=200:g=7:n=1:p=0.8")
+
+    chain.append("aformat=channel_layouts=stereo,pan=stereo|c0=c0|c1=c0")
+    return ",".join(chain)
+
+
+def default_pulse_src() -> str:
+    try:
+        return subprocess.check_output(["pactl", "get-default-source"], text=True).strip()
+    except Exception:
+        return ""
+
+
+def build_ffmpeg_cmd(
+    input_fmt: str,
+    audio_source_mode: str,
+    encode_mode: str,
+    record_file: Path,
+    output_url: str,
+) -> list[str]:
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "info",
+        "-nostdin",
+        "-thread_queue_size",
+        "1024",
+        "-f",
+        "v4l2",
+        "-use_wallclock_as_timestamps",
+        "1",
+        "-input_format",
+        input_fmt,
+        "-framerate",
+        "30",
+        "-video_size",
+        "1280x720",
+        "-i",
+        VIDEO_DEV,
+    ]
+
+    if audio_source_mode == "alsa":
+        cmd += [
+            "-thread_queue_size",
+            "512",
+            "-f",
+            "alsa",
+            "-ar",
+            "48000",
+            "-ac",
+            "1",
+            "-i",
+            "hw:1,0",
+        ]
+    elif audio_source_mode == "pulse":
+        cmd += [
+            "-thread_queue_size",
+            "512",
+            "-f",
+            "pulse",
+            "-i",
+            default_pulse_src(),
+        ]
+
+    cmd += [
+        "-fflags",
+        "+genpts",
+        "-start_at_zero",
+        "-reset_timestamps",
+        "1",
+        "-vsync",
+        "1",
+        "-map",
+        "0:v:0",
+    ]
+
+    if audio_source_mode != "none":
+        cmd += ["-map", "1:a:0"]
+
+    if encode_mode == "copy":
+        cmd += ["-c:v", "copy"]
+    else:
+        cmd += [
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-tune",
+            "zerolatency",
+            "-pix_fmt",
+            "yuv420p",
+            "-b:v",
+            "3500k",
+            "-maxrate",
+            "4000k",
+            "-bufsize",
+            "6000k",
+            "-g",
+            "60",
+        ]
+
+    if audio_source_mode != "none":
+        cmd += ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
+    else:
+        cmd += ["-an"]
+
+    tee = (
+        f"[f=flv:onfail=ignore]{output_url}|[f=mp4:movflags=+frag_keyframe+empty_moov+faststart]{record_file}"
+    )
+    cmd += ["-f", "tee", tee]
+    return cmd
+
+
+def retry_matrix(record_file: Path, output_url: str, log_file: Path) -> int:
+    attempts = [
+        ("h264", "alsa", "copy"),
+        ("h264", "pulse", "copy"),
+        ("h264", "none", "copy"),
+        ("mjpeg", "none", "x264"),
+    ]
+    rc = 1
+    for idx, (fmt, audio, enc) in enumerate(attempts):
+        if idx > 0:
+            logging.error(f"[fallback] retrying with {fmt}/{audio}/{enc}")
+        cmd = build_ffmpeg_cmd(fmt, audio, enc, record_file, output_url)
+        with log_file.open("a") as log_fp:
+            proc = subprocess.run(cmd, stdout=log_fp, stderr=log_fp)
+            rc = proc.returncode
+        if rc == 0:
+            break
+    return rc
+
+
+
+
+
+ERROR_KEYWORDS = (
+    "input/output error",
+    "could not connect to youtube",
+    "broken pipe",
+)
+
+
+def _halve_bitrate(value: str) -> str:
+    """Return half of a bitrate string like '4500k'."""
+    try:
+        num = int(re.findall(r"(\d+)", value)[0])
+        return f"{max(num // 2, 1)}k"
+    except Exception:
+        return value
+
+
+def _run_rtmp_test(url: str) -> None:
+    """Run a short FFmpeg dry run to verify RTMP(S) connectivity."""
+    test_cmd = [
+        "ffmpeg",
+        "-loglevel",
+        "error",
+        "-re",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=128x72:rate=10",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=1000",
+        "-t",
+        "2",
+        "-rtmp_flags",
+        "prefer_ipv4",
+        "-f",
+        "flv",
+        url,
+    ]
+    rc, _, stderr = run_ffmpeg_command(test_cmd, timeout=10)
+    if rc != 0:
+        logging.info("[RTMP TEST] Unable to reach RTMP(S) URL:")
+        logging.info(stderr)
+def find_usb_microphone(default_device: str = "hw:1,0") -> str:
+    """Return ALSA identifier for a USB/RØDE microphone if present.
+
+    Parameters
+    ----------
+    default_device: str
+        Fallback ALSA device string (e.g., "hw:1,0").
+    """
+
+    result = subprocess.run(
+        ["arecord", "-l"], capture_output=True, text=True, timeout=5
+    )
+    matches = re.findall(r"card (\d+): ([^\[]+)\[([^\]]+)\], device (\d+):", result.stdout)
+    for card, name, desc, device in matches:
+        if "rode" in name.lower() or "usb" in desc.lower():
+            return f"hw:{card},{device}"
+    return default_device  # fallback to specific device
+
+
+def check_audio_input(device: str) -> bool:
+    """Return True if audio device produces a non-silent signal."""
+
+    try:
+        result = subprocess.run(
+            [
+                "arecord",
+                "-D",
+                device,
+                "-d",
+                "1",
+                "-f",
+                "S16_LE",
+                "-r",
+                "44100",
+                "-c",
+                "1",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            logging.info(f"⚠️ ALSA device {device} not found")
+            return False
+        if not result.stdout:
+            logging.info(f"⚠️ No audio captured from ALSA device {device}")
+            return False
+        audio = np.frombuffer(result.stdout, dtype=np.int16)
+        if np.max(np.abs(audio)) == 0:
+            logging.info(f"⚠️ Silence detected on ALSA device {device}")
+            return False
+        return True
+    except Exception as e:
+        logging.info(f"⚠️ Audio check failed for device {device}: {e}")
+        return False
+
+
+def detect_volume_gain(device: str, target_db: float = -15.0) -> float:
+    """Return gain (in dB) needed to reach target mean volume.
+
+    Runs a short ffmpeg dry-run using the ``volumedetect`` filter to measure
+    the mean volume of the provided ALSA device. If successful, the difference
+    between ``target_db`` and the measured value is returned. On failure, a
+    default gain of ``2.5`` dB is used.
+    """
+
+    cmd = [
+        "ffmpeg",
+        "-f",
+        "alsa",
+        "-ac",
+        "1",
+        "-ar",
+        "44100",
+        "-t",
+        "3",
+        "-i",
+        device,
+        "-af",
+        "volumedetect",
+        "-f",
+        "null",
+        "-",
+    ]
+    try:
+        rc, _, stderr = run_ffmpeg_command(cmd, timeout=15)
+        match = re.search(r"mean_volume:\s*(-?\d+\.?\d*) dB", stderr)
+        if rc == 0 and match:
+            measured_db = float(match.group(1))
+            gain = target_db - measured_db
+            logging.info(
+                f"[AUDIO] mean volume: {measured_db:.1f} dBFS, target: {target_db:.1f} dBFS, applying gain: {gain:.1f} dB"
+            )
+            return gain
+    except Exception as e:
+        logging.info(f"⚠️ Volume detection failed: {e}")
+    default_gain = 2.5
+    logging.info(f"[AUDIO] Using default gain: {default_gain} dB")
+    return default_gain
+
+
+def ping_rtmp(url: str, timeout: int = 5) -> bool:
+    """Return True if the RTMP(S) endpoint is reachable."""
+
+    parsed = urlparse(url)
+    host = parsed.hostname
+    port = parsed.port or (443 if parsed.scheme == "rtmps" else 1935)
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError as e:
+        logging.info(f"[❌ ERROR] TCP connection to {host}:{port} failed: {e}")
+        return False
+
+
+def diagnose_rtmp_connection(host: str = "a.rtmps.youtube.com", port: int = 443) -> None:
+    """Diagnose DNS and TCP connectivity to the RTMP(S) host."""
+
+    try:
+        ip = socket.gethostbyname(host)
+        logging.info(f"[DIAG] DNS resolved {host} -> {ip}")
+        dns_ok = True
+    except socket.gaierror as e:
+        logging.info(f"[DIAG] DNS resolution failed for {host}: {e}")
+        dns_ok = False
+
+    if dns_ok:
+        try:
+            with socket.create_connection((host, port), timeout=5):
+                logging.info(f"[DIAG] TCP connection to {host}:{port} succeeded")
+        except OSError as e:
+            logging.info(f"[DIAG] TCP connection to {host}:{port} failed: {e}")
+    else:
+        logging.info("[DIAG] Skipping TCP check due to DNS failure")
+AUDIO_LEVEL_DB = 0.0
+LAST_BITRATE = 0.0
+LAST_FRAME_TIME = 0.0
+AUDIO_OK = False
+VIDEO_OK = False
+IO_ERROR_COUNT = 0
+RTMP_REACHABLE = False
+
+MAX_RESTART_ATTEMPTS = 3
+restart_attempts = 0
+
+
+def abort_stream() -> None:
+    """Print a summary report and exit."""
+
+    summary = [
+        f"Retries: {restart_attempts}",
+        f"RTMP reachable: {RTMP_REACHABLE}",
+        f"Last bitrate: {LAST_BITRATE} kbps",
+        f"Audio OK: {AUDIO_OK} (level {AUDIO_LEVEL_DB:.1f} dBFS)",
+        f"Video OK: {VIDEO_OK}",
+    ]
+    logging.info("[🛑 HALT] FFmpeg aborted. Summary:")
+    for line in summary:
+        logging.info(" - " + line)
+    sys.exit(1)
+
+
+def handle_ffmpeg_crash(process):
+    """Log crash details, back off, and track restart attempts."""
+
+    global restart_attempts, IO_ERROR_COUNT, RTMP_REACHABLE
+    restart_attempts += 1
+    stderr_output = ""
+    exit_code = process.returncode if process else None
+    if process and process.stderr:
+        try:
+            stderr_output = process.stderr.read().decode(errors="replace")
+        except Exception:
+            stderr_output = ""
+    if exit_code is not None:
+        logging.info(f"[FFMPEG EXIT CODE] {exit_code}")
+    if stderr_output:
+        logging.info(f"[FFMPEG STDERR] {stderr_output}")
+        Path("logs").mkdir(exist_ok=True)
+        with Path("logs/ffmpeg_last_error.txt").open("w", encoding="utf-8") as fp:
+            fp.write(stderr_output)
+        RTMP_REACHABLE = ping_rtmp("rtmps://a.rtmps.youtube.com/live2")
+        lower = stderr_output.lower()
+        if "input/output error" in lower:
+            IO_ERROR_COUNT += 1
+            if IO_ERROR_COUNT == 2:
+                diagnose_rtmp_connection()
+                if sys.stdin.isatty():
+                    ans = input(
+                        "Have you confirmed the stream key is valid and YouTube Live is enabled? (y/N): "
+                    )
+                    if ans.strip().lower() != "y":
+                        abort_stream()
+        if any(k in lower for k in ERROR_KEYWORDS):
+            logging.info("[🚨 STREAM FAILURE] FFmpeg died due to RTMP error. This is likely:")
+            logging.info("  - YouTube Live not actively listening for stream")
+            logging.info("  - Network blockage or dropped connection")
+            logging.info("  - Too low FPS or broken pipe (check resolution + CPU)")
+            logging.info("  - Stream key issue (though unlikely if previously working)")
+            logging.info(f"  RTMP URL: {mask_stream_url(RTMP_URL)}")
+    if restart_attempts > MAX_RESTART_ATTEMPTS:
+        abort_stream()
+    base_delay = 5
+    if stderr_output:
+        lower = stderr_output.lower()
+        if any(p in lower for p in [
+            "connection refused",
+            "no route to host",
+            "name or service not known",
+            "temporary failure in name resolution",
+        ]):
+            base_delay = 15
+    backoff = min(60, base_delay * (2 ** (restart_attempts - 1)))
+    logging.info(f"[WAIT] Backing off for {backoff} seconds before retry...")
+    time.sleep(backoff)
+
+
+def start_ffmpeg_process(ffmpeg_command):
+    """Starts and returns a new subprocess.Popen for the FFmpeg command."""
+
+    try:
+        return subprocess.Popen(
+            ffmpeg_command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+        )
+    except Exception as e:  # pragma: no cover - defensive
+        logging.info(f"[❌ ERROR] Failed to start FFmpeg: {e}")
+        return None
+
+
+def handle_ffmpeg_crash_old(process):
+    """Log crash details, back off, and track restart attempts."""
+
+    global restart_attempts
+    restart_attempts += 1
+    stderr_output = ""
+    if process and process.stderr:
+        try:
+            stderr_output = process.stderr.read().decode(errors="replace")
+        except Exception:
+            stderr_output = ""
+    if stderr_output:
+        logging.info(f"[FFMPEG STDERR] {stderr_output}")
+        lower = stderr_output.lower()
+        if any(k in lower for k in ERROR_KEYWORDS):
+            logging.info("[🚨 STREAM FAILURE] FFmpeg died due to RTMP error. This is likely:")
+            logging.info("  - YouTube Live not actively listening for stream")
+            logging.info("  - Network blockage or dropped connection")
+            logging.info("  - Too low FPS or broken pipe (check resolution + CPU)")
+            logging.info("  - Stream key issue (though unlikely if previously working)")
+            logging.info(f"  RTMP URL: {mask_stream_url(RTMP_URL)}")
+    if restart_attempts > MAX_RESTART_ATTEMPTS:
+        logging.info("[🛑 ABORT] Too many FFmpeg failures.")
+        sys.exit(1)
+    backoff = min(30, 2 ** restart_attempts)
+    logging.info(f"[WAIT] Backing off for {backoff} seconds before retry...")
+    time.sleep(backoff)
+
+
+def is_ffmpeg_alive(process) -> bool:
+    """Return True if the given FFmpeg process is running."""
+
+    return process is not None and process.poll() is None
+
+
+def monitor_audio_level(
+    device: str, stop_event: threading.Event, threshold_db: float = -60.0
+) -> None:
+    """Sample the audio device every 10s and update ``AUDIO_LEVEL_DB``.
+
+    A warning is logged and printed if the mean volume over the 10s window is
+    below ``threshold_db``.  Each warning is appended to ``silence_log.txt``.
+    """
+
+    global AUDIO_LEVEL_DB
+    log_path = Path("silence_log.txt")
+    while not stop_event.is_set():
+        cmd = [
+            "ffmpeg",
+            "-f",
+            "alsa",
+            "-ac",
+            "1",
+            "-ar",
+            "44100",
+            "-i",
+            device,
+            "-t",
+            "10",
+            "-af",
+            "volumedetect",
+            "-f",
+            "null",
+            "-",
+        ]
+        try:
+            rc, _, stderr = run_ffmpeg_command(cmd, timeout=15)
+            match = re.search(r"mean_volume:\s*(-?\d+\.?\d*) dB", stderr)
+            if rc == 0 and match:
+                AUDIO_LEVEL_DB = float(match.group(1))
+            else:
+                AUDIO_LEVEL_DB = -80.0
+
+            if AUDIO_LEVEL_DB <= threshold_db:
+                msg = (
+                    f"⚠️ Microphone silence detected ({AUDIO_LEVEL_DB:.1f} dBFS)"
+                )
+                logging.warning(msg)
+                logging.info(msg)
+                with log_path.open("a") as fp:
+                    fp.write(f"{datetime.now().isoformat()} {msg}\n")
+        except Exception as e:
+            AUDIO_LEVEL_DB = -80.0
+            logging.info(f"⚠️ Audio monitoring failed: {e}")
+        # Loop repeats automatically after ffmpeg completes (~10s)
+        stop_event.wait(0.1)
+
+
+def system_monitor(stop_event: threading.Event) -> None:
+    """Log CPU (and GPU if available) usage periodically."""
+
+    if psutil is None:
+        return
+    while not stop_event.is_set():
+        cpu = psutil.cpu_percent(interval=1)
+        mem = psutil.virtual_memory().percent
+        msg = f"[SYSTEM] CPU: {cpu:.1f}% | MEM: {mem:.1f}%"
+        try:
+            temps = psutil.sensors_temperatures()
+            if temps:
+                gpu_t = temps.get("gpu") or temps.get("GPU")
+                if gpu_t:
+                    msg += f" | GPU Temp: {gpu_t[0].current:.1f}C"
+        except Exception:
+            pass
+        logging.info(msg)
+        stop_event.wait(5)
+
+
+
+# SETTINGS
+CAMERA_INDEX = 0
+WIDTH = 0
+HEIGHT = 0
+FPS = 0
+
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 # RTMP destination will be set after stream key validation in main()
 RTMP_URL = ""
 
@@ -732,15 +1360,22 @@ FINAL_MIN_PLAYS = 7
 
 def validate_rtmp_url(url: str) -> bool:
 <<<<<<< HEAD
+<<<<<<< HEAD
     """Basic validation for RTMP(S) URLs."""
 =======
     """Basic validation for RTMP URLs."""
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    """Basic validation for RTMP(S) URLs."""
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     parsed = urlparse(url)
     return parsed.scheme in {"rtmp", "rtmps"} and bool(parsed.netloc) and bool(parsed.path)
 
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 def normalize_youtube_url(url_or_key: str) -> str:
     """Return a canonical YouTube RTMP(S) ingest URL.
 
@@ -757,8 +1392,11 @@ def normalize_youtube_url(url_or_key: str) -> str:
     return f"{scheme}://{host}/live2/{key}"
 
 
+<<<<<<< HEAD
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 def mask_stream_url(url: str) -> str:
     """Return the stream URL with the secret key portion hidden."""
     return re.sub(r"/[^/]+$", "/<hidden>", url)
@@ -776,6 +1414,7 @@ def generate_compliance_report(
     summary: list[dict[str, str | int]] = []
     for pid in sorted(play_counts.keys()):
 <<<<<<< HEAD
+<<<<<<< HEAD
         if not str(pid).isdigit():
             continue
         count = play_counts[pid]
@@ -790,12 +1429,26 @@ def generate_compliance_report(
             {
                 "player": report_entry,
 =======
+=======
+        if not str(pid).isdigit():
+            continue
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
         count = play_counts[pid]
         status_str = "Met" if count >= FINAL_MIN_PLAYS else "Below"
+        try:
+            player_id = int(pid)
+            player_name = roster.get_player_name(player_id)
+        except (ValueError, TypeError):
+            player_name = "UNKNOWN"
+        report_entry = f"#{pid} {player_name}"
         summary.append(
             {
+<<<<<<< HEAD
                 "player": f"#{pid} {roster.get_player_name(int(pid))}",
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+                "player": report_entry,
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                 "plays": count,
                 "status": f"{'✅' if status_str == 'Met' else '❌'} {status_str}",
             }
@@ -830,6 +1483,7 @@ def generate_compliance_report(
         c.save()
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     logging.info("\nCompliance Summary:")
     for row in summary:
         logging.info(f"{row['player']} - {row['plays']} plays - {row['status']}")
@@ -840,6 +1494,11 @@ def generate_compliance_report(
 
 
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    logging.info("\nCompliance Summary:")
+    for row in summary:
+        logging.info(f"{row['player']} - {row['plays']} plays - {row['status']}")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 def open_writer(path: Path, fps: float, size: tuple[int, int]) -> cv2.VideoWriter:
     """Open an MP4 writer, falling back to MJPG if needed."""
     fourcc = cv2.VideoWriter_fourcc(*"avc1")
@@ -874,10 +1533,14 @@ def draw_label(
 
 def overlay_info(
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     frame: "cv2.Mat",
     frame_count: int,
     scoreboard: tuple[str, str, str] | None = None,
     audio_level: float | None = None,
+<<<<<<< HEAD
 ) -> None:
     """Overlay time, LIVE label, frame counter, scoreboard, and audio meter."""
 =======
@@ -885,6 +1548,10 @@ def overlay_info(
 ) -> None:
     """Overlay time, LIVE label, frame counter and scoreboard."""
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+) -> None:
+    """Overlay time, LIVE label, frame counter, scoreboard, and audio meter."""
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     time_str = datetime.now().strftime("%H:%M:%S")
     # LIVE label in top-left
     draw_label(frame, "LIVE", (10, 30))
@@ -901,6 +1568,9 @@ def overlay_info(
     (fw, fh), _ = cv2.getTextSize(frame_text, FONT, FONT_SCALE, THICKNESS)
     draw_label(frame, frame_text, (10, frame.shape[0] - 10))
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     if audio_level is not None:
         audio_text = f"Audio: {audio_level:.1f} dBFS"
         (aw, ah), _ = cv2.getTextSize(audio_text, FONT, FONT_SCALE, THICKNESS)
@@ -908,8 +1578,11 @@ def overlay_info(
         if audio_level <= -60:
             warn_text = "NO AUDIO"
             draw_label(frame, warn_text, (10, 60))
+<<<<<<< HEAD
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
 
 def preprocess_frame(frame: "cv2.Mat") -> "cv2.Mat":
@@ -961,6 +1634,9 @@ def parse_clock(clock: str) -> int | None:
 
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 def _log_ffmpeg_errors(pipe, log_fp, buffer) -> None:
     """Stream FFmpeg stderr output in real time and monitor bitrate."""
 
@@ -1008,6 +1684,7 @@ def _log_ffmpeg_errors(pipe, log_fp, buffer) -> None:
                     zero_start = None
     pipe.close()
     log_fp.close()
+<<<<<<< HEAD
 
 
 
@@ -1381,16 +2058,272 @@ def main() -> None:
     else:
         print("❌ No /dev/video* devices found.")
 
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
 
+
+
+def launch_ffmpeg(
+    mic_input: str,
+    volume_gain_db: float,
+    *,
+    record_path: str | None,
+    preset: str,
+    bitrate: str,
+    maxrate: str,
+    bufsize: str,
+    gop: int,
+    keyint_min: int,
+    force_ipv4: bool = False,
+    retry: bool = True,
+    diagnose_only: bool = False,
+) -> subprocess.Popen | None:
+    """Start an FFmpeg process configured for streaming with tuned settings.
+
+    If ``retry`` is True and startup fails with common RTMP errors, the
+    function retries once with a reduced bitrate and forced IPv4 reconnect.
+    """
+
+    width, height, fps = WIDTH, HEIGHT, FPS
+    try:
+        video_encoder = detect_encoder()
+    except RuntimeError as e:
+        logging.info(e)
+        return None
+    logging.info("[INFO] Streaming raw BGR → FFmpeg rawvideo → RTMP using %s", video_encoder)
+    log_dir = Path("livestream_logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / f"ffmpeg_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    log_fp = log_file.open("w", encoding="utf-8", errors="replace")
+
+    extra = ["-fflags", "nobuffer", "-flush_packets", "1"]
+    ffmpeg_command = build_ffmpeg_args(
+        video_source="-",
+        audio_device=mic_input,
+        output_url=RTMP_URL,
+        audio_gain_db=volume_gain_db,
+        resolution=f"{width}x{height}",
+        framerate=int(fps),
+        video_codec=video_encoder,
+        video_is_pipe=True,
+        preset=preset,
+        bitrate=bitrate,
+        maxrate=maxrate,
+        bufsize=bufsize,
+        gop=gop,
+        keyint_min=keyint_min,
+        local_record=record_path,
+        force_ipv4=force_ipv4,
+        extra_args=extra,
+        diagnose_only=diagnose_only,
+    )
+
+    logging.info("FFmpeg command: %s", " ".join(shlex.quote(c) for c in ffmpeg_command))
+    log_fp.write("FFMPEG COMMAND: " + " ".join(ffmpeg_command) + "\n")
+    log_fp.flush()
+
+    try:
+        process = subprocess.Popen(
+            ffmpeg_command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+        )
+
+        stderr_lines: list[str] = []
+        if process.stderr is not None:
+            threading.Thread(
+                target=_log_ffmpeg_errors,
+                args=(process.stderr, log_fp, stderr_lines),
+                daemon=True,
+            ).start()
+
+        start = time.time()
+        while time.time() - start < 15:
+            if process is None or process.poll() is not None:
+                err = "\n".join(stderr_lines)
+                lower_err = err.lower()
+                if any(k in lower_err for k in ERROR_KEYWORDS):
+                    logging.info("[🚨 STREAM FAILURE] FFmpeg died due to RTMP error. This is likely:")
+                    logging.info("  - YouTube Live not actively listening for stream")
+                    logging.info("  - Network blockage or dropped connection")
+                    logging.info("  - Too low FPS or broken pipe (check resolution + CPU)")
+                    logging.info("  - Stream key issue (though unlikely if previously working)")
+                    logging.info(f"  RTMP URL: {mask_stream_url(RTMP_URL)}")
+                    log_fp.write(err + "\n")
+                    log_fp.flush()
+                    if retry:
+                        reduced = _halve_bitrate(bitrate)
+                        reduced_max = _halve_bitrate(maxrate)
+                        reduced_buf = _halve_bitrate(bufsize)
+                        return launch_ffmpeg(
+                            mic_input,
+                            volume_gain_db,
+                            record_path=record_path,
+                            preset=preset,
+                            bitrate=reduced,
+                            maxrate=reduced_max,
+                            bufsize=reduced_buf,
+                            gop=gop,
+                            keyint_min=keyint_min,
+                            force_ipv4=True,
+                            retry=False,
+                            diagnose_only=diagnose_only,
+                        )
+                    _run_rtmp_test(RTMP_URL)
+                else:
+                    logging.info(f"❌ FFmpeg exited early: {err}")
+                    log_fp.write(err + "\n")
+                log_fp.close()
+                return None
+            time.sleep(0.5)
+        return process
+    except FileNotFoundError:
+        logging.info("❌ ffmpeg not found. Please install FFmpeg.")
+        log_fp.close()
+        return None
+    except Exception as e:
+        logging.info(f"[❌ ERROR] Failed to launch FFmpeg: {e}")
+        log_fp.close()
+        return None
+
+
+def restart_ffmpeg(
+    process: subprocess.Popen | None,
+    mic_input: str,
+    volume_gain_db: float,
+    *,
+    record_path: str | None,
+    preset: str,
+    bitrate: str,
+    maxrate: str,
+    bufsize: str,
+    gop: int,
+    keyint_min: int,
+    force_ipv4: bool = False,
+    diagnose_only: bool = False,
+) -> subprocess.Popen | None:
+    """Restart the FFmpeg process if the stream stalls."""
+    if process is not None:
+        try:
+            if process.stdin:
+                process.stdin.close()
+        except Exception:
+            pass
+        try:
+            process.terminate()
+            process.wait(timeout=5)
+        except Exception:
+            pass
+        try:
+            stderr_output = ""
+            if process.stderr:
+                stderr_output = process.stderr.read().decode(errors="replace")
+            logging.info(f"[FFMPEG EXIT CODE] {process.returncode}")
+            if stderr_output:
+                logging.info(f"[FFMPEG STDERR] {stderr_output}")
+                if "input/output error" in stderr_output.lower():
+                    logging.info(
+                        "[🚫 RTMP ERROR] Could not connect to YouTube. Check network or stream key."
+                    )
+                    raise RuntimeError("RTMP failure")
+        except Exception:
+            pass
+
+    return launch_ffmpeg(
+        mic_input,
+        volume_gain_db,
+        record_path=record_path,
+        preset=preset,
+        bitrate=bitrate,
+        maxrate=maxrate,
+        bufsize=bufsize,
+        gop=gop,
+        keyint_min=keyint_min,
+        force_ipv4=force_ipv4,
+        diagnose_only=diagnose_only,
+    )
+
+
+
+def initialize_camera(index: int, width: int, height: int, fps: int) -> cv2.VideoCapture | None:
+    """Attempt to open a camera with the given settings.
+
+    Returns the ``cv2.VideoCapture`` object if successful, otherwise ``None``.
+    """
+
+    cap = cv2.VideoCapture(index, cv2.CAP_V4L2)
+    if not cap.isOpened():
+        return None
+
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    cap.set(cv2.CAP_PROP_FPS, fps)
+
+    ret, _ = cap.read()
+    if not ret:
+        cap.release()
+        return None
+
+    return cap
+
+
+def initialize_camera_path(width: int, height: int, fps: int) -> cv2.VideoCapture | None:
+    """Attempt to open cameras using /dev/video* paths."""
+
+    for idx in range(10):
+        device_path = Path(f"/dev/video{idx}")
+        if not device_path.exists():
+            continue
+        logging.info(f"🎥 Trying device path {device_path}")
+        cap = cv2.VideoCapture(str(device_path), cv2.CAP_V4L2)
+        if not cap.isOpened():
+            continue
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        cap.set(cv2.CAP_PROP_FPS, fps)
+        ret, _ = cap.read()
+        if ret:
+            return cap
+        cap.release()
+    return None
+
+
+def print_available_cameras() -> None:
+    """Print a list of available video devices for debugging."""
+
+    try:
+        result = subprocess.run(
+            ["v4l2-ctl", "--list-devices"], capture_output=True, text=True, check=True
+        )
+        if result.stdout.strip():
+            logging.info("📷 Available cameras:\n" + result.stdout)
+            return
+    except Exception:
+        pass
+
+    devices = sorted(str(p) for p in Path("/dev").glob("video*"))
+    if devices:
+        logging.info("📷 Available /dev/video* devices: " + ", ".join(devices))
+    else:
+        logging.info("❌ No /dev/video* devices found.")
 def main() -> None:
+<<<<<<< HEAD
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    global AUDIO_OK, VIDEO_OK, LAST_FRAME_TIME, RTMP_REACHABLE
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     parser = argparse.ArgumentParser(description="Stream and record game footage")
     parser.add_argument(
         "--filename",
         help="Base name for output files; timestamp and .mp4 will be appended",
     )
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     parser.add_argument("--stream_key", default=None, help="RTMP(S) stream URL")
     parser.add_argument(
         "--mic_device",
@@ -1524,6 +2457,7 @@ def main() -> None:
         logging.info(f"❌ Invalid resolution format: {cfg.resolution}")
         return
     FPS = cfg.fps
+<<<<<<< HEAD
 =======
     parser.add_argument(
         "--stream_key",
@@ -1561,12 +2495,17 @@ def main() -> None:
 
     global WIDTH, HEIGHT, FPS
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
     cap: cv2.VideoCapture | None = None
 
     print_available_cameras()
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     start_idx = cfg.camera
     logging.info(f"🎥 Trying camera index {start_idx} at {WIDTH}x{HEIGHT}")
     cap = initialize_camera(start_idx, WIDTH, HEIGHT, FPS)
@@ -1582,6 +2521,7 @@ def main() -> None:
 
     if cap is None:
         logging.info("❌ Camera failed to initialize after scanning all paths.")
+<<<<<<< HEAD
 =======
     print("🎥 Trying camera index 0 at 1920x1080")
     cap = initialize_camera(0, 1920, 1080, FPS)
@@ -1596,6 +2536,8 @@ def main() -> None:
     if cap is None:
         print("❌ Camera failed to initialize after scanning all paths.")
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
         print_available_cameras()
         return
 
@@ -1603,6 +2545,9 @@ def main() -> None:
     cam_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     cam_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     logging.info(f"✅ Camera resolution: {cam_width}x{cam_height}")
     ret, test_frame = cap.read()
     if not ret or test_frame is None:
@@ -1617,6 +2562,7 @@ def main() -> None:
     # Apply requested resolution/FPS; rotate later if camera delivers portrait frames
     if test_frame.shape[0] > test_frame.shape[1]:
         logging.info("🔄 Rotating input frames for landscape orientation")
+<<<<<<< HEAD
 =======
     print(f"✅ Camera resolution: {cam_width}x{cam_height}")
 
@@ -1633,12 +2579,17 @@ def main() -> None:
         print("🔄 Rotating input frames for landscape orientation")
     WIDTH, HEIGHT, FPS = 1280, 720, 30
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, FPS)
     actual_fps = cap.get(cv2.CAP_PROP_FPS)
     if abs(actual_fps - FPS) > 0.1:
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
         logging.info(f"⚠️ Camera FPS not locked at {FPS}, actual: {actual_fps:.2f}")
     else:
         logging.info(f"✅ Camera FPS locked at {actual_fps:.2f}")
@@ -1673,6 +2624,7 @@ def main() -> None:
         threading.Thread(
             target=monitor_audio_level, args=(mic_input, monitor_stop), daemon=True
         ).start()
+<<<<<<< HEAD
 =======
         print(f"⚠️ Camera FPS not locked at {FPS}, actual: {actual_fps:.2f}")
     else:
@@ -1681,6 +2633,8 @@ def main() -> None:
     mic_input = find_usb_microphone()
     print(f"🎤 Using microphone: {mic_input}")
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
     output_dir = Path("video")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1690,6 +2644,9 @@ def main() -> None:
     record_file = unique_path(output_dir / f"{base_name}_{timestamp}.mp4")
     log_file = unique_path(output_dir / f"{base_name}_{timestamp}_play_log.csv")
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     record_path = str(record_file) if args.record else None
 
     ffmpeg_process = launch_ffmpeg(
@@ -1784,6 +2741,7 @@ def main() -> None:
     )
     encode_thread.start()
 
+<<<<<<< HEAD
 =======
 
     process = launch_ffmpeg(mic_input)
@@ -1791,6 +2749,8 @@ def main() -> None:
         return
 
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     log_fp = open(log_file, "w", newline="")
     log_writer = csv.writer(log_fp)
     log_writer.writerow(["timestamp", "player_id"])
@@ -1806,6 +2766,9 @@ def main() -> None:
     cv2.namedWindow("Stream Preview", cv2.WINDOW_NORMAL)
     frame_count = 0
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     consecutive_capture_failures = 0
     MAX_CAPTURE_FAILURES = 10
     MAX_RECONNECT_ATTEMPTS = 5
@@ -1813,6 +2776,7 @@ def main() -> None:
     fps_start = start
     fps_counter = 0
     capture_fps = 0.0
+<<<<<<< HEAD
 =======
     bytes_sent = 0
     failed_reads = 0
@@ -1823,6 +2787,8 @@ def main() -> None:
     capture_fps = 0.0
     encode_fps = 0.0
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     no_frame_secs = 0
     ffmpeg_error = False
     last_score_update = 0.0
@@ -1854,11 +2820,15 @@ def main() -> None:
     game_half = 1
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     last_output_time = time.time()
 =======
     out_zero_start: float | None = None
     out_zero_warned = False
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    last_output_time = time.time()
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
     def check_alerts() -> None:
         nonlocal plays_since_check, last_check_time
@@ -1869,20 +2839,29 @@ def main() -> None:
         if elapsed_secs >= HALFTIME_SECS:
             for pid, cnt in play_counts.items():
 <<<<<<< HEAD
+<<<<<<< HEAD
                 if not str(pid).isdigit():
                     continue
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+                if not str(pid).isdigit():
+                    continue
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                 if cnt < HALFTIME_MIN_PLAYS and pid not in halftime_alerted:
                     msg = (
                         f"[\u26A0\uFE0F ALERT] #{pid} {roster.get_player_name(int(pid))} "
                         f"has only {cnt} plays at halftime"
                     )
 <<<<<<< HEAD
+<<<<<<< HEAD
                     logging.info(msg)
 =======
                     print(msg)
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+                    logging.info(msg)
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                     alert_fp.write(msg + "\n")
                     halftime_alerted.add(pid)
         if elapsed_secs >= FINAL_WARNING_SECS:
@@ -1890,20 +2869,29 @@ def main() -> None:
             mins, secs = divmod(remaining, 60)
             for pid, cnt in play_counts.items():
 <<<<<<< HEAD
+<<<<<<< HEAD
                 if not str(pid).isdigit():
                     continue
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+                if not str(pid).isdigit():
+                    continue
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                 if cnt < FINAL_MIN_PLAYS and pid not in final_alerted:
                     msg = (
                         f"[\U0001F6A8 FINAL WARNING] #{pid} {roster.get_player_name(int(pid))} "
                         f"has only {cnt} plays \u2014 {mins}:{secs:02d} remaining"
                     )
 <<<<<<< HEAD
+<<<<<<< HEAD
                     logging.info(msg)
 =======
                     print(msg)
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+                    logging.info(msg)
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                     alert_fp.write(msg + "\n")
                     final_alerted.add(pid)
         plays_since_check = 0
@@ -1924,10 +2912,15 @@ def main() -> None:
         remaining_secs = clock_secs + (HALFTIME_SECS if game_half == 1 else 0)
         for pid, cnt in play_counts.items():
 <<<<<<< HEAD
+<<<<<<< HEAD
             if not str(pid).isdigit():
                 continue
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+            if not str(pid).isdigit():
+                continue
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             if cnt >= 7:
                 if pid in sub_state:
                     sub_state.pop(pid)
@@ -1950,10 +2943,14 @@ def main() -> None:
                 )
             if new_state and sub_state.get(pid) != new_state:
 <<<<<<< HEAD
+<<<<<<< HEAD
                 logging.info(msg)
 =======
                 print(msg)
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+                logging.info(msg)
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                 ts = datetime.now().strftime("%H:%M:%S")
                 sub_log_writer.writerow([ts, new_state, pid, msg])
                 sub_log_fp.flush()
@@ -1966,6 +2963,9 @@ def main() -> None:
     try:
         while True:
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             if ffmpeg_process is None or ffmpeg_process.poll() is not None:
                 logging.info("[❌ ERROR] FFmpeg dead. Halting frame sending.")
                 if not do_ffmpeg_restart():
@@ -2019,6 +3019,7 @@ def main() -> None:
                 time.sleep(1 / FPS)
                 continue
             consecutive_capture_failures = 0
+<<<<<<< HEAD
 =======
             loop_start = time.time()
             ret, frame = cap.read()
@@ -2032,10 +3033,13 @@ def main() -> None:
                 continue
             failed_reads = 0
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             fps_counter += 1
             now = time.time()
             if now - fps_start >= 1:
                 capture_fps = fps_counter / (now - fps_start)
+<<<<<<< HEAD
 <<<<<<< HEAD
                 fps_counter = 0
                 fps_start = now
@@ -2049,11 +3053,17 @@ def main() -> None:
                     f"[FPS] Capture: {capture_fps:.2f} | Encode: {encode_fps:.2f}"
                 )
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+                fps_counter = 0
+                fps_start = now
+                logging.info(f"[FPS] Capture: {capture_fps:.2f}")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                 if capture_fps == 0:
                     no_frame_secs += 1
                 else:
                     no_frame_secs = 0
                 if no_frame_secs >= 5:
+<<<<<<< HEAD
 <<<<<<< HEAD
                     logging.info("[\u26A0\uFE0F ALERT] No frames received for 5 seconds. Stream may have stalled.")
                     logging.info("\a")
@@ -2069,6 +3079,14 @@ def main() -> None:
                 if frame.shape[:2] != (HEIGHT, WIDTH) and not warned_shape:
                     print(
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+                    logging.info("[\u26A0\uFE0F ALERT] No frames received for 5 seconds. Stream may have stalled.")
+                    logging.info("\a")
+                    no_frame_secs = 5
+            if frame.shape[0] > frame.shape[1] or frame.shape[:2] != (HEIGHT, WIDTH):
+                if frame.shape[:2] != (HEIGHT, WIDTH) and not warned_shape:
+                    logging.info(
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                         f"\u26a0\ufe0f Unexpected frame shape: {frame.shape} — resizing to ({WIDTH}, {HEIGHT})"
                     )
                     warned_shape = True
@@ -2126,6 +3144,7 @@ def main() -> None:
                     )
                     drive_log_fp.flush()
 <<<<<<< HEAD
+<<<<<<< HEAD
                     logging.info(
                         f"Drive {drive_start_clock}-{clock} {prev_home}-{prev_away} -> {home_val}-{away_val} ({duration}s)"
                     )
@@ -2136,6 +3155,12 @@ def main() -> None:
                     )
                     print(f"Saved highlight clip: {clip_path}")
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+                    logging.info(
+                        f"Drive {drive_start_clock}-{clock} {prev_home}-{prev_away} -> {home_val}-{away_val} ({duration}s)"
+                    )
+                    logging.info(f"Saved highlight clip: {clip_path}")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                     highlight_files.append(clip_path)
                     drive_start_clock = clock
                     drive_start_time = time.time()
@@ -2152,21 +3177,30 @@ def main() -> None:
                     summary_generated = True
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             overlay_info(
                 frame,
                 frame_count,
                 scoreboard,
                 AUDIO_LEVEL_DB if args.audio_meter else None,
             )
+<<<<<<< HEAD
 =======
             overlay_info(frame, frame_count, scoreboard)
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             cv2.imshow("Stream Preview", frame)
             key = cv2.waitKey(1) & 0xFF
             if key != 255:
                 if key in {ord('q'), 27}:
                     break
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                 elif cfg.label and key == ord('0'):
                     fname = label_dir / f"label_{int(time.time())}.jpg"
                     cv2.imwrite(str(fname), frame)
@@ -2198,6 +3232,7 @@ def main() -> None:
                 logging.info("[❌ ERROR] FFmpeg process is not running.")
                 if not do_ffmpeg_restart():
                     stop_event.set()
+<<<<<<< HEAD
 =======
                 char = chr(key).upper()
                 if ('1' <= char <= '9') or ('A' <= char <= 'Z'):
@@ -2229,6 +3264,8 @@ def main() -> None:
                         process.wait()
                     process = None
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                     break
 
             elapsed_loop = time.time() - loop_start
@@ -2236,22 +3273,31 @@ def main() -> None:
 
             frame_count += 1
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             if frame_count % (5 * FPS) == 0:
                 logging.info(
                     f"[CAPTURE DEBUG] {datetime.now().strftime('%H:%M:%S')} - Frame {frame_count}"
                 )
             if frame_count % (2 * FPS) == 0:
                 logging.info(f"Streaming frame #{frame_count}")
+<<<<<<< HEAD
 =======
             if frame_count % (2 * FPS) == 0:
                 print(f"Streaming frame #{frame_count}")
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             now = time.time()
             if now - last_log >= 5:
                 elapsed = now - start
                 hours, rem = divmod(int(elapsed), 3600)
                 minutes, seconds = divmod(rem, 60)
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                 file_size = (
                     record_file.stat().st_size
                     if record_path and record_file.exists()
@@ -2270,6 +3316,7 @@ def main() -> None:
                         stop_event.set()
                         break
                     last_output_time = now
+<<<<<<< HEAD
 =======
                 file_size = record_file.stat().st_size if record_file.exists() else 0
                 output_kbps = (file_size * 8 / elapsed / 1000) if elapsed > 0 else 0.0
@@ -2291,6 +3338,8 @@ def main() -> None:
                     out_zero_start = None
                     out_zero_warned = False
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                 avg_fps = frame_count / elapsed if elapsed > 0 else 0.0
                 expected_frames = elapsed * FPS
                 dropped_frames = max(0, expected_frames - frame_count)
@@ -2306,6 +3355,7 @@ def main() -> None:
                         usage_str = f" | CPU: {cpu_pct:.1f}% | Mem: {mem_mb:.1f} MB"
                     except Exception:
                         usage_str = ""
+<<<<<<< HEAD
 <<<<<<< HEAD
                 logging.info(
                     f"[STREAM STATUS] \u23F1\ufe0f {hours:02d}:{minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Capture FPS: {capture_fps:.2f} | Frame Drop: {drop_rate:.2f}%{usage_str}"
@@ -2354,26 +3404,67 @@ def main() -> None:
                 print(
                     f"[STREAM STATUS] \u23F1\ufe0f {hours:02d}:{minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Capture FPS: {capture_fps:.2f} | Encode FPS: {encode_fps:.2f} | Frame Drop: {drop_rate:.2f}%{usage_str}",
                     flush=True,
+=======
+                logging.info(
+                    f"[STREAM STATUS] \u23F1\ufe0f {hours:02d}:{minutes:02d}:{seconds:02d} | Frames Sent: {frame_count} | Capture FPS: {capture_fps:.2f} | Frame Drop: {drop_rate:.2f}%{usage_str}"
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
                 )
                 last_log = now
 
-            if process and process.poll() is not None and not ffmpeg_error:
-                exit_code = process.poll()
-                print(f"[\u274C ERROR] FFmpeg process exited unexpectedly with code {exit_code}")
-                print("\a", end="")
+            if (ffmpeg_process is None or ffmpeg_process.poll() is not None) and not ffmpeg_error:
+                if ffmpeg_process is None:
+                    logging.info("[❌ ERROR] FFmpeg process is not running.")
+                else:
+                    ffmpeg_process.wait()
+                    stderr_output = ""
+                    if ffmpeg_process.stderr:
+                        try:
+                            stderr_output = ffmpeg_process.stderr.read().decode(errors="replace")
+                        except Exception:
+                            pass
+                    logging.info(f"[FFMPEG EXIT CODE] {ffmpeg_process.returncode}")
+                    if stderr_output:
+                        logging.info(f"[FFMPEG STDERR] {stderr_output}")
+                    ffmpeg_process = None
                 ffmpeg_error = True
+<<<<<<< HEAD
                 process.wait()
                 process = None
             check_alerts()
     except KeyboardInterrupt:
         print("\nKeyboard interrupt received. Stopping stream...")
+=======
+            check_alerts()
+    except KeyboardInterrupt:
+        logging.info("\nKeyboard interrupt received. Stopping stream...")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
     finally:
+        monitor_stop.set()
+        encode_stop.set()
+        encode_thread.join(timeout=2)
         cap.release()
+<<<<<<< HEAD
         if process and process.stdin:
             process.stdin.close()
         if process:
             process.wait()
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+        if ffmpeg_process and ffmpeg_process.stdin:
+            ffmpeg_process.stdin.close()
+        if ffmpeg_process:
+            ffmpeg_process.kill()
+            ffmpeg_process.wait()
+            try:
+                stderr_output = ""
+                if ffmpeg_process.stderr:
+                    stderr_output = ffmpeg_process.stderr.read().decode(errors="replace")
+                logging.info(f"[FFMPEG EXIT CODE] {ffmpeg_process.returncode}")
+                if stderr_output:
+                    logging.info(f"[FFMPEG STDERR] {stderr_output}")
+            except Exception:
+                pass
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
         log_fp.close()
         drive_log_fp.close()
         sub_log_fp.close()
@@ -2417,6 +3508,7 @@ def main() -> None:
                     f"https://drive.google.com/drive/folders/{folder_file['id']}"
                 )
 <<<<<<< HEAD
+<<<<<<< HEAD
                 logging.info(
                     f"Created folder {base_name}_{timestamp} -> {folder_link}"
                 )
@@ -2426,6 +3518,11 @@ def main() -> None:
                 )
 
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+                logging.info(
+                    f"Created folder {base_name}_{timestamp} -> {folder_link}"
+                )
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             # upload video
             gfile = drive.CreateFile(
                 {"title": record_file.name, "parents": [{"id": game_folder_id}]}
@@ -2434,11 +3531,15 @@ def main() -> None:
             gfile.Upload()
             view_url = f"https://drive.google.com/file/d/{gfile['id']}/view"
 <<<<<<< HEAD
+<<<<<<< HEAD
             logging.info(f"Uploaded {record_file.name} -> {view_url}")
 =======
             print(f"Uploaded {record_file.name} -> {view_url}")
 
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+            logging.info(f"Uploaded {record_file.name} -> {view_url}")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             # upload play log
             log_drive = drive.CreateFile(
                 {
@@ -2453,11 +3554,15 @@ def main() -> None:
                 f"https://drive.google.com/file/d/{log_drive['id']}/view"
             )
 <<<<<<< HEAD
+<<<<<<< HEAD
             logging.info(f"Uploaded {log_file.name} -> {log_view_url}")
 =======
             print(f"Uploaded {log_file.name} -> {log_view_url}")
 
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+            logging.info(f"Uploaded {log_file.name} -> {log_view_url}")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             drive_summary_drive = drive.CreateFile(
                 {
                     "title": drive_log_path.name,
@@ -2471,11 +3576,15 @@ def main() -> None:
                 f"https://drive.google.com/file/d/{drive_summary_drive['id']}/view"
             )
 <<<<<<< HEAD
+<<<<<<< HEAD
             logging.info(f"Uploaded {drive_log_path.name} -> {drive_summary_url}")
 =======
             print(f"Uploaded {drive_log_path.name} -> {drive_summary_url}")
 
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+            logging.info(f"Uploaded {drive_log_path.name} -> {drive_summary_url}")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             for clip_path in highlight_files:
                 clip_drive = drive.CreateFile(
                     {"title": clip_path.name, "parents": [{"id": game_folder_id}]}
@@ -2484,11 +3593,15 @@ def main() -> None:
                 clip_drive.Upload()
                 clip_url = f"https://drive.google.com/file/d/{clip_drive['id']}/view"
 <<<<<<< HEAD
+<<<<<<< HEAD
                 logging.info(f"Uploaded {clip_path.name} -> {clip_url}")
 =======
                 print(f"Uploaded {clip_path.name} -> {clip_url}")
 
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+                logging.info(f"Uploaded {clip_path.name} -> {clip_url}")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             compliance_csv = Path("video") / "reports" / "compliance_report.csv"
             if compliance_csv.exists():
                 compl_drive = drive.CreateFile(
@@ -2504,11 +3617,15 @@ def main() -> None:
                     f"https://drive.google.com/file/d/{compl_drive['id']}/view"
                 )
 <<<<<<< HEAD
+<<<<<<< HEAD
                 logging.info(f"Uploaded {compliance_csv.name} -> {compl_url}")
 =======
                 print(f"Uploaded {compliance_csv.name} -> {compl_url}")
 
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+                logging.info(f"Uploaded {compliance_csv.name} -> {compl_url}")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
             pdf_file = Path("video") / "reports" / f"compliance_{timestamp[:8]}.pdf"
             if pdf_file.exists():
                 pdf_drive = drive.CreateFile(
@@ -2517,6 +3634,7 @@ def main() -> None:
                 pdf_drive.SetContentFile(str(pdf_file))
                 pdf_drive.Upload()
                 pdf_url = f"https://drive.google.com/file/d/{pdf_drive['id']}/view"
+<<<<<<< HEAD
 <<<<<<< HEAD
                 logging.info(f"Uploaded {pdf_file.name} -> {pdf_url}")
         except Exception as exc:  # pragma: no cover - network/auth
@@ -2528,6 +3646,11 @@ def main() -> None:
 
 
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+                logging.info(f"Uploaded {pdf_file.name} -> {pdf_url}")
+        except Exception as exc:  # pragma: no cover - network/auth
+            logging.info(f"Google Drive upload failed: {exc}")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 if __name__ == "__main__":
     main()
 

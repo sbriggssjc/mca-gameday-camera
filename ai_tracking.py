@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+import logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 import json
 from pathlib import Path
 from typing import List, Dict
@@ -125,6 +131,7 @@ def analyze_video(video_path: str) -> None:
     with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
 <<<<<<< HEAD
+<<<<<<< HEAD
     logging.info(f"Annotated video saved to {OUTPUT_VIDEO}")
     logging.info(f"Metadata saved to {OUTPUT_JSON}")
 =======
@@ -133,4 +140,8 @@ def analyze_video(video_path: str) -> None:
 
 
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
+=======
+    logging.info(f"Annotated video saved to {OUTPUT_VIDEO}")
+    logging.info(f"Metadata saved to {OUTPUT_JSON}")
+>>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 __all__ = ["analyze_video"]
