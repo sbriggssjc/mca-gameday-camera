@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import argparse
+<<<<<<< HEAD
 import logging
+=======
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -10,14 +13,31 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import models, transforms
+<<<<<<< HEAD
 from torchvision.transforms import InterpolationMode
+=======
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 
 from highlight_dataset import HighlightClipDataset
 
 
+<<<<<<< HEAD
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
 log = logging.getLogger(__name__)
+=======
+class ToFloatNormalize(torch.nn.Module):
+    """Convert ``uint8`` tensor to float and normalize to ImageNet stats."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+        self.std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
+        x = x / 255.0
+        return (x - self.mean) / self.std
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 
 
 class PlayVideoDataset(HighlightClipDataset):
@@ -25,8 +45,13 @@ class PlayVideoDataset(HighlightClipDataset):
 
     def __init__(self, csv_file: str | Path, label_map: Dict[str, int], clip_len: int = 16) -> None:
         transform = transforms.Compose([
+<<<<<<< HEAD
             transforms.Resize((224, 224), interpolation=InterpolationMode.BILINEAR),
             transforms.Normalize(mean=MEAN, std=STD),
+=======
+            transforms.Resize((224, 224)),
+            ToFloatNormalize(),
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
         ])
         super().__init__(csv_file, clip_len=clip_len, transform=transform)
         self.label_map = label_map
@@ -47,11 +72,15 @@ def train_epoch(model: nn.Module, loader: DataLoader, criterion: nn.Module, opti
     running_loss = 0.0
     correct = 0
     total = 0
+<<<<<<< HEAD
     logged_stats = False
     for clips, labels in loader:
         if not logged_stats:
             log.info("input batch stats mean=%.4f std=%.4f", clips.mean().item(), clips.std().item())
             logged_stats = True
+=======
+    for clips, labels in loader:
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
         clips = clips.to(device)
         labels = labels.to(device)
         optimizer.zero_grad()
@@ -69,7 +98,10 @@ def train_epoch(model: nn.Module, loader: DataLoader, criterion: nn.Module, opti
 
 
 def main() -> None:
+<<<<<<< HEAD
     logging.basicConfig(level=logging.INFO)
+=======
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
     parser = argparse.ArgumentParser(description="Train play classification model")
     parser.add_argument("csv", help="metadata CSV with filepath and label columns")
     parser.add_argument("--epochs", type=int, default=5)

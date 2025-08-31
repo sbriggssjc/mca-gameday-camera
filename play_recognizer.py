@@ -8,7 +8,10 @@ from typing import Dict, List, Tuple
 
 import cv2
 import numpy as np
+<<<<<<< HEAD
 from playbooks import load_offense_playbook
+=======
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 
 
 @dataclass
@@ -35,6 +38,7 @@ class PlayResult:
     outcome: str | None
 
 
+<<<<<<< HEAD
 def load_playbook(path: str | None = None) -> List[PlaybookEntry]:
     """Load playbook JSON as a list of :class:`PlaybookEntry`."""
     data = load_offense_playbook(path)
@@ -46,6 +50,26 @@ def load_playbook(path: str | None = None) -> List[PlaybookEntry]:
                 formation=str(p.get("pairs", [""])[0]).lower(),
                 play_type=str(p.get("type", "")).lower(),
                 direction="",
+=======
+def load_playbook(path: str) -> List[PlaybookEntry]:
+    """Load playbook JSON as a list of :class:`PlaybookEntry`."""
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    entries: List[PlaybookEntry] = []
+    if isinstance(data, dict):
+        items = data.items()
+    else:
+        items = [(p.get("name", "unknown"), p) for p in data]
+
+    for name, info in items:
+        entries.append(
+            PlaybookEntry(
+                name=name,
+                formation=str(info.get("formation", "")).lower(),
+                play_type=str(info.get("type", "")).lower(),
+                direction=str(info.get("direction", "")).lower(),
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
             )
         )
     return entries
@@ -249,7 +273,11 @@ def main() -> None:
     parser.add_argument("video", help="Path to game footage")
     parser.add_argument(
         "--playbook",
+<<<<<<< HEAD
         default="playbooks/mca_5th_playbook.json",
+=======
+        default="mca_full_playbook_final.json",
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
         help="Playbook JSON",
     )
     parser.add_argument("--output", default="play_log.json", help="Output JSON/CSV")

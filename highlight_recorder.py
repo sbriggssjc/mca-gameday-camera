@@ -65,8 +65,13 @@ def monitor(device: str = "/dev/video0", *, output_dir: str = ".", upload: bool 
 
     sb_reader = ScoreboardReader()
 
+<<<<<<< HEAD
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
+=======
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
         fps = 30.0

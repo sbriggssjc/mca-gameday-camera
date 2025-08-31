@@ -30,13 +30,22 @@ def record(device: str = "/dev/video0", duration: int = 30) -> None:
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open camera {device}")
 
+<<<<<<< HEAD
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+=======
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
     fps = cap.get(cv2.CAP_PROP_FPS)
     if not fps or fps <= 1:
         fps = 30.0
 
+<<<<<<< HEAD
     writer = open_writer("output.mp4", fps, (640, 480))
+=======
+    writer = open_writer("output.mp4", fps, (1280, 720))
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
     if not writer.isOpened():
         raise RuntimeError("Failed to open video writer")
 

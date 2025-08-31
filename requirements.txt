@@ -3,6 +3,7 @@ deep_sort_realtime
 easyocr
 opencv-python
 torch
+<<<<<<< HEAD
 schedule>=1.2.0
 # Google Drive sync
 google-api-python-client
@@ -10,3 +11,5 @@ google-auth
 google-auth-httplib2
 google-auth-oauthlib
 tqdm
+=======
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa

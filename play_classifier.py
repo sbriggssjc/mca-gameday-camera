@@ -15,10 +15,13 @@ from typing import List, Tuple
 import numpy as np
 import argparse
 import json
+<<<<<<< HEAD
 import shutil
 import csv
 import math
 import logging
+=======
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 from pathlib import Path
 
 try:
@@ -187,6 +190,7 @@ def classify_play(
     video_clip_path: str,
     metadata_json_path: str | None = None,
     model_path: str = "models/play_classifier/latest.pt",
+<<<<<<< HEAD
     *,
     threshold: float = 0.6,
     log_uncertain: bool = False,
@@ -213,6 +217,10 @@ def classify_play(
     review_dir:
         Directory where low-confidence clips are copied.
     """
+=======
+) -> dict:
+    """Classify a video clip into a play type using a pretrained model."""
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 
     if torch is None or cv2 is None:
         raise ImportError("PyTorch and OpenCV are required for classify_play")
@@ -253,6 +261,7 @@ def classify_play(
     clip = torch.stack(frames[:clip_len]).permute(1, 0, 2, 3).unsqueeze(0)
 
     with torch.no_grad():
+<<<<<<< HEAD
         logits = model(clip.to(device))
         if not all(math.isfinite(float(x)) for x in logits.flatten()):
             with open("RUN_FAILED.txt", "w", encoding="utf-8") as f:
@@ -287,6 +296,14 @@ def classify_play(
                     "confidence": confidence,
                 }
             )
+=======
+        out = model(clip.to(device))
+        probs = torch.softmax(out, dim=1)
+        conf, pred = probs.max(1)
+
+    label = inv_map.get(int(pred.item()), "unknown")
+    result = {"play_type": label, "confidence": float(conf.item())}
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 
     if metadata_json_path:
         try:
@@ -304,6 +321,7 @@ def main() -> None:  # pragma: no cover - CLI helper
     parser.add_argument("--folder", required=True, help="folder with video clips")
     parser.add_argument("--output", default="predictions.json", help="output JSON")
     parser.add_argument("--model", default="models/play_classifier/latest.pt")
+<<<<<<< HEAD
     parser.add_argument(
         "--threshold", type=float, default=0.6, help="Confidence threshold for review"
     )
@@ -312,6 +330,8 @@ def main() -> None:  # pragma: no cover - CLI helper
         action="store_true",
         help="Log and save clips when confidence is below threshold",
     )
+=======
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
     args = parser.parse_args()
 
     folder = Path(args.folder)
@@ -319,6 +339,7 @@ def main() -> None:  # pragma: no cover - CLI helper
     for clip in sorted(folder.glob("*.mp4")):
         meta = clip.with_suffix(".json")
         meta_path = str(meta) if meta.exists() else None
+<<<<<<< HEAD
         pred = classify_play(
             str(clip),
             meta_path,
@@ -330,6 +351,14 @@ def main() -> None:  # pragma: no cover - CLI helper
         results.append({"clip": clip.name, "play_type": pred["play_type"], "confidence": conf})
         if args.log_uncertain and conf < args.threshold:
             print(f"[REVIEW] {clip.name} ({conf:.2f})")
+=======
+        pred = classify_play(str(clip), meta_path, args.model)
+        results.append({
+            "clip": clip.name,
+            "play_type": pred["play_type"],
+            "confidence": pred["confidence"],
+        })
+>>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
