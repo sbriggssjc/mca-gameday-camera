@@ -24,6 +24,7 @@ done
 : "${VIDEO_SIZE:=1280x720}"
 : "${VID_DELAY:=0.25}"
 : "${VIDEO_CODEC:=auto}"       # auto | h264_v4l2m2m | libx264
+: "${V4L2_INPUT_FORMAT:=mjpeg}"   # set to h264 if your camera supports it
 : "${PULSE_DEV_REGEX:=VideoMic|R.?DE|usb.*mic}"
 
 # Dynamic audio normalization & Pulse source gain
@@ -151,7 +152,8 @@ PULSE_SRC="$(maybe_autoswitch_pulse "$PULSE_SRC")"
 V_CODEC="$(choose_codec)"
 V4L2_INPUT_OPTS=(
   -f v4l2 -thread_queue_size 8192 -use_wallclock_as_timestamps 1 -rtbufsize 256M
-  -input_format mjpeg -framerate "${FRAME_RATE}" -video_size "${VIDEO_SIZE}" -i "${VIDEO_DEV}"
+  -input_format "${V4L2_INPUT_FORMAT}"
+  -framerate "${FRAME_RATE}" -video_size "${VIDEO_SIZE}" -i "${VIDEO_DEV}"
 )
 # Map video from input 0 and audio from input 1 into the tee output
 MAP_OPTS=(-map 0:v:0 -map 1:a:0)
