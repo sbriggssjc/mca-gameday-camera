@@ -9,6 +9,17 @@ set -euo pipefail
 : "${VIDEO_SIZE:=1280x720}"
 : "${VIDEO_CODEC:=auto}"     # auto | h264_v4l2m2m | libx264
 
+V4L2_INPUT_OPTS=(
+  -f v4l2
+  -thread_queue_size 8192
+  -use_wallclock_as_timestamps 1
+  -rtbufsize 256M
+  -input_format mjpeg
+  -framerate "${FRAME_RATE}"
+  -video_size "${VIDEO_SIZE}"
+  -i "${VIDEO_DEV}"
+)
+
 # NEW: optional regex hint (use this rather than hard-coded exact names)
 : "${PULSE_DEV_REGEX:=VideoMic|R.?DE|usb.*mic}"
 
@@ -52,11 +63,11 @@ choose_codec() {
 V_CODEC="$(choose_codec)"
 # Per-codec pixel format / filter chain
 if [[ "$V_CODEC" == "h264_v4l2m2m" ]]; then
-  V_PIXFMT_OPTS=(-vf "scale=in_range=full:out_range=tv,format=nv12,setpts=PTS-STARTPTS,lagfun=decay=0.95" -pix_fmt nv12)
-  V_ENCODER_OPTS=(-c:v h264_v4l2m2m -pix_fmt yuv420p -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)) -profile:v high)
+  V_PIXFMT_OPTS=(-vf "scale=in_range=full:out_range=tv,format=nv12,fps=${FRAME_RATE},setpts=PTS-STARTPTS,lagfun=decay=0.95" -pix_fmt nv12)
+  V_ENCODER_OPTS=(-c:v h264_v4l2m2m -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)) -profile:v high)
 else
-  V_PIXFMT_OPTS=(-vf "scale=in_range=full:out_range=tv,format=yuv420p,setpts=PTS-STARTPTS,lagfun=decay=0.95" -pix_fmt yuv420p)
-  V_ENCODER_OPTS=(-c:v libx264 -preset veryfast -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)) -profile:v high)
+  V_PIXFMT_OPTS=(-vf "scale=in_range=full:out_range=tv,format=yuv420p,fps=${FRAME_RATE},setpts=PTS-STARTPTS,lagfun=decay=0.95" -pix_fmt yuv420p)
+  V_ENCODER_OPTS=(-c:v libx264 -preset veryfast -tune zerolatency -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)) -profile:v high)
 fi
 
 echo "[gameday] Launch -> video=${VIDEO_DEV} ${VIDEO_SIZE}@${FRAME_RATE} | pulse=${PULSE_SRC:-<none>} | vcodec=${V_CODEC} | rtmp=$( [[ -n "$YOUTUBE_RTMP_URL" ]] && echo set || echo unset )"
@@ -77,11 +88,10 @@ fi
 OUT_URL="${YOUTUBE_RTMP_URL}"
 
 run_ffmpeg() {
-  exec ffmpeg -hide_banner -loglevel info \
+  ffmpeg -hide_banner -loglevel info \
     -fflags +genpts+discardcorrupt \
-    -f v4l2 -thread_queue_size 8192 -input_format mjpeg -framerate "${FRAME_RATE}" -video_size "${VIDEO_SIZE}" -i "${VIDEO_DEV}" \
+    "${V4L2_INPUT_OPTS[@]}" \
     -f pulse -thread_queue_size 8192 -i "${PULSE_SRC}" \
-    -af "aresample=async=1:first_pts=0,adelay=${VID_DELAY}s:all=1,highpass=f=100,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250,alimiter=limit=0.0dB:attack=5" \
     "${V_PIXFMT_OPTS[@]}" \
     "${V_ENCODER_OPTS[@]}" \
     -c:a aac -b:a 128k -ar 48000 -ac 2 \
