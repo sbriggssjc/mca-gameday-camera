@@ -82,7 +82,7 @@ class Recorder:
             ]
         cmd += [
             "-vf",
-            "scale=in_range=full:out_range=tv,format=yuv420p,setpts=PTS-STARTPTS",
+            "scale=in_range=full:out_range=tv,format=yuv420p,setsar=1,setpts=PTS-STARTPTS",
             "-af",
             "highpass=f=100,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250,alimiter=limit=0.0dB:attack=5:release=20",
             "-c:v",
@@ -159,7 +159,7 @@ class Recorder:
             ]
         cmd += [
             "-vf",
-            "scale=960:-2,format=yuv420p,setpts=PTS-STARTPTS",
+            "scale=960:-2,format=yuv420p,setsar=1,setpts=PTS-STARTPTS",
             "-af",
             "highpass=f=100,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250,alimiter=limit=0.0dB:attack=5:release=20",
             "-c:v",
@@ -394,7 +394,7 @@ def main():
 
     # ---------- Filters & encoders ----------
     # Stabilize audio timestamps early; then EQ/comp/limiter.
-    v_filters = "scale=in_range=full:out_range=tv,format=yuv420p,setpts=PTS-STARTPTS"
+    v_filters = "scale=in_range=full:out_range=tv,format=yuv420p,setsar=1,setpts=PTS-STARTPTS"
     a_filters = ("aresample=async=1:first_pts=0,asetpts=N/SR/TB,"
                  "highpass=f=100,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250,"
                  "alimiter=limit=0.0dB:attack=5:release=20")
@@ -438,7 +438,7 @@ def main():
         proxy_common = [
             "-fflags","+genpts+discardcorrupt",
             "-thread_queue_size","8192",
-            "-vf","scale=960:-2,format=yuv420p,setpts=PTS-STARTPTS",
+            "-vf","scale=960:-2,format=yuv420p,setsar=1,setpts=PTS-STARTPTS",
             "-af", a_filters,
             "-c:v","libx264","-preset","veryfast","-crf","30",
             "-c:a","aac","-b:a","96k","-ar","48000",
