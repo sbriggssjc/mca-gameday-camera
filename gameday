@@ -174,9 +174,9 @@ fi
 # --- Output URL (RTMPS preflight & fallback) ---
 OUT_URL="$(preflight_output_url "$YOUTUBE_RTMP_URL")"
 
-# --- Always-on recording via tee (YouTube + local segmented MKVs) ---
+# --- Always-on recording via tee (YouTube + local segmented MP4s) ---
 mkdir -p "$RECORD_DIR"
-TEE_SPEC="[f=flv]${OUT_URL}|[f=segment:segment_time=${RECORD_SEGMENT_SEC}:strftime=1:reset_timestamps=1:segment_format=matroska]${RECORD_DIR}/%Y%m%d_%H%M%S.mkv"
+TEE_SPEC="[f=flv:onfail=ignore]${OUT_URL}|[f=segment:segment_time=${RECORD_SEGMENT_SEC}:strftime=1:reset_timestamps=1:segment_format=mp4:segment_format_options=movflags=+faststart]${RECORD_DIR}/%Y%m%d_%H%M%S.mp4"
 OUT_MUX=(-f tee "$TEE_SPEC")
 
 echo "[gameday] Launch -> video=${VIDEO_DEV} ${VIDEO_SIZE}@${FRAME_RATE} | pulse=${PULSE_SRC} | vcodec=${V_CODEC} | rtmp=set | record_dir=${RECORD_DIR}"
