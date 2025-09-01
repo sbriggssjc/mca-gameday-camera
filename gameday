@@ -51,7 +51,7 @@ resolve_pulse() {
   pactl list short sources | awk '{print $2}' | grep -m1 -E '^alsa_input\.platform-.*analog-stereo$' || true
 }
 
-# Measure RMS level of a pulse source over a short window; prints a number or "-inf"
+# Read overall RMS dB of a Pulse source over a short window; prints a number or "-inf"
 rms_db_of_source() {
   local src="$1"
   ffmpeg -hide_banner -nostdin -v error -f pulse -i "$src" -t "${AUDIO_PREFLIGHT_SEC}" \
@@ -59,27 +59,32 @@ rms_db_of_source() {
     | awk -F'[: ]+' '/Overall RMS level/ {print $5; exit}' || echo "-inf"
 }
 
-# Optionally pick the loudest non-monitor source if current is silent
+# numeric? -> 0/1
+_is_numeric() { [[ "$1" =~ ^[-+]?[0-9]+([.][0-9]+)?$ ]]; }
+
+# Is loud enough vs threshold? returns 0 (true) / 1 (false)
+_is_loud_enough() {
+  local val="$1" th="$2"
+  _is_numeric "$val" || return 1
+  awk -v x="$val" -v t="$th" 'BEGIN{exit !(x>t)}'
+}
+
+# If silent, optionally auto-pick loudest non-monitor source
 maybe_autoswitch_pulse() {
   local cur="$1"
-  local cur_rms
-  cur_rms="$(rms_db_of_source "$cur")"
-  if [[ "$cur_rms" != "-inf" ]] && awk "BEGIN{exit !($cur_rms > ${AUDIO_SILENCE_THRESHOLD_DB})}"; then
-    echo "$cur" ; return 0
+  local cur_rms; cur_rms="$(rms_db_of_source "$cur")"
+  if _is_loud_enough "$cur_rms" "$AUDIO_SILENCE_THRESHOLD_DB"; then
+    echo "$cur"; return 0
   fi
-
-  if [[ "$AUDIO_AUTO_SWITCH" != "1" ]]; then
-    echo "$cur" ; return 0
-  fi
+  [[ "$AUDIO_AUTO_SWITCH" != "1" ]] && { echo "$cur"; return 0; }
 
   local best="$cur" best_rms="-inf"
-  while read -r _ name _ ; do
-    # skip monitors by default
+  while read -r _ name _; do
     [[ "$name" =~ monitor ]] && continue
-    local r="$(rms_db_of_source "$name")"
-    # pick first non -inf or the max RMS
-    if [[ "$best_rms" == "-inf" || ( "$r" != "-inf" && $(awk "BEGIN{print ($r > $best_rms)}") -eq 1 ) ]]; then
-      best="$name"; best_rms="$r"
+    local r; r="$(rms_db_of_source "$name")"
+    if [[ "$best_rms" == "-inf" && "$r" != "-inf" ]]; then best="$name"; best_rms="$r"; continue; fi
+    if _is_numeric "$r" && _is_numeric "$best_rms"; then
+      awk -v a="$r" -v b="$best_rms" 'BEGIN{exit !(a>b)}' && { best="$name"; best_rms="$r"; }
     fi
   done < <(pactl list short sources)
 
