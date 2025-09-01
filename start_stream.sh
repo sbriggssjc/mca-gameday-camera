@@ -41,6 +41,11 @@ VID_DELAY="${VID_DELAY:-0.25}"
 VOLUME_DB="${VOLUME_DB:--4}"     # pre-compressor trim
 MAKEUP_DB="${MAKEUP_DB:-2}"      # compressor makeup gain
 
+# Audio preflight & auto-switching
+: "${AUDIO_PREFLIGHT_SEC:=2}"          # seconds to meter audio before launch
+: "${AUDIO_SILENCE_THRESHOLD_DB:=-50}" # below this RMS dB, treat as silent
+: "${AUDIO_AUTO_SWITCH:=1}"            # 1: auto-pick loudest non-monitor source if current is silent
+
 # YouTube RTMP(S) URL (must include stream key)
 : "${YOUTUBE_RTMP_URL:?Set YOUTUBE_RTMP_URL=rtmps://a.rtmps.youtube.com/live2/<stream_key> in your environment or .env}"
 
@@ -115,6 +120,11 @@ VID_DELAY="${VID_DELAY:-0.25}"
 # Audio loudness knobs
 VOLUME_DB="${VOLUME_DB:--4}"     # pre-compressor trim
 MAKEUP_DB="${MAKEUP_DB:-2}"      # compressor makeup gain
+
+# Audio preflight & auto-switching
+: "${AUDIO_PREFLIGHT_SEC:=2}"          # seconds to meter audio before launch
+: "${AUDIO_SILENCE_THRESHOLD_DB:=-50}" # below this RMS dB, treat as silent
+: "${AUDIO_AUTO_SWITCH:=1}"            # 1: auto-pick loudest non-monitor source if current is silent
 
 # YouTube RTMP(S) URL (must include stream key)
 : "${YOUTUBE_RTMP_URL:?Set YOUTUBE_RTMP_URL=rtmps://a.rtmps.youtube.com/live2/<stream_key> in your environment or .env}"
