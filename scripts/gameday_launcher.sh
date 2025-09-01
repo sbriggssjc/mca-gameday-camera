@@ -42,6 +42,7 @@ run_ffmpeg () {
     -f video4linux2 -input_format "$INPUT_FORMAT" -video_size "$VIDEO_SIZE" -framerate "$FPS" -i "$VIDEO_DEV" \
     -thread_queue_size 4096 -use_wallclock_as_timestamps 1 \
     -f pulse -i "$PULSE_DEV" \
+    -map 0:v:0 -map 1:a:0 \
     -r "$FPS" -vsync 1 -avoid_negative_ts make_zero \
     -rtbufsize 512M \
     -af "$AF" -ar 48000 -ac 1 \
