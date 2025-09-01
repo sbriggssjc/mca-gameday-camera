@@ -18,6 +18,10 @@ OVERRIDE_PULSE_DEV=""
 OVERRIDE_SIZE=""
 OVERRIDE_FPS=""
 
+# NEW: optional regex hint for Pulse source selection
+: "${PULSE_DEV_REGEX:=VideoMic|R.?DE|usb.*mic}"
+export PULSE_DEV_REGEX
+
 usage() {
   cat <<'USAGE'
 Usage: ./gameday [options]
@@ -97,31 +101,22 @@ print(v if v is not None else "")
 PY
 }
 
-# Resolve a configured PulseAudio source name to an actual device.  Handles
-# wildcards like `*` or placeholder `XXXXXXXX` for changing USB serial IDs.
-# If a unique match is found, the resolved name is printed; otherwise the
-# original value is echoed back unchanged so later validation can report an
-# error.
-resolve_pulse_source() {
-  local cfg="$1" sources pattern resolved
-  sources="$(pactl list short sources 2>/dev/null)" || sources=""
-  [[ -z "$sources" ]] && { echo "$cfg"; return; }
-
-  if echo "$sources" | awk '{print $2}' | grep -qxF "$cfg"; then
-    echo "$cfg"
-    return
+resolve_pulse() {
+  # 1) Honor exact PULSE_DEV if it exists and Pulse sees it
+  if [[ -n "${PULSE_DEV:-}" ]]; then
+    if pactl list short sources | awk '{print $2}' | grep -Fxq "$PULSE_DEV"; then
+      echo "$PULSE_DEV"
+      return 0
+    fi
   fi
-
-  pattern="$cfg"
-  pattern="${pattern//XXXXXXXX/.+}"
-  pattern="${pattern//\*/.*}"
-  resolved="$(echo "$sources" | awk '{print $2}' | grep -E "^${pattern}$" | head -n1)"
-  if [[ -n "$resolved" ]]; then
-    log "resolved pulse source '$cfg' -> '$resolved'"
-    echo "$resolved"
-  else
-    echo "$cfg"
+  # 2) Use Python resolver (falls back to best source)
+  local sel
+  sel="$(PYTHONPATH=. python3 -m tools.audio_select || true)"
+  if [[ -n "$sel" ]]; then
+    echo "$sel"
+    return 0
   fi
+  return 1
 }
 
 rtmp_url="$(json_get rtmp_url)"
@@ -137,8 +132,24 @@ fps="$(json_get fps)"
 [[ -n "$OVERRIDE_SIZE"      ]] && video_size="$OVERRIDE_SIZE"
 [[ -n "$OVERRIDE_FPS"       ]] && fps="$OVERRIDE_FPS"
 
-# Attempt to auto-resolve dynamic PulseAudio source names.
-pulse_dev="$(resolve_pulse_source "$pulse_dev")"
+# Allow PULSE_DEV env to reflect configured or overridden name
+if [[ -n "$pulse_dev" ]]; then
+  export PULSE_DEV="$pulse_dev"
+fi
+
+# Resolve Pulse source (may fall back to best source)
+pulse_dev="$(resolve_pulse || true)"
+
+if [[ -z "${pulse_dev:-}" ]]; then
+  log "pulse source not found (regex: ${PULSE_DEV_REGEX}). Available sources:"
+  pactl list short sources | awk '{print "  "$2}'
+  log "Falling back to system default 'alsa_input.platform-sound.analog-stereo' if present."
+  pulse_dev="$(pactl list short sources | awk '{print $2}' | grep -m1 -E '^alsa_input\.platform-.*analog-stereo$' || true)"
+  if [[ -z "${pulse_dev:-}" ]]; then
+    log "ERROR: No usable Pulse source. Exiting."
+    exit 1
+  fi
+fi
 
 log "Launch -> video=${video_dev} ${video_size}@${fps} | pulse=${pulse_dev} | rtmp=$([[ -n "$rtmp_url" ]] && echo set || echo MISSING)"
 
