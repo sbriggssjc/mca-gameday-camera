@@ -396,6 +396,7 @@ def run_pipeline(
         root_logger.removeHandler(pre_log_handler)
         pre_log_lines = pre_log_stream.getvalue().splitlines()
 
+    # Only create output paths after classifier init succeeds
     run_dir = os.path.join(out_dir, "games", f"{_safe_name(tag)}__{short}")
     report_dir = os.path.join(run_dir, "report")
     run_dir_created = False
@@ -813,13 +814,13 @@ def main(argv=None) -> None:
         "--require-classifier",
         dest="require_classifier",
         action="store_true",
-        help="Require classifier; fail run if torch/models not available.",
+        help="Require classifier to run (default).",
     )
     group.add_argument(
         "--no-require-classifier",
         dest="require_classifier",
         action="store_false",
-        help="Disable classifier; do segmentation/clipping only.",
+        help="Do not require classifier (still produces clips).",
     )
     p.set_defaults(require_classifier=True)
     args = p.parse_args(argv)

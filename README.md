@@ -149,7 +149,27 @@ bash scripts/update_latest_symlinks.sh
 
 Or run `scripts/run_batch.sh` to use this loop.
 
+### Model uploads and classifier flags
 
+Upload or replace model files over the local network:
+
+```bash
+python3 tools/upload_server.py
+```
+
+From another machine, open `http://<jetson-ip>:8000` in a browser, upload the four files to their targets, and verify at `http://<jetson-ip>:8000/ls`.
+
+Run the pipeline without a classifier while models are being copied:
+
+```bash
+python3 -m analysis.pipeline ... --no-require-classifier
+```
+
+Run with classifiers enabled once models are present (default):
+
+```bash
+python3 -m analysis.pipeline ... --require-classifier
+```
 
 ### One-click end-to-end analysis
 

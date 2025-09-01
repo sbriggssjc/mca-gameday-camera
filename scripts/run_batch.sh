@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Abort early if models/labels are missing or clearly bad
+if [ -x scripts/preflight_models.sh ]; then
+  scripts/preflight_models.sh
+fi
 export PYTHONPATH=.
 FILES=("IMG_4129.MP4" "Scrimmage 2 - Part 1.MP4" "Scrimmage 2 - Part 2.MP4")
 for F in "${FILES[@]}"; do
