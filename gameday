@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Auto-load local env if present (kept out of git, holds your stream key)
+if [ -f ".gameday.env" ]; then
+  set -a
+  . ".gameday.env"
+  set +a
+fi
+
 # --- Config you already use ---
 : "${VIDEO_DEV:=/dev/video0}"
 : "${YOUTUBE_RTMP_URL:?Set YOUTUBE_RTMP_URL to your RTMP(S) endpoint}"
