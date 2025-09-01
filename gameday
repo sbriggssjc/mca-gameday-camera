@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 set -euo pipefail
 
 # --- Auto-load env BEFORE required-var checks ---
@@ -6,86 +7,104 @@ if [ -f ".gameday.env" ]; then
 elif [ -f "$HOME/.config/mca-gameday/.env" ]; then
   set -a; . "$HOME/.config/mca-gameday/.env"; set +a
 fi
-
 # Optional CLI override: ./gameday --key "rtmps://.../KEY"
 for arg in "$@"; do
   case "$arg" in
-    --key=*) YOUTUBE_RTMP_URL="${arg#--key=}";;
-    --key) shift; YOUTUBE_RTMP_URL="${1:-}";;
+    --key=*) YOUTUBE_RTMP_URL="${arg#--key=}" ;;
+    --key) shift; YOUTUBE_RTMP_URL="${1:-}" ;;
   esac
 done
 
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Auto-load local env if present (kept out of git, holds your stream key)
-if [ -f ".gameday.env" ]; then
-  set -a
-  . ".gameday.env"
-  set +a
-fi
-
-# --- Config you already use ---
-: "${VIDEO_DEV:=/dev/video0}"
+# --- Required streaming target ---
 : "${YOUTUBE_RTMP_URL:?Set YOUTUBE_RTMP_URL to your RTMP(S) endpoint}"
-: "${VID_DELAY:=0.25}"
+
+# --- Defaults / Config ---
+: "${VIDEO_DEV:=}"
 : "${FRAME_RATE:=30}"
 : "${VIDEO_SIZE:=1280x720}"
-: "${VIDEO_CODEC:=auto}"     # auto | h264_v4l2m2m | libx264
-
-V4L2_INPUT_OPTS=(
-  -f v4l2
-  -thread_queue_size 8192
-  -use_wallclock_as_timestamps 1
-  -rtbufsize 256M
-  -input_format mjpeg
-  -framerate "${FRAME_RATE}"
-  -video_size "${VIDEO_SIZE}"
-  -i "${VIDEO_DEV}"
-)
-
-# NEW: optional regex hint (use this rather than hard-coded exact names)
+: "${VID_DELAY:=0.25}"
+: "${VIDEO_CODEC:=auto}"       # auto | h264_v4l2m2m | libx264
 : "${PULSE_DEV_REGEX:=VideoMic|R.?DE|usb.*mic}"
 
-# Resolve Pulse source
+# Dynamic audio normalization & Pulse source gain
+: "${AUDIO_DYN_ENABLE:=1}"
+: "${DYNAUDNORM_OPTS:=f=250:g=15:m=10:s=5:p=0.9}"
+: "${PULSE_VOL:=150%}"
+
+# Recording (always on)
+: "${RECORD_DIR:=recordings}"
+: "${RECORD_SEGMENT_SEC:=900}"
+
+# --- Helpers ---
 resolve_pulse() {
-  # 1) Honor exact PULSE_DEV if it exists and Pulse sees it
-  if [[ -n "${PULSE_DEV:-}" ]]; then
-    if pactl list short sources | awk '{print $2}' | grep -Fxq "$PULSE_DEV"; then
-      echo "$PULSE_DEV"
-      return 0
-    fi
+  if [[ -n "${PULSE_DEV:-}" ]] && pactl list short sources | awk '{print $2}' | grep -Fxq "$PULSE_DEV"; then
+    echo "$PULSE_DEV"; return 0
   fi
-  # 2) Use Python resolver (falls back to best source)
   local sel
   sel="$(PYTHONPATH=. python3 -m tools.audio_select || true)"
-  if [[ -n "$sel" ]]; then
-    echo "$sel"
-    return 0
-  fi
-  return 1
+  if [[ -n "$sel" ]]; then echo "$sel"; return 0; fi
+  pactl list short sources | awk '{print $2}' | grep -m1 -E '^alsa_input\.platform-.*analog-stereo$' || true
 }
 
-PULSE_SRC="$(resolve_pulse || true)"
+resolve_video() {
+  if [[ -n "${VIDEO_DEV:-}" && -e "${VIDEO_DEV}" ]]; then
+    echo "$VIDEO_DEV"; return 0
+  fi
+  for dev in /dev/video*; do
+    [[ -e "$dev" ]] || continue
+    if ffmpeg -v error -f v4l2 -input_format mjpeg -framerate 30 -video_size 1280x720 -i "$dev" \
+              -t 0.5 -f null - >/dev/null 2>&1; then
+      echo "$dev"; return 0
+    fi
+  done
+  set -- /dev/video*
+  [[ -e "$1" ]] && echo "$1" || echo ""
+}
 
 choose_codec() {
-  # If user forces a codec, honor it.
-  if [[ "$VIDEO_CODEC" != "auto" ]]; then
-    echo "$VIDEO_CODEC"
-    return 0
-  fi
-  # Quick probe: does HW encoder accept a tiny NV12 test?
-  if ffmpeg -v error -f lavfi -i testsrc=size=1280x720:rate=30 -t 1 \
-            -vf format=nv12 -pix_fmt nv12 \
-            -c:v h264_v4l2m2m -f null - >/dev/null 2>&1; then
+  [[ "$VIDEO_CODEC" != "auto" ]] && { echo "$VIDEO_CODEC"; return 0; }
+  if ffmpeg -v error -f lavfi -i testsrc=size=1280x720:rate="${FRAME_RATE}" -t 1 \
+            -vf format=nv12 -pix_fmt nv12 -c:v h264_v4l2m2m -f null - >/dev/null 2>&1; then
     echo "h264_v4l2m2m"
   else
     echo "libx264"
   fi
 }
 
+preflight_output_url() {
+  local out_url="$1"
+  if [[ "$out_url" == rtmps://* ]]; then
+    local host="${out_url#rtmps://}"; host="${host%%/*}"
+    if command -v openssl >/dev/null 2>&1; then
+      if ! timeout 5 openssl s_client -connect "${host}:443" -servername "${host}" -brief </dev/null >/dev/null 2>&1; then
+        echo "[gameday] RTMPS handshake to ${host}:443 failed; switching to RTMP:1935."
+        local path="${out_url#rtmps://*/}"
+        echo "rtmp://a.rtmp.youtube.com/${path}"
+        return 0
+      fi
+    fi
+  fi
+  echo "$out_url"
+}
+
+# --- Resolve inputs ---
+VIDEO_DEV="$(resolve_video || true)"
+PULSE_SRC="$(resolve_pulse || true)"
+[[ -z "${VIDEO_DEV:-}" ]] && { echo "[gameday] ERROR: No /dev/video* device found."; exit 1; }
+[[ -z "${PULSE_SRC:-}" ]] && { echo "[gameday] ERROR: No usable Pulse source."; pactl list short sources | awk '{print "  " $2}'; exit 1; }
+
+# Unmute & set Pulse volume
+if command -v pactl >/dev/null 2>&1; then
+  pactl set-source-mute "$PULSE_SRC" 0 || true
+  pactl set-source-volume "$PULSE_SRC" "$PULSE_VOL" || true
+fi
+
+# --- Build video opts ---
 V_CODEC="$(choose_codec)"
-# Per-codec pixel format / filter chain
+V4L2_INPUT_OPTS=(
+  -f v4l2 -thread_queue_size 8192 -use_wallclock_as_timestamps 1 -rtbufsize 256M
+  -input_format mjpeg -framerate "${FRAME_RATE}" -video_size "${VIDEO_SIZE}" -i "${VIDEO_DEV}"
+)
 if [[ "$V_CODEC" == "h264_v4l2m2m" ]]; then
   V_PIXFMT_OPTS=(-vf "scale=in_range=full:out_range=tv,format=nv12,fps=${FRAME_RATE},setpts=PTS-STARTPTS,lagfun=decay=0.95" -pix_fmt nv12)
   V_ENCODER_OPTS=(-c:v h264_v4l2m2m -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)) -profile:v high)
@@ -94,22 +113,22 @@ else
   V_ENCODER_OPTS=(-c:v libx264 -preset veryfast -tune zerolatency -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)) -profile:v high)
 fi
 
-echo "[gameday] Launch -> video=${VIDEO_DEV} ${VIDEO_SIZE}@${FRAME_RATE} | pulse=${PULSE_SRC:-<none>} | vcodec=${V_CODEC} | rtmp=$( [[ -n "$YOUTUBE_RTMP_URL" ]] && echo set || echo unset )"
-
-# Friendly listing when not found
-if [[ -z "${PULSE_SRC:-}" ]]; then
-  echo "[gameday] pulse source not found (regex: ${PULSE_DEV_REGEX}). Available sources:"
-  pactl list short sources | awk '{print "  " $2}'
-  echo "[gameday] Falling back to system default 'alsa_input.platform-sound.analog-stereo' if present."
-  PULSE_SRC="$(pactl list short sources | awk '{print $2}' | grep -m1 -E '^alsa_input\.platform-.*analog-stereo$' || true)"
-  if [[ -z "${PULSE_SRC:-}" ]]; then
-    echo "[gameday] ERROR: No usable Pulse source. Exiting."
-    exit 1
-  fi
+# --- Build audio filter (dynamic normalization + limiter + sync) ---
+if [[ "${AUDIO_DYN_ENABLE}" == "1" ]]; then
+  AFILTER="asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0,dynaudnorm=${DYNAUDNORM_OPTS},highpass=f=100,alimiter=limit=-0.3dB:attack=5,adelay=${VID_DELAY}s:all=1"
+else
+  AFILTER="asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0,highpass=f=100,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250,alimiter=limit=0.0dB:attack=5,adelay=${VID_DELAY}s:all=1"
 fi
 
-# --- ffmpeg run (unchanged filters, just using resolved Pulse) ---
-OUT_URL="${YOUTUBE_RTMP_URL}"
+# --- Output URL (RTMPS preflight & fallback) ---
+OUT_URL="$(preflight_output_url "$YOUTUBE_RTMP_URL")"
+
+# --- Always-on recording via tee (YouTube + local segmented MP4s) ---
+mkdir -p "$RECORD_DIR"
+TEE_SPEC="[f=flv]${OUT_URL}|[f=segment:segment_time=${RECORD_SEGMENT_SEC}:strftime=1:reset_timestamps=1:segment_format=mp4:segment_format_options=movflags=+faststart]${RECORD_DIR}/%Y%m%d_%H%M%S.mp4"
+OUT_MUX=(-f tee "$TEE_SPEC")
+
+echo "[gameday] Launch -> video=${VIDEO_DEV} ${VIDEO_SIZE}@${FRAME_RATE} | pulse=${PULSE_SRC} | vcodec=${V_CODEC} | rtmp=set | record_dir=${RECORD_DIR}"
 
 run_ffmpeg() {
   ffmpeg -hide_banner -loglevel info \
@@ -118,9 +137,15 @@ run_ffmpeg() {
     -f pulse -thread_queue_size 8192 -i "${PULSE_SRC}" \
     "${V_PIXFMT_OPTS[@]}" \
     "${V_ENCODER_OPTS[@]}" \
-    -c:a aac -b:a 128k -ar 48000 -ac 2 \
-    -f flv "${OUT_URL}"
+    -c:a aac -b:a 128k -ar 48000 -ac 2 -af "$AFILTER" \
+    "${OUT_MUX[@]}"
 }
 
-run_ffmpeg
-
+# --- Retry loop for network hiccups ---
+attempt=1; max_attempts=5
+until run_ffmpeg; do
+  rc=$?
+  echo "[gameday] ffmpeg exited with code $rc (attempt $attempt/$max_attempts)."
+  (( attempt++ )); (( attempt > max_attempts )) && exit "$rc"
+  sleep 3
+done
