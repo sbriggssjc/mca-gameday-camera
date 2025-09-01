@@ -1,5 +1,37 @@
-import csv, json, os, pathlib, pytest, torch
+import csv, json, os, pathlib, pytest, sys, types
 
+def _dummy_save(obj, path):
+    import pickle
+
+    with open(path, "wb") as fh:
+        pickle.dump(obj, fh)
+
+
+def _dummy_load(path):
+    import pickle
+
+    with open(path, "rb") as fh:
+        return pickle.load(fh)
+
+
+sys.modules["numpy"] = types.SimpleNamespace()
+sys.modules["torch"] = types.SimpleNamespace(
+    save=_dummy_save,
+    load=_dummy_load,
+    __version__="0.0",
+    cuda=types.SimpleNamespace(
+        is_available=lambda: False, get_device_name=lambda _i: "cpu"
+    ),
+)
+
+classifiers_stub = types.ModuleType("analysis.classifiers")
+classifiers_stub.load_models = lambda args: types.SimpleNamespace()
+classifiers_stub._load_ckpt = lambda path: {}
+classifiers_stub._load_labels = lambda path: []
+classifiers_stub.log = types.SimpleNamespace(info=lambda *a, **k: None)
+sys.modules["analysis.classifiers"] = classifiers_stub
+
+import torch  # type: ignore
 from analysis import pipeline
 
 
@@ -54,6 +86,26 @@ def test_pipeline_marks_failed_run(tmp_path, monkeypatch):
 
     monkeypatch.setattr(
         pipeline.csv, "DictWriter", lambda f, fieldnames: BoomWriter(f, fieldnames)
+    )
+
+    monkeypatch.setattr(pipeline, "segment_video", lambda *a, **k: [{"t0": 0.0, "t1": 1.0}])
+
+    monkeypatch.setattr(
+        pipeline,
+        "classify_plays",
+        lambda segments, *args, **kwargs: [
+            {
+                "play_id": seg.get("id", f"PLAY_{i+1:03d}"),
+                "formation": "",
+                "formation_confidence": 0.0,
+                "play_family": "",
+                "playcall_confidence": 0.0,
+                "clf_top1": "",
+                "clf_top1_conf": 0.0,
+                "candidates": [],
+            }
+            for i, seg in enumerate(segments)
+        ],
     )
 
     with pytest.raises(RuntimeError):

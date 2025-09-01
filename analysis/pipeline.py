@@ -167,9 +167,6 @@ def run_pipeline(
         )
         & ((1 << 44) - 1)
     )[2:]
-    run_dir = os.path.join(out_dir, "games", f"{_safe_name(tag)}__{short}")
-    report_dir = os.path.join(run_dir, "report")
-    run_dir_created = False
 
     model_paths = {
         "play_ckpt": play_ckpt,
@@ -218,6 +215,7 @@ def run_pipeline(
         else:
             clf = None
             logger.warning("[classifier] disabled (--no-require-classifier)")
+            warnings.append("classifier disabled by flag")
 
         playbook = load_playbook(playbook_path)
         print(f"[playbook] source={playbook_path}")
@@ -397,6 +395,10 @@ def run_pipeline(
     finally:
         root_logger.removeHandler(pre_log_handler)
         pre_log_lines = pre_log_stream.getvalue().splitlines()
+
+    run_dir = os.path.join(out_dir, "games", f"{_safe_name(tag)}__{short}")
+    report_dir = os.path.join(run_dir, "report")
+    run_dir_created = False
 
     csv_header = [
         "play_id",
