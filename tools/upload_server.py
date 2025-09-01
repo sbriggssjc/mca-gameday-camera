@@ -30,8 +30,7 @@ class Uploader(BaseHTTPRequestHandler):
             ]:
                 p = os.path.join(ROOT, rel)
                 s = os.path.getsize(p) if os.path.exists(p) else -1
-                line = f"{rel}: {s if s>=0 else 'missing'}\n"
-                self.wfile.write(line.encode())
+                self.wfile.write(f"{rel}: {s if s>=0 else 'missing'}\n".encode())
             return
         self.send_response(200); self.send_header("Content-Type","text/html"); self.end_headers()
         self.wfile.write(HTML)
@@ -39,18 +38,11 @@ class Uploader(BaseHTTPRequestHandler):
     def do_POST(self):
         ctype = self.headers.get('Content-Type','')
         clen  = self.headers.get('Content-Length','0')
-        fs = cgi.FieldStorage(
-            fp=self.rfile,
-            headers=self.headers,
-            environ={
-                'REQUEST_METHOD':'POST',
-                'CONTENT_TYPE': ctype,
-                'CONTENT_LENGTH': clen,
-            }
-        )
+        fs = cgi.FieldStorage(fp=self.rfile, headers=self.headers,
+                              environ={'REQUEST_METHOD':'POST','CONTENT_TYPE':ctype,'CONTENT_LENGTH':clen})
         target = fs.getvalue('target')
         fileitem = fs['file'] if 'file' in fs else None
-        if not target or not fileitem or not getattr(fileitem, "filename", ""):
+        if not target or fileitem is None or not getattr(fileitem, "filename", ""):
             self.send_error(400, "Missing target or file"); return
         out_path = os.path.join(ROOT, target)
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
