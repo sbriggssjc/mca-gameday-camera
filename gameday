@@ -1,3 +1,20 @@
+set -euo pipefail
+
+# --- Auto-load env BEFORE required-var checks ---
+if [ -f ".gameday.env" ]; then
+  set -a; . ".gameday.env"; set +a
+elif [ -f "$HOME/.config/mca-gameday/.env" ]; then
+  set -a; . "$HOME/.config/mca-gameday/.env"; set +a
+fi
+
+# Optional CLI override: ./gameday --key "rtmps://.../KEY"
+for arg in "$@"; do
+  case "$arg" in
+    --key=*) YOUTUBE_RTMP_URL="${arg#--key=}";;
+    --key) shift; YOUTUBE_RTMP_URL="${1:-}";;
+  esac
+done
+
 #!/usr/bin/env bash
 set -euo pipefail
 
