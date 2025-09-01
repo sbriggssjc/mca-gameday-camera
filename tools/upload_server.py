@@ -1,5 +1,5 @@
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-import os, tempfile, shutil, time, json, urllib.parse
+import os, tempfile, shutil, time, json
 
 ROOT = os.path.abspath("models")
 ALLOWED = {
@@ -9,32 +9,49 @@ ALLOWED = {
     "formation/labels.txt",
 }
 
-HTML = b"""<html><body>
-<h3>Model Uploader (PUT-only)</h3>
-<p>Use curl from your trainer box, e.g.:</p>
-<pre>curl -T /path/to/play/latest.pt   http://JETSON:8000/put/play_classifier/latest.pt
-curl -T /path/to/play/labels.txt  http://JETSON:8000/put/play_classifier/labels.txt
-curl -T /path/to/form/latest.pt   http://JETSON:8000/put/formation/latest.pt
-curl -T /path/to/form/labels.txt  http://JETSON:8000/put/formation/labels.txt
-</pre>
-<p><a href="/ls">/ls</a> shows current file sizes. <a href="/healthz">/healthz</a> for status.</p>
-</body></html>"""
+HTML = b"""<!doctype html><meta charset="utf-8">
+<title>Model Uploader</title>
+<body style="font-family:system-ui,Segoe UI,Arial;margin:24px;line-height:1.3">
+<h2>Model Uploader</h2>
+<p>Select a target and file. This uploads directly to the Jetson.</p>
+<label>Target: </label>
+<select id="target">
+  <option value="play_classifier/latest.pt">play ckpt</option>
+  <option value="play_classifier/labels.txt">play labels</option>
+  <option value="formation/latest.pt">formation ckpt</option>
+  <option value="formation/labels.txt">formation labels</option>
+</select>
+<input id="file" type="file" />
+<button id="go">Upload</button>
+<pre id="out" style="white-space:pre-wrap;background:#f6f8fa;padding:12px;border-radius:8px"></pre>
+<p><a href="/ls" target="_blank">/ls</a> shows current file sizes. <a href="/healthz" target="_blank">/healthz</a> for status.</p>
+<script>
+const $ = (id)=>document.getElementById(id);
+$("go").onclick = async () => {
+  const t = $("target").value;
+  const f = $("file").files[0];
+  if (!f) { alert("Pick a file"); return; }
+  $("out").textContent = "Uploading " + f.name + " → " + t + "...";
+  try {
+    const r = await fetch("/put/" + t, { method:"PUT", body:f });
+    const txt = await r.text();
+    $("out").textContent = txt;
+  } catch (e) {
+    $("out").textContent = "Upload failed: " + e;
+  }
+};
+</script>
+</body>"""
 
-def safe_join(root, rel):
-    rel = rel.strip("/")
-    p = os.path.abspath(os.path.join(root, rel))
-    if not p.startswith(root + os.sep) and p != root:
-        raise ValueError("unsafe path")
-    return p
+def safe_target(rel: str):
+    rel = rel.strip("/").replace("\\", "/")
+    if rel in ALLOWED:
+        return os.path.join(ROOT, rel)
+    return None
 
 def ls_lines():
     lines=[]
-    for rel in [
-        "play_classifier/latest.pt",
-        "play_classifier/labels.txt",
-        "formation/latest.pt",
-        "formation/labels.txt",
-    ]:
+    for rel in sorted(ALLOWED):
         p = os.path.join(ROOT, rel)
         if os.path.exists(p):
             sz = os.path.getsize(p)
@@ -44,74 +61,48 @@ def ls_lines():
             lines.append(f"{rel}: missing")
     return "\n".join(lines) + "\n"
 
-def atomic_write(final_path, stream, total=None, buf=1024*1024):
-    os.makedirs(os.path.dirname(final_path), exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(prefix=".upload_", dir=os.path.dirname(final_path))
-    written = 0
-    try:
-        with os.fdopen(fd, 'wb') as out:
-            while True:
-                to_read = buf if total is None else min(buf, total - written)
-                if total is not None and to_read <= 0:
-                    break
-                chunk = stream.read(to_read)
-                if not chunk:
-                    break
-                out.write(chunk)
-                written += len(chunk)
-            out.flush(); os.fsync(out.fileno())
-        if written == 0:
-            os.remove(tmp_path)
-            raise ValueError("empty upload")
-        shutil.move(tmp_path, final_path)
-    except Exception:
-        try: os.remove(tmp_path)
-        except FileNotFoundError: pass
-        raise
-    return written
-
 class Handler(BaseHTTPRequestHandler):
-    def _json(self, code, obj):
-        data = json.dumps(obj).encode()
-        self.send_response(code)
-        self.send_header("Content-Type","application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
-
     def do_GET(self):
         if self.path == "/ls":
-            body = ls_lines().encode()
-            self.send_response(200)
-            self.send_header("Content-Type","text/plain")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
+            self.send_response(200); self.send_header("Content-Type","text/plain"); self.end_headers()
+            self.wfile.write(ls_lines().encode()); return
         if self.path == "/healthz":
-            return self._json(200, {"ok": True})
-        self.send_response(200)
-        self.send_header("Content-Type","text/html")
-        self.send_header("Content-Length", str(len(HTML)))
-        self.end_headers()
+            self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers()
+            self.wfile.write(json.dumps({"ok": True}).encode()); return
+        self.send_response(200); self.send_header("Content-Type","text/html"); self.end_headers()
         self.wfile.write(HTML)
 
-    # PUT /put/<allowed-target>
     def do_PUT(self):
-        if not self.path.startswith("/put/"):
-            return self._json(404, {"ok": False, "error":"use /put/<target>"})
-        rel = urllib.parse.unquote(self.path[len("/put/"):]).strip("/")
-        if rel not in ALLOWED:
-            return self._json(400, {"ok": False, "error": f"target not allowed: {rel}"})
+        # /put/<allowed target>
+        parts = self.path.split("/", 2)
+        if len(parts) != 3 or parts[1] != "put":
+            self.send_error(400, "Use /put/<target>"); return
+        target_rel = parts[2]
+        out_path = safe_target(target_rel)
+        if not out_path:
+            self.send_error(403, f"Target not allowed: {target_rel}"); return
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
         length = int(self.headers.get("Content-Length","0") or 0)
-        try:
-            final = safe_join(ROOT, rel)
-            written = atomic_write(final, self.rfile, total=length if length>0 else None)
-            return self._json(200, {"ok": True, "target": rel, "bytes": written})
-        except Exception as e:
-            return self._json(500, {"ok": False, "error": str(e)})
+        # stream to temp file
+        with tempfile.NamedTemporaryFile(dir=os.path.dirname(out_path), delete=False) as tmp:
+            remaining = length
+            while remaining > 0:
+                chunk = self.rfile.read(min(1024*1024, remaining))
+                if not chunk: break
+                tmp.write(chunk)
+                remaining -= len(chunk)
+            tmp.flush()
+            tmp_path = tmp.name
+        # atomic move
+        shutil.move(tmp_path, out_path)
+        self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers()
+        self.wfile.write(json.dumps({"ok": True, "target": target_rel, "bytes": length}).encode())
+
+    def log_message(self, fmt, *args):  # quieter logs
+        pass
 
 if __name__ == "__main__":
     os.makedirs(ROOT, exist_ok=True)
-    print("Uploader (PUT): http://0.0.0.0:8000  Root:", ROOT)
-    ThreadingHTTPServer(("", 8000), Handler).serve_forever()
+    srv = ThreadingHTTPServer(("", 8000), Handler)
+    print("Uploader on :8000, root:", ROOT)
+    srv.serve_forever()
