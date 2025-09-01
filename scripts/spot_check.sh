@@ -25,7 +25,7 @@ PY
   fi
 
   CSV="$dir/plays_index.csv"
-  if [[ -f "$CSV" ]]; then
+  if [ -f "$CSV" ]; then
     head -n 6 "$CSV" | sed 's/^/  /'
     python3 - <<'PY' "$CSV"
 import csv, sys, collections
@@ -34,13 +34,13 @@ rows=list(csv.DictReader(open(p, newline='')))
 n=len(rows)
 if n==0:
     print("  stats: segments=0")
-    raise SystemExit
+    sys.exit(0)
 weak=sum(int((r.get("clf_weak_flag") or "0").strip() or 0) for r in rows)
 try:
     avg=sum(float((r.get("clf_top1_conf") or "0").strip() or 0.0) for r in rows)/n
 except Exception:
     avg=0.0
-top=collections.Counter([(r.get("clf_top1_canon") or r.get("clf_top1") or "").strip() for r in rows])
+top=collections.Counter([ (r.get("clf_top1_canon") or r.get("clf_top1") or "").strip() for r in rows ])
 top.pop("", None)
 best=", ".join(f"{k} ({v})" for k,v in top.most_common(5)) if top else "no canonical mapping"
 print(f"  stats: segments={n} weak={weak} ({(100.0*weak/n):.1f}%) avg_conf={avg:.3f}")
