@@ -24,7 +24,15 @@ done
 : "${VIDEO_SIZE:=1280x720}"
 : "${VID_DELAY:=0.25}"
 : "${VIDEO_CODEC:=auto}"       # auto | h264_v4l2m2m | libx264
-: "${V4L2_INPUT_FORMAT:=mjpeg}"   # set to h264 if your camera supports it
+
+# --- Audio backend selection ---
+: "${AUDIO_INPUT:=pulse}"         # 'pulse' or 'alsa'. If pactl is missing, we’ll force 'alsa'.
+: "${ALSA_RATE:=48000}"
+: "${ALSA_CHANNELS:=2}"
+: "${ALSA_DEV_REGEX:=VideoMic|R.?DE}"  # which ALSA names to prefer (optional)
+
+# --- Video input format (your cam supports both; mjpeg is current fallback) ---
+: "${V4L2_INPUT_FORMAT:=mjpeg}"   # try 'h264' for cleaner capture: V4L2_INPUT_FORMAT=h264 ./gameday
 : "${PULSE_DEV_REGEX:=VideoMic|R.?DE|usb.*mic}"
 
 # Dynamic audio normalization & Pulse source gain
@@ -92,6 +100,42 @@ maybe_autoswitch_pulse() {
   echo "$best"
 }
 
+# Read overall RMS dB from any ffmpeg audio input pipeline (prints a number or "-inf")
+_rms_from_ffmpeg() {
+  ffmpeg -hide_banner -nostdin -v error "$@" -t 1 \
+    -af astats=metadata=1:measure_overall=1:reset=1 -f null - 2>&1 \
+    | awk -F'[: ]+' '/Overall RMS level/ {print $5; exit}' || echo "-inf"
+}
+
+_is_num() { [[ "$1" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; }
+_better() { awk -v a="$1" -v b="$2" 'BEGIN{exit !(a>b)}'; }  # returns 0 if a>b
+
+# Enumerate ALSA capture nodes and pick the loudest that matches ALSA_DEV_REGEX (if set).
+pick_alsa_dev() {
+  local list best="" best_rms="-inf" r name
+  # Prefer 'plughw:' first (handles format/rate nicely), fall back to 'hw:'
+  list="$(arecord -L | awk '/^plughw:|^hw:/{print $1}')"
+  [[ -z "$list" ]] && echo "default" && return 0
+
+  for name in $list; do
+    [[ -n "$ALSA_DEV_REGEX" && ! "$name" =~ $ALSA_DEV_REGEX ]] && continue
+    r="$(_rms_from_ffmpeg -f alsa -ac $ALSA_CHANNELS -ar $ALSA_RATE -i "$name")"
+    if [[ "$best_rms" == "-inf" && "$r" != "-inf" ]]; then best="$name"; best_rms="$r"; continue; fi
+    if _is_num "$r" && _is_num "$best_rms"; then _better "$r" "$best_rms" && { best="$name"; best_rms="$r"; }; fi
+  done
+
+  # If nothing matched regex, try again without filtering
+  if [[ -z "$best" ]]; then
+    for name in $list; do
+      r="$(_rms_from_ffmpeg -f alsa -ac $ALSA_CHANNELS -ar $ALSA_RATE -i "$name")"
+      if [[ "$best_rms" == "-inf" && "$r" != "-inf" ]]; then best="$name"; best_rms="$r"; continue; fi
+      if _is_num "$r" && _is_num "$best_rms"; then _better "$r" "$best_rms" && { best="$name"; best_rms="$r"; }; fi
+    done
+  fi
+
+  echo "${best:-default}"
+}
+
 resolve_video() {
   if [[ -n "${VIDEO_DEV:-}" && -e "${VIDEO_DEV}" ]]; then
     echo "$VIDEO_DEV"; return 0
@@ -135,18 +179,26 @@ preflight_output_url() {
 
 # --- Resolve inputs ---
 VIDEO_DEV="$(resolve_video || true)"
-PULSE_SRC="$(resolve_pulse || true)"
 [[ -z "${VIDEO_DEV:-}" ]] && { echo "[gameday] ERROR: No /dev/video* device found."; exit 1; }
-[[ -z "${PULSE_SRC:-}" ]] && { echo "[gameday] ERROR: No usable Pulse source."; pactl list short sources | awk '{print "  " $2}'; exit 1; }
 
-# Preflight: unmute, set volume, and ensure we’re not silent
-if command -v pactl >/dev/null 2>&1; then
+USE_PULSE=1
+if ! command -v pactl >/dev/null 2>&1; then
+  USE_PULSE=0
+fi
+[[ "$AUDIO_INPUT" == "alsa" ]] && USE_PULSE=0
+
+if (( USE_PULSE )); then
+  PULSE_SRC="$(resolve_pulse || true)"
+  [[ -z "${PULSE_SRC:-}" ]] && { echo "[gameday] ERROR: No usable Pulse source."; pactl list short sources | awk '{print "  " $2}' ; exit 1; }
   pactl set-source-mute "$PULSE_SRC" 0 || true
   pactl set-source-volume "$PULSE_SRC" "${PULSE_VOL:-150%}" || true
+  PULSE_SRC="$(maybe_autoswitch_pulse "$PULSE_SRC")"
+  AUDIO_INPUT_OPTS=(-f pulse -thread_queue_size 8192 -i "${PULSE_SRC}")
+else
+  : "${ALSA_DEV:=$(pick_alsa_dev)}"
+  echo "[gameday] Using ALSA device: ${ALSA_DEV}"
+  AUDIO_INPUT_OPTS=(-f alsa -thread_queue_size 8192 -ac "$ALSA_CHANNELS" -ar "$ALSA_RATE" -i "${ALSA_DEV}")
 fi
-
-# Meter and maybe auto-switch to a louder source
-PULSE_SRC="$(maybe_autoswitch_pulse "$PULSE_SRC")"
 
 # --- Build video opts ---
 V_CODEC="$(choose_codec)"
@@ -157,17 +209,25 @@ V4L2_INPUT_OPTS=(
 )
 # Map video from input 0 and audio from input 1 into the tee output
 MAP_OPTS=(-map 0:v:0 -map 1:a:0)
-V_PIXFMT_OPTS=(
-  -vf "scale=in_range=full:out_range=tv,format=yuv420p,\
+if [[ "$V_CODEC" == "h264_v4l2m2m" ]]; then
+  V_PIXFMT_OPTS=(
+    -vf "scale=in_range=full:out_range=tv,format=nv12,\
 scale=iw*sar:ih,setsar=1,\
 scale=${VIDEO_SIZE}:flags=bicubic:force_original_aspect_ratio=decrease,\
 pad=${VIDEO_SIZE}:(ow-iw)/2:(oh-ih)/2,\
 fps=${FRAME_RATE},setpts=PTS-STARTPTS"
-  -pix_fmt yuv420p
-)
-if [[ "$V_CODEC" == "h264_v4l2m2m" ]]; then
+    -pix_fmt nv12
+  )
   V_ENCODER_OPTS=(-c:v h264_v4l2m2m -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)) -profile:v high)
 else
+  V_PIXFMT_OPTS=(
+    -vf "scale=in_range=full:out_range=tv,format=yuv420p,\
+scale=iw*sar:ih,setsar=1,\
+scale=${VIDEO_SIZE}:flags=bicubic:force_original_aspect_ratio=decrease,\
+pad=${VIDEO_SIZE}:(ow-iw)/2:(oh-ih)/2,\
+fps=${FRAME_RATE},setpts=PTS-STARTPTS"
+    -pix_fmt yuv420p
+  )
   V_ENCODER_OPTS=(-c:v libx264 -preset veryfast -tune zerolatency -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)) -profile:v high)
 fi
 
@@ -186,13 +246,18 @@ mkdir -p "$RECORD_DIR"
 TEE_SPEC="[f=flv:onfail=ignore]${OUT_URL}|[f=segment:segment_time=${RECORD_SEGMENT_SEC}:strftime=1:reset_timestamps=1:segment_format=mp4:segment_format_options=movflags=+faststart]${RECORD_DIR}/%Y%m%d_%H%M%S.mp4"
 OUT_MUX=(-f tee "$TEE_SPEC")
 
-echo "[gameday] Launch -> video=${VIDEO_DEV} ${VIDEO_SIZE}@${FRAME_RATE} | pulse=${PULSE_SRC} | vcodec=${V_CODEC} | rtmp=set | record_dir=${RECORD_DIR}"
+if (( USE_PULSE )); then
+  AUDIO_DESC="$PULSE_SRC"
+else
+  AUDIO_DESC="$ALSA_DEV"
+fi
+echo "[gameday] Launch -> video=${VIDEO_DEV} ${VIDEO_SIZE}@${FRAME_RATE} | audio=${AUDIO_DESC} | vcodec=${V_CODEC} | rtmp=set | record_dir=${RECORD_DIR}"
 
 run_ffmpeg() {
   ffmpeg -hide_banner -loglevel info \
     -fflags +genpts+discardcorrupt \
     "${V4L2_INPUT_OPTS[@]}" \
-    -f pulse -thread_queue_size 8192 -i "${PULSE_SRC}" \
+    "${AUDIO_INPUT_OPTS[@]}" \
     "${MAP_OPTS[@]}" \
     "${V_PIXFMT_OPTS[@]}" \
     "${V_ENCODER_OPTS[@]}" \
