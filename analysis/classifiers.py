@@ -1,5 +1,4 @@
 import os
-import hashlib
 import logging
 from typing import Any, List
 
@@ -17,12 +16,13 @@ except Exception as e:  # pragma: no cover - import guard
 log = logging.getLogger("classifier")
 
 
-def _sha256(path: str, n: int = 10) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()[:n]
+def _ensure_nonempty(path: str, tag: str) -> str:
+    ap = os.path.abspath(path)
+    if not os.path.isfile(ap):
+        raise FileNotFoundError(f"{tag} missing: {ap}")
+    if os.path.getsize(ap) == 0:
+        raise RuntimeError(f"{tag} is empty (0 bytes): {ap}")
+    return ap
 
 
 def _check_file(path: str | os.PathLike[str] | None, label: str) -> str:
@@ -35,58 +35,52 @@ def _check_file(path: str | os.PathLike[str] | None, label: str) -> str:
     return ap
 
 
-def _load_ckpt(path: str) -> Any:
-    ap = os.path.abspath(path)
-    if not os.path.isfile(ap):
-        raise FileNotFoundError(f"checkpoint not found: {ap}")
-    sz = os.path.getsize(ap)
-    log.info(f"[ckpt] {ap} ({sz/1e6:.1f} MB) sha256={_sha256(ap)}")
+def _load_ckpt(path: str):
+    import torch
+    ap = _ensure_nonempty(path, "checkpoint")
 
-    # 1) state_dict w/ weights-only
+    # 1) weights_only (safe) if available
     try:
-        import torch
-
-        obj = torch.load(ap, map_location="cpu", weights_only=True)
-        sd = obj.get("state_dict", obj) if isinstance(obj, dict) else obj
-        if isinstance(sd, dict):
-            log.info("[ckpt] loaded as state_dict (weights_only)")
-            return {"type": "state_dict", "state_dict": sd}
+        ckpt = torch.load(ap, map_location="cpu", weights_only=True)  # torch>=2.0
+        log.info("loaded state_dict via torch.load(weights_only=True): %s", ap)
+        return {"type": "state_dict", "payload": ckpt}
+    except TypeError:
+        pass
     except Exception as e:
-        log.warning(f"[ckpt] weights_only state_dict load failed: {e}")
+        log.warning("weights_only load failed: %s", e)
 
-    # 2) legacy pickle (some older checkpoints need this)
+    # 2) regular pickle load (might include full objects)
     try:
-        import torch
-
-        obj = torch.load(ap, map_location="cpu", weights_only=False)
-        sd = obj.get("state_dict", obj) if isinstance(obj, dict) else obj
-        if isinstance(sd, dict):
-            log.info("[ckpt] loaded as state_dict (pickle)")
-            return {"type": "state_dict", "state_dict": sd}
+        ckpt = torch.load(ap, map_location="cpu")
+        if isinstance(ckpt, dict) and "state_dict" in ckpt:
+            log.info("loaded checkpoint dict with state_dict: %s", ap)
+            return {"type": "checkpoint", "payload": ckpt["state_dict"]}
+        log.info("loaded raw object via pickle torch.load: %s", ap)
+        return {"type": "raw", "payload": ckpt}
     except Exception as e:
-        log.warning(f"[ckpt] pickle state_dict load failed: {e}")
+        log.warning("pickle torch.load failed: %s", e)
 
-    # 3) TorchScript module
+    # 3) TorchScript
     try:
-        import torch
-
         ts = torch.jit.load(ap, map_location="cpu")
-        log.info("[ckpt] loaded as TorchScript module")
-        return {"type": "torchscript", "module": ts}
+        log.info("loaded TorchScript: %s", ap)
+        return {"type": "torchscript", "payload": ts}
     except Exception as e:
-        log.warning(f"[ckpt] torchscript load failed: {e}")
+        log.warning("torchscript load failed: %s", e)
 
-    # 4) safetensors
+    # 4) Safetensors (optional)
     try:
         from safetensors.torch import load_file as st_load
-
         sd = st_load(ap)
-        log.info("[ckpt] loaded as safetensors")
-        return {"type": "state_dict", "state_dict": sd}
+        log.info("loaded safetensors: %s", ap)
+        return {"type": "state_dict", "payload": sd}
     except Exception as e:
-        log.warning(f"[ckpt] safetensors load failed: {e}")
+        log.warning("safetensors load failed or not installed: %s", e)
 
-    raise RuntimeError(f"unsupported or corrupted checkpoint format: {ap}")
+    raise RuntimeError(
+        f"unsupported or corrupted checkpoint format: {ap}. "
+        "If this is a .safetensors file, convert it off-box to a .pt state_dict and retry."
+    )
 
 
 def _load_labels(path: str) -> List[str]:
@@ -126,9 +120,9 @@ def _init_from_ckpt(entry: dict, num_classes: int, builder):
 
     import torch
 
-    if entry["type"] == "state_dict":
+    if entry["type"] in ("state_dict", "checkpoint"):
         model = builder(num_classes)
-        msg = model.load_state_dict(entry["state_dict"], strict=False)
+        msg = model.load_state_dict(entry["payload"], strict=False)
         log.info(
             f"[ckpt] load_state_dict: missing={len(msg.missing_keys)} "
             f"unexpected={len(msg.unexpected_keys)}"
@@ -136,8 +130,13 @@ def _init_from_ckpt(entry: dict, num_classes: int, builder):
         model.eval()
         return model
     elif entry["type"] == "torchscript":
-        ts = entry["module"]
+        ts = entry["payload"]
         return ts.eval()
+    elif entry["type"] == "raw":
+        model = entry["payload"]
+        if hasattr(model, "eval"):
+            model.eval()
+        return model
     else:  # pragma: no cover - defensive
         raise RuntimeError("unknown ckpt entry type")
 
