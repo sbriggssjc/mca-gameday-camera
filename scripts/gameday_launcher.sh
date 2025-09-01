@@ -50,15 +50,17 @@ run_ffmpeg () {
     -f flv "$RTMP_URL"
 }
 
-# Retry loop for transient RTMPS errors
+# Retry loop for transient RTMPS errors (stop immediately on user interrupt)
+STOP=0
+trap 'STOP=1; echo "[gameday] Caught interrupt; stopping…"' INT TERM
+
 TRIES=${TRIES:-8}
-i=1
-while true; do
-  echo "[gameday] Attempt $i/$TRIES"
-  if run_ffmpeg; then exit 0; fi
-  status=$?
-  echo "[gameday] ffmpeg exited with code $status"
-  if (( i >= TRIES )); then echo "[gameday] Exhausted retries."; exit $status; fi
+attempt=1; max_attempts=$TRIES
+until run_ffmpeg; do
+  rc=$?
+  (( STOP )) && exit "$rc"
+  echo "[gameday] ffmpeg exited with code $rc (attempt $attempt/$max_attempts)."
+  (( attempt++ ))
+  (( attempt > max_attempts )) && { echo "[gameday] Exhausted retries."; exit "$rc"; }
   sleep 3
-  ((i++))
 done
