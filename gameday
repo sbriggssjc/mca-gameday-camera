@@ -113,6 +113,9 @@ else
   V_ENCODER_OPTS=(-c:v libx264 -preset veryfast -tune zerolatency -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)) -profile:v high)
 fi
 
+# Map video from input 0 and audio from input 1 into the tee output
+MAP_OPTS=(-map 0:v:0 -map 1:a:0)
+
 # --- Build audio filter (dynamic normalization + limiter + sync) ---
 if [[ "${AUDIO_DYN_ENABLE}" == "1" ]]; then
   AFILTER="asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0,dynaudnorm=${DYNAUDNORM_OPTS},highpass=f=100,alimiter=limit=-0.3dB:attack=5,adelay=${VID_DELAY}s:all=1"
@@ -135,6 +138,7 @@ run_ffmpeg() {
     -fflags +genpts+discardcorrupt \
     "${V4L2_INPUT_OPTS[@]}" \
     -f pulse -thread_queue_size 8192 -i "${PULSE_SRC}" \
+    "${MAP_OPTS[@]}" \
     "${V_PIXFMT_OPTS[@]}" \
     "${V_ENCODER_OPTS[@]}" \
     -c:a aac -b:a 128k -ar 48000 -ac 2 -af "$AFILTER" \
