@@ -153,6 +153,8 @@ V4L2_INPUT_OPTS=(
   -f v4l2 -thread_queue_size 8192 -use_wallclock_as_timestamps 1 -rtbufsize 256M
   -input_format mjpeg -framerate "${FRAME_RATE}" -video_size "${VIDEO_SIZE}" -i "${VIDEO_DEV}"
 )
+# Map video from input 0 and audio from input 1 into the tee output
+MAP_OPTS=(-map 0:v:0 -map 1:a:0)
 if [[ "$V_CODEC" == "h264_v4l2m2m" ]]; then
   V_PIXFMT_OPTS=(-vf "scale=in_range=full:out_range=tv,format=nv12,setsar=1,fps=${FRAME_RATE},setpts=PTS-STARTPTS,lagfun=decay=0.95" -pix_fmt nv12)
   V_ENCODER_OPTS=(-c:v h264_v4l2m2m -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)) -profile:v high)
@@ -160,9 +162,6 @@ else
   V_PIXFMT_OPTS=(-vf "scale=in_range=full:out_range=tv,format=yuv420p,setsar=1,fps=${FRAME_RATE},setpts=PTS-STARTPTS,lagfun=decay=0.95" -pix_fmt yuv420p)
   V_ENCODER_OPTS=(-c:v libx264 -preset veryfast -tune zerolatency -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)) -profile:v high)
 fi
-
-# Map video from input 0 and audio from input 1 into the tee output
-MAP_OPTS=(-map 0:v:0 -map 1:a:0)
 
 # --- Build audio filter (dynamic normalization + limiter + sync) ---
 if [[ "${AUDIO_DYN_ENABLE}" == "1" ]]; then
