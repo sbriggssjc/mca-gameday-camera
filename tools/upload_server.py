@@ -1,5 +1,5 @@
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-import os, tempfile, shutil, time, json
+import os, time, json, urllib.parse, tempfile, shutil
 
 ROOT = os.path.abspath("models")
 ALLOWED = {
@@ -9,48 +9,19 @@ ALLOWED = {
     "formation/labels.txt",
 }
 
-HTML = b"""<!doctype html><meta charset="utf-8">
-<title>Model Uploader</title>
-<body style="font-family:system-ui,Segoe UI,Arial;margin:24px;line-height:1.3">
-<h2>Model Uploader</h2>
-<p>Select a target and file. This uploads directly to the Jetson.</p>
-<label>Target: </label>
-<select id="target">
-  <option value="play_classifier/latest.pt">play ckpt</option>
-  <option value="play_classifier/labels.txt">play labels</option>
-  <option value="formation/latest.pt">formation ckpt</option>
-  <option value="formation/labels.txt">formation labels</option>
-</select>
-<input id="file" type="file" />
-<button id="go">Upload</button>
-<pre id="out" style="white-space:pre-wrap;background:#f6f8fa;padding:12px;border-radius:8px"></pre>
-<p><a href="/ls" target="_blank">/ls</a> shows current file sizes. <a href="/healthz" target="_blank">/healthz</a> for status.</p>
-<script>
-const $ = (id)=>document.getElementById(id);
-$("go").onclick = async () => {
-  const t = $("target").value;
-  const f = $("file").files[0];
-  if (!f) { alert("Pick a file"); return; }
-  $("out").textContent = "Uploading " + f.name + " → " + t + "...";
-  try {
-    const r = await fetch("/put/" + t, { method:"PUT", body:f });
-    const txt = await r.text();
-    $("out").textContent = txt;
-  } catch (e) {
-    $("out").textContent = "Upload failed: " + e;
-  }
-};
-</script>
-</body>"""
-
-def safe_target(rel: str):
-    rel = rel.strip("/").replace("\\", "/")
-    if rel in ALLOWED:
-        return os.path.join(ROOT, rel)
-    return None
+HTML = """<html><body>
+<h3>Model Uploader (PUT-only)</h3>
+<p>Use curl from your trainer box, e.g.:</p>
+<pre>curl -T /path/to/play/latest.pt   http://JETSON:8000/put/play_classifier/latest.pt
+curl -T /path/to/play/labels.txt  http://JETSON:8000/put/play_classifier/labels.txt
+curl -T /path/to/form/latest.pt   http://JETSON:8000/put/formation/latest.pt
+curl -T /path/to/form/labels.txt  http://JETSON:8000/put/formation/labels.txt
+</pre>
+<p><a href="/ls">/ls</a> shows current file sizes. <a href="/healthz">/healthz</a> returns status.</p>
+</body></html>"""
 
 def ls_lines():
-    lines=[]
+    lines = []
     for rel in sorted(ALLOWED):
         p = os.path.join(ROOT, rel)
         if os.path.exists(p):
@@ -61,48 +32,66 @@ def ls_lines():
             lines.append(f"{rel}: missing")
     return "\n".join(lines) + "\n"
 
+def safe_join(root, rel):
+    rel = rel.strip("/")
+    if rel not in ALLOWED:
+        return None
+    path = os.path.normpath(os.path.join(root, rel))
+    if not path.startswith(os.path.abspath(root)):
+        return None
+    return path
+
 class Handler(BaseHTTPRequestHandler):
+    def _send_json(self, obj, code=200):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(obj).encode("utf-8"))
+
     def do_GET(self):
-        if self.path == "/ls":
-            self.send_response(200); self.send_header("Content-Type","text/plain"); self.end_headers()
-            self.wfile.write(ls_lines().encode()); return
         if self.path == "/healthz":
-            self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers()
-            self.wfile.write(json.dumps({"ok": True}).encode()); return
-        self.send_response(200); self.send_header("Content-Type","text/html"); self.end_headers()
-        self.wfile.write(HTML)
+            return self._send_json({"ok": True})
+        if self.path == "/ls":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(ls_lines().encode("utf-8"))
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(HTML.encode("utf-8"))
 
     def do_PUT(self):
-        # /put/<allowed target>
-        parts = self.path.split("/", 2)
-        if len(parts) != 3 or parts[1] != "put":
-            self.send_error(400, "Use /put/<target>"); return
-        target_rel = parts[2]
-        out_path = safe_target(target_rel)
+        if not self.path.startswith("/put/"):
+            self._send_json({"ok": False, "error": "Use /put/<target>"}, 404)
+            return
+        target = urllib.parse.unquote(self.path[len("/put/"):])
+        out_path = safe_join(ROOT, target)
         if not out_path:
-            self.send_error(403, f"Target not allowed: {target_rel}"); return
+            self._send_json({"ok": False, "error": "target not allowed"}, 400)
+            return
+        clen = self.headers.get("Content-Length")
+        if clen is None:
+            self._send_json({"ok": False, "error": "Content-Length required"}, 411)
+            return
+        n = int(clen)
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        length = int(self.headers.get("Content-Length","0") or 0)
-        # stream to temp file
         with tempfile.NamedTemporaryFile(dir=os.path.dirname(out_path), delete=False) as tmp:
-            remaining = length
+            remaining = n
             while remaining > 0:
-                chunk = self.rfile.read(min(1024*1024, remaining))
+                chunk = self.rfile.read(min(65536, remaining))
                 if not chunk: break
                 tmp.write(chunk)
                 remaining -= len(chunk)
             tmp.flush()
-            tmp_path = tmp.name
-        # atomic move
-        shutil.move(tmp_path, out_path)
-        self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers()
-        self.wfile.write(json.dumps({"ok": True, "target": target_rel, "bytes": length}).encode())
-
-    def log_message(self, fmt, *args):  # quieter logs
-        pass
+            os.fsync(tmp.fileno())
+            tmp_name = tmp.name
+        shutil.move(tmp_name, out_path)
+        self._send_json({"ok": True, "target": target, "bytes": n})
 
 if __name__ == "__main__":
     os.makedirs(ROOT, exist_ok=True)
-    srv = ThreadingHTTPServer(("", 8000), Handler)
-    print("Uploader on :8000, root:", ROOT)
-    srv.serve_forever()
+    addr = ("0.0.0.0", 8000)
+    print(f"[uploader] root={ROOT} listening on {addr}")
+    ThreadingHTTPServer(addr, Handler).serve_forever()
