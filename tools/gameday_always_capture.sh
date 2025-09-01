@@ -24,6 +24,46 @@ ts() { date +%Y%m%d-%H%M%S; }
 have_audio_alsa() { arecord -l 2>/dev/null | grep -q 'card 1: .* device 0'; }
 default_pulse_src() { pactl get-default-source 2>/dev/null || true; }
 
+# Read overall RMS dB of a Pulse source over a short window; prints a number or "-inf"
+rms_db_of_source() {
+  local src="$1"
+  ffmpeg -hide_banner -nostdin -v error -f pulse -i "$src" -t "${AUDIO_PREFLIGHT_SEC}" \
+    -af astats=metadata=1:measure_overall=1:reset=1 -f null - 2>&1 \
+    | awk -F'[: ]+' '/Overall RMS level/ {print $5; exit}' || echo "-inf"
+}
+
+# numeric? -> 0/1
+_is_numeric() { [[ "$1" =~ ^[-+]?[0-9]+([.][0-9]+)?$ ]]; }
+
+# Is loud enough vs threshold? returns 0 (true) / 1 (false)
+_is_loud_enough() {
+  local val="$1" th="$2"
+  _is_numeric "$val" || return 1
+  awk -v x="$val" -v t="$th" 'BEGIN{exit !(x>t)}'
+}
+
+# If silent, optionally auto-pick loudest non-monitor source
+maybe_autoswitch_pulse() {
+  local cur="$1"
+  local cur_rms; cur_rms="$(rms_db_of_source "$cur")"
+  if _is_loud_enough "$cur_rms" "$AUDIO_SILENCE_THRESHOLD_DB"; then
+    echo "$cur"; return 0
+  fi
+  [[ "$AUDIO_AUTO_SWITCH" != "1" ]] && { echo "$cur"; return 0; }
+
+  local best="$cur" best_rms="-inf"
+  while read -r _ name _; do
+    [[ "$name" =~ monitor ]] && continue
+    local r; r="$(rms_db_of_source "$name")"
+    if [[ "$best_rms" == "-inf" && "$r" != "-inf" ]]; then best="$name"; best_rms="$r"; continue; fi
+    if _is_numeric "$r" && _is_numeric "$best_rms"; then
+      awk -v a="$r" -v b="$best_rms" 'BEGIN{exit !(a>b)}' && { best="$name"; best_rms="$r"; }
+    fi
+  done < <(pactl list short sources)
+
+  echo "$best"
+}
+
 run_under_script() {
   local cmd="$1" out="$2"
   script -qefc "$cmd" "$out"
@@ -76,6 +116,10 @@ ARCHIVE_CRF=${ARCHIVE_CRF:-18}
 STREAM_WIDTH=${STREAM_WIDTH:-1280}
 STREAM_HEIGHT=${STREAM_HEIGHT:-720}
 STREAM_MBPS=${STREAM_MBPS:-3.5}
+PULSE_VOL=${PULSE_VOL:-150%}
+AUDIO_PREFLIGHT_SEC=${AUDIO_PREFLIGHT_SEC:-2}
+AUDIO_SILENCE_THRESHOLD_DB=${AUDIO_SILENCE_THRESHOLD_DB:--50}
+AUDIO_AUTO_SWITCH=${AUDIO_AUTO_SWITCH:-1}
 
 detect_h264_mode
 ARCHIVE_MAX_MBPS=${ARCHIVE_MAX_MBPS:-$(archive_bitrate_for_res "$ARCHIVE_RES")}
@@ -189,6 +233,11 @@ run_copy_pipeline() {
   if [ $RC -ne 0 ] || ! grep -q "frame=" "$TERM"; then
     echo "[fallback] re-running with Pulse default audio (if present)"
     PULSE_SRC=$(default_pulse_src)
+    if command -v pactl >/dev/null 2>&1; then
+      pactl set-source-mute "$PULSE_SRC" 0 || true
+      pactl set-source-volume "$PULSE_SRC" "${PULSE_VOL:-150%}" || true
+    fi
+    PULSE_SRC="$(maybe_autoswitch_pulse "$PULSE_SRC")"
     CMD=$(mktemp)
     make_cmd_copy pulse
     run_cmd
@@ -209,6 +258,11 @@ run_hq_pipeline() {
   if [ $RC -ne 0 ] || ! grep -q "frame=" "$TERM"; then
     echo "[fallback] re-running with Pulse default audio (if present)"
     PULSE_SRC=$(default_pulse_src)
+    if command -v pactl >/dev/null 2>&1; then
+      pactl set-source-mute "$PULSE_SRC" 0 || true
+      pactl set-source-volume "$PULSE_SRC" "${PULSE_VOL:-150%}" || true
+    fi
+    PULSE_SRC="$(maybe_autoswitch_pulse "$PULSE_SRC")"
     CMD=$(mktemp)
     make_cmd_hq pulse
     run_cmd
