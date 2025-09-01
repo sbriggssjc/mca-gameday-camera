@@ -24,3 +24,4 @@ credentials.json# Google/GCP service account keys (never commit these)
 *service-account*.json
 *credentials*.json
 modular-conduit-*-*.json
+.gameday.env
