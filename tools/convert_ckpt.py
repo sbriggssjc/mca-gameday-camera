@@ -25,6 +25,7 @@ def main():
     try:
         obj = torch.load(inp, map_location="cpu", weights_only=False)
     except TypeError:
+        # older torch versions don't accept weights_only
         obj = torch.load(inp, map_location="cpu")
 
     sd = extract_state_dict(obj)
@@ -32,7 +33,7 @@ def main():
         top = list(obj.keys())[:20] if isinstance(obj, dict) else type(obj).__name__
         raise RuntimeError(f"Couldn't find a state_dict. Top-level: {top}")
 
-    # strip DDP 'module.' if present
+    # strip DDP "module." if present
     sd = { (k[7:] if k.startswith("module.") else k): v for k, v in sd.items() }
 
     torch.save(sd, outp)
