@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
+# Ensure executable: chmod 755 gameday
 
-# --- size helpers for video filters (VIDEO_SIZE is WxH with an x) ---
-: "${VIDEO_SIZE:=1280x720}"
-case "$VIDEO_SIZE" in
-  *x*) VW="${VIDEO_SIZE%x*}"; VH="${VIDEO_SIZE#*x}" ;;
-  *)   VW=1280; VH=720 ;;
-esac
-VF_SIZE_COLON="${VW}:${VH}"
+# --- size helpers moved below to respect .gameday.env overrides ---
+# : "${VIDEO_SIZE:=1280x720}"
+# case "$VIDEO_SIZE" in
+#   *x*) VW="${VIDEO_SIZE%x*}"; VH="${VIDEO_SIZE#*x}" ;;
+#   *)   VW=1280; VH=720 ;;
+# esac
+# VF_SIZE_COLON="${VW}:${VH}"
 
 # gameday — drop-in launcher for Jetson + YouTube Live with local recording
 # - Perfect 1280x720 canvas (no stretch/crop; pads as needed)
@@ -14,7 +15,8 @@ VF_SIZE_COLON="${VW}:${VH}"
 # - Streams to RTMP(S) and records MP4 segments
 # - Pulse or ALSA audio (no pactl required)
 
-set -Eeuo pipefail
+# set -Eeuo pipefail  # replaced: -E not needed
+set -euo pipefail
 
 cd "$(dirname "$0")"
 
@@ -26,32 +28,50 @@ if [[ -f .gameday.env ]]; then
   done < .gameday.env
 fi
 
-# ------------------------- required -------------------------
-: "${YOUTUBE_RTMP_URL:?Set YOUTUBE_RTMP_URL to your RTMP(S) endpoint}"
-
 # ------------------------- defaults -------------------------
 : "${VIDEO_DEV:=/dev/video0}"
-: "${VIDEO_SIZE:=1280x720}"
+: "${ALSA_DEV:=plughw:2,0}"
 : "${FRAME_RATE:=30}"
+: "${VIDEO_SIZE:=1280x720}"
+: "${RECORD_TRANSCODED_SEGMENTS:=0}"
+: "${STREAM_TO_YOUTUBE:=1}"
+
+# ------------------------- required -------------------------
+if (( STREAM_TO_YOUTUBE )); then
+  if [[ -z "${YOUTUBE_RTMP_URL:-}" ]]; then
+    echo "[gameday] ERROR: YOUTUBE_RTMP_URL is required" >&2
+    exit 1  # To record raw-only, set STREAM_TO_YOUTUBE=0
+  fi
+else
+  # When STREAM_TO_YOUTUBE=0, raw archival continues without streaming
+  YOUTUBE_RTMP_URL=""
+fi
 
 # Input from sensor (try h264 for cleaner capture; fallback mjpeg)
-: "${V4L2_INPUT_FORMAT:=mjpeg}"            # set V4L2_INPUT_FORMAT=h264 to prefer on-sensor H.264
+# : "${V4L2_INPUT_FORMAT:=mjpeg}"            # replaced by fixed mjpeg input for simplicity
 
 # Encoding (CPU libx264 by default; set VIDEO_CODEC=h264_v4l2m2m to try HW encoder)
-: "${VIDEO_CODEC:=libx264}"
+# : "${VIDEO_CODEC:=libx264}"  # replaced by automatic codec detection below
 
 # Audio backends
-: "${AUDIO_INPUT:=auto}"                   # auto|pulse|alsa
+# : "${AUDIO_INPUT:=auto}"                   # replaced by AUDIO_BACKEND=alsa|pulse
+: "${AUDIO_BACKEND:=alsa}"
 : "${ALSA_RATE:=48000}"
 : "${ALSA_CHANNELS:=2}"
-: "${ALSA_DEV_REGEX:=VideoMic|R.?DE}"      # prefer devices matching this (optional)
-: "${PULSE_VOL:=150%}"                     # initial pulse volume if available
+
+# Legacy Pulse path retained for reference
+pulse_audio_input() {
+  : "${PULSE_DEV:=default}"
+  AUDIO_INPUT_OPTS=(-thread_queue_size 1024 -f pulse -i "${PULSE_DEV}")
+}
 
 # Recording
 : "${RECORD_DIR:=recordings}"
 : "${RECORD_SEGMENT_SEC:=900}"
 
-mkdir -p "$RECORD_DIR"
+mkdir -p "$RECORD_DIR" "${RECORD_DIR}/raw"
+
+command -v ffmpeg >/dev/null 2>&1 || { echo "[gameday] ERROR: ffmpeg not found" >&2; exit 1; }
 
 # ------------------------- helpers --------------------------
 rms_db_from_ffmpeg() {
@@ -93,81 +113,63 @@ pick_alsa_dev() {
 }
 
 # ---------------------- build inputs ------------------------
-V4L2_INPUT_OPTS=(
-  -f v4l2 -thread_queue_size 8192 -use_wallclock_as_timestamps 1 -rtbufsize 256M
-  -input_format "$V4L2_INPUT_FORMAT"
-  -framerate "$FRAME_RATE" -video_size "$VIDEO_SIZE" -i "$VIDEO_DEV"
-)
-
-USE_PULSE=0
-if [[ "${AUDIO_INPUT}" == "pulse" ]] || { [[ "${AUDIO_INPUT}" == "auto" ]] && command -v pactl >/dev/null 2>&1; }; then
-  USE_PULSE=1
-fi
-
-if (( USE_PULSE )); then
-  # pick pulse source via regex if provided; else default
-  if command -v pactl >/dev/null 2>&1; then
-    # Try to find a matching, non-monitor source
-    PULSE_SRC="${PULSE_DEV:-}"
-    if [[ -z "${PULSE_SRC}" ]]; then
-      PULSE_SRC="$(pactl list short sources | awk '{print $2}' | awk '!/monitor/ {print}' | awk 'NR==1{print}')"
-    fi
-    pactl set-source-mute "$PULSE_SRC" 0 || true
-    pactl set-source-volume "$PULSE_SRC" "$PULSE_VOL" || true
-  else
-    PULSE_SRC="default"
-  fi
-  AUDIO_INPUT_OPTS=(-f pulse -thread_queue_size 8192 -i "${PULSE_SRC}")
-  AUDIO_MODE="pulse:${PULSE_SRC}"
+# V4L2_INPUT_OPTS and dynamic audio selection replaced with explicit opts
+if [[ "${AUDIO_BACKEND}" == "pulse" ]]; then
+  # legacy pulse path retained (AUDIO_BACKEND=pulse)
+  pulse_audio_input
+  AUDIO_MODE="pulse:${PULSE_DEV}"
 else
-  ALSA_DEV="${ALSA_DEV:-$(pick_alsa_dev)}"
-  AUDIO_INPUT_OPTS=(-f alsa -thread_queue_size 8192 -ac "$ALSA_CHANNELS" -ar "$ALSA_RATE" -i "${ALSA_DEV}")
+  AUDIO_INPUT_OPTS=(-thread_queue_size 1024 -f alsa -ac 2 -ar 48000 -i "${ALSA_DEV}")
   AUDIO_MODE="alsa:${ALSA_DEV}"
 fi
 
 # ---- derive numeric width/height for filters (VIDEO_SIZE uses 1280x720) ----
 if [[ "$VIDEO_SIZE" =~ ^([0-9]+)x([0-9]+)$ ]]; then
-  VW="${BASH_REMATCH[1]}"; VH="${BASH_REMATCH[2]}";
+  VW="${BASH_REMATCH[1]}"; VH="${BASH_REMATCH[2]}"
 else
-  VW=1280; VH=720;  # safe fallback
+  VW=1280; VH=720  # safe fallback
 fi
+VF_SIZE_COLON="${VW}:${VH}"
 # ---------------------- filters & encoders ------------------
 # Force perfect 1280x720 canvas and legal TV range; preserve aspect, pad as needed.
-VF_CHAIN="scale=in_range=full:out_range=tv,format=yuv420p,scale=iw*sar:ih,setsar=1,scale=${VF_SIZE_COLON}:flags=bicubic:force_original_aspect_ratio=decrease,pad=${VF_SIZE_COLON}:(ow-iw)/2:(oh-ih)/2,fps=${FRAME_RATE},setpts=PTS-STARTPTS"
+# VF_CHAIN="scale=in_range=full:out_range=tv,format=yuv420p,scale=iw*sar:ih,setsar=1,scale=${VF_SIZE_COLON}:flags=bicubic:force_original_aspect_ratio=decrease,pad=${VF_SIZE_COLON}:(ow-iw)/2:(oh-ih)/2,fps=${FRAME_RATE},setpts=PTS-STARTPTS" # replaced to guarantee fill
+VF_CHAIN="scale=iw*sar:ih,setsar=1,scale=${VF_SIZE_COLON}:flags=bicubic:force_original_aspect_ratio=increase,crop=${VF_SIZE_COLON},fps=${FRAME_RATE},setpts=PTS-STARTPTS"
 
-V_PIXFMT_OPTS=(-vf "$VF_CHAIN" -pix_fmt yuv420p)
-
-if [[ "$VIDEO_CODEC" == "h264_v4l2m2m" ]]; then
-  # If you switch to HW encoder, keep nv12 pixfmt
-  V_PIXFMT_OPTS=(-vf "$VF_CHAIN" -pix_fmt nv12)
-  V_ENCODER_OPTS=(-c:v h264_v4l2m2m -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)))
+# Video encoder detection prefers Jetson HW when available
+if ffmpeg -hide_banner -encoders | grep -q h264_v4l2m2m; then
+  VCODEC=h264_v4l2m2m
+  VOPTS=(-c:v h264_v4l2m2m -b:v 3500k -maxrate 4000k -bufsize 6000k -g $((FRAME_RATE*2)) -pix_fmt yuv420p)
 else
-  V_ENCODER_OPTS=(-c:v libx264 -preset veryfast -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)))
+  VCODEC=libx264
+  VOPTS=(-c:v libx264 -preset ultrafast -tune zerolatency -b:v 3500k -maxrate 4000k -bufsize 6000k -g $((FRAME_RATE*2)) -pix_fmt yuv420p)
 fi
+echo "[gameday] Encoder: $VCODEC"
 
-# Dynamic volume control: gentle highpass, dynamic normalizer, safety limiter
-AFILTER="highpass=f=100,dynaudnorm=m=50:s=10:p=0.6,alimiter=limit=-0.3dB:attack=5"
+# # Dynamic volume control: gentle highpass, dynamic normalizer, safety limiter
+# AFILTER="highpass=f=100,dynaudnorm=m=50:s=10:p=0.6,alimiter=limit=-0.3dB:attack=5"  # not used in new chain
 
-MAP_OPTS=(-map 0:v:0 -map 1:a:0)
-
-TEE_SPEC="[f=flv:onfail=ignore]${YOUTUBE_RTMP_URL}|[f=segment:segment_time=${RECORD_SEGMENT_SEC}:strftime=1:reset_timestamps=1:segment_format=mp4:segment_format_options=movflags=+faststart]${RECORD_DIR}/%Y%m%d_%H%M%S.mp4"
-OUT_MUX=(-f tee "$TEE_SPEC")
+# MAP_OPTS and tee mux replaced by explicit filter_complex outputs
 
 # ------------------------- runner ---------------------------
-echo "[gameday] Launch -> video=${VIDEO_DEV} ${VIDEO_SIZE}@${FRAME_RATE} | ${AUDIO_MODE} | vcodec=${VIDEO_CODEC} | rtmp=$( [[ -n "$YOUTUBE_RTMP_URL" ]] && echo set || echo unset ) | record_dir=${RECORD_DIR}"
+# echo "[gameday] Launch -> video=${VIDEO_DEV} ${VIDEO_SIZE}@${FRAME_RATE} | ${AUDIO_MODE} | vcodec=${VIDEO_CODEC} | rtmp=$( [[ -n "$YOUTUBE_RTMP_URL" ]] && echo set || echo unset ) | record_dir=${RECORD_DIR}"  # replaced summary
+echo "[gameday] Launch -> size=${VW}x${VH}@${FRAME_RATE} | audio=${AUDIO_MODE} | encoder=${VCODEC} | raw=${RECORD_DIR}/raw | yt=$( (( STREAM_TO_YOUTUBE )) && echo on || echo off )"
 
 STOP=0
 trap 'STOP=1; echo "[gameday] Caught interrupt; stopping…"' INT TERM
 
 run_ffmpeg() {
-  ffmpeg -hide_banner -loglevel info -fflags +genpts+discardcorrupt \
-    "${V4L2_INPUT_OPTS[@]}" \
-    "${AUDIO_INPUT_OPTS[@]}" \
-    "${MAP_OPTS[@]}" \
-    "${V_PIXFMT_OPTS[@]}" \
-    "${V_ENCODER_OPTS[@]}" \
-    -c:a aac -b:a 128k -ar 48000 -ac 2 -af "$AFILTER" \
-    "${OUT_MUX[@]}"
+  local cmd=(ffmpeg -hide_banner -loglevel info -fflags +genpts+discardcorrupt
+    -thread_queue_size 1024 -f v4l2 -input_format mjpeg -framerate "$FRAME_RATE" -video_size "$VIDEO_SIZE" -i "$VIDEO_DEV"
+    "${AUDIO_INPUT_OPTS[@]}"
+    -filter_complex "[0:v]${VF_CHAIN}[vout]")
+  if (( STREAM_TO_YOUTUBE )); then
+    cmd+=(-map "[vout]" -map 1:a "${VOPTS[@]}" -c:a aac -b:a 128k -f flv "$YOUTUBE_RTMP_URL")
+  fi
+  cmd+=(-map 0:v -map 1:a -c:v copy -c:a flac -f segment -segment_time ${RECORD_SEGMENT_SEC} -strftime 1 "${RECORD_DIR}/raw/%Y%m%d_%H%M%S.mkv")
+  if (( RECORD_TRANSCODED_SEGMENTS )); then
+    cmd+=(-map "[vout]" -map 1:a -c:v "$VCODEC" -c:a aac -b:a 128k -f segment -segment_time ${RECORD_SEGMENT_SEC} -reset_timestamps 1 -strftime 1 -segment_format mp4 -segment_format_options movflags=+faststart "${RECORD_DIR}/%Y%m%d_%H%M%S.mp4")
+  fi
+  "${cmd[@]}"
 }
 
 attempt=1; max_attempts=5
@@ -183,3 +185,13 @@ while true; do
   sleep 3
 
 done
+
+# --- operator acceptance checks ---
+# Start: ./gameday
+# After ~20–30s, YouTube should report good health and the preview should fill 16:9.
+# Verify the raw file really is MJPEG + FLAC:
+# latest_raw=$(ls -1t recordings/raw/*.mkv | head -n1); echo "$latest_raw"
+# ffmpeg -hide_banner -i "$latest_raw" -t 0 -f null - 2>&1 | egrep 'Video:|Audio:'
+# Expect: Video: mjpeg ; Audio: flac
+# If RECORD_TRANSCODED_SEGMENTS=1 verify the MP4 segment shows:
+# Video: h264, 1280x720 [SAR 1:1 DAR 16:9] and Audio: aac
