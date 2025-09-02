@@ -1,253 +1,151 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# gameday — drop-in launcher for Jetson + YouTube Live with local recording
+# - Perfect 1280x720 canvas (no stretch/crop; pads as needed)
+# - Dynamic audio leveling (dynaudnorm + limiter)
+# - Streams to RTMP(S) and records MP4 segments
+# - Pulse or ALSA audio (no pactl required)
 
-# --- Auto-load env BEFORE required-var checks ---
-if [ -f ".gameday.env" ]; then
-  set -a; . ".gameday.env"; set +a
-elif [ -f "$HOME/.config/mca-gameday/.env" ]; then
-  set -a; . "$HOME/.config/mca-gameday/.env"; set +a
+set -Eeuo pipefail
+
+cd "$(dirname "$0")"
+
+# --------- load .gameday.env safely (only KEY=VALUE lines) ----------
+if [[ -f .gameday.env ]]; then
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
+    export "$line"
+  done < .gameday.env
 fi
-# Optional CLI override: ./gameday --key "rtmps://.../KEY"
-for arg in "$@"; do
-  case "$arg" in
-    --key=*) YOUTUBE_RTMP_URL="${arg#--key=}" ;;
-    --key) shift; YOUTUBE_RTMP_URL="${1:-}" ;;
-  esac
-done
 
-# --- Required streaming target ---
+# ------------------------- required -------------------------
 : "${YOUTUBE_RTMP_URL:?Set YOUTUBE_RTMP_URL to your RTMP(S) endpoint}"
 
-# --- Defaults / Config ---
-: "${VIDEO_DEV:=}"
-: "${FRAME_RATE:=30}"
+# ------------------------- defaults -------------------------
+: "${VIDEO_DEV:=/dev/video0}"
 : "${VIDEO_SIZE:=1280x720}"
-: "${VID_DELAY:=0.25}"
-: "${VIDEO_CODEC:=auto}"       # auto | h264_v4l2m2m | libx264
+: "${FRAME_RATE:=30}"
 
-# --- Audio backend selection ---
-: "${AUDIO_INPUT:=pulse}"         # 'pulse' or 'alsa'. If pactl is missing, we’ll force 'alsa'.
+# Input from sensor (try h264 for cleaner capture; fallback mjpeg)
+: "${V4L2_INPUT_FORMAT:=mjpeg}"            # set V4L2_INPUT_FORMAT=h264 to prefer on-sensor H.264
+
+# Encoding (CPU libx264 by default; set VIDEO_CODEC=h264_v4l2m2m to try HW encoder)
+: "${VIDEO_CODEC:=libx264}"
+
+# Audio backends
+: "${AUDIO_INPUT:=auto}"                   # auto|pulse|alsa
 : "${ALSA_RATE:=48000}"
 : "${ALSA_CHANNELS:=2}"
-: "${ALSA_DEV_REGEX:=VideoMic|R.?DE}"  # which ALSA names to prefer (optional)
+: "${ALSA_DEV_REGEX:=VideoMic|R.?DE}"      # prefer devices matching this (optional)
+: "${PULSE_VOL:=150%}"                     # initial pulse volume if available
 
-# --- Video input format (your cam supports both; mjpeg is current fallback) ---
-: "${V4L2_INPUT_FORMAT:=mjpeg}"   # try 'h264' for cleaner capture: V4L2_INPUT_FORMAT=h264 ./gameday
-: "${PULSE_DEV_REGEX:=VideoMic|R.?DE|usb.*mic}"
-
-# Dynamic audio normalization & Pulse source gain
-: "${AUDIO_DYN_ENABLE:=1}"
-: "${DYNAUDNORM_OPTS:=f=250:g=15:m=10:s=5:p=0.9}"
-: "${PULSE_VOL:=150%}"
-
-# Audio preflight & auto-switching
-: "${AUDIO_PREFLIGHT_SEC:=2}"          # seconds to meter audio before launch
-: "${AUDIO_SILENCE_THRESHOLD_DB:=-50}" # below this RMS dB, treat as silent
-: "${AUDIO_AUTO_SWITCH:=1}"            # 1: auto-pick loudest non-monitor source if current is silent
-
-# Recording (always on)
+# Recording
 : "${RECORD_DIR:=recordings}"
 : "${RECORD_SEGMENT_SEC:=900}"
 
-# --- Helpers ---
-resolve_pulse() {
-  if [[ -n "${PULSE_DEV:-}" ]] && pactl list short sources | awk '{print $2}' | grep -Fxq "$PULSE_DEV"; then
-    echo "$PULSE_DEV"; return 0
-  fi
-  local sel
-  sel="$(PYTHONPATH=. python3 -m tools.audio_select || true)"
-  if [[ -n "$sel" ]]; then echo "$sel"; return 0; fi
-  pactl list short sources | awk '{print $2}' | grep -m1 -E '^alsa_input\.platform-.*analog-stereo$' || true
-}
+mkdir -p "$RECORD_DIR"
 
-# Read overall RMS dB of a Pulse source over a short window; prints a number or "-inf"
-rms_db_of_source() {
-  local src="$1"
-  ffmpeg -hide_banner -nostdin -v error -f pulse -i "$src" -t "${AUDIO_PREFLIGHT_SEC}" \
-    -af astats=metadata=1:measure_overall=1:reset=1 -f null - 2>&1 \
-    | awk -F'[: ]+' '/Overall RMS level/ {print $5; exit}' || echo "-inf"
-}
-
-# numeric? -> 0/1
-_is_numeric() { [[ "$1" =~ ^[-+]?[0-9]+([.][0-9]+)?$ ]]; }
-
-# Is loud enough vs threshold? returns 0 (true) / 1 (false)
-_is_loud_enough() {
-  local val="$1" th="$2"
-  _is_numeric "$val" || return 1
-  awk -v x="$val" -v t="$th" 'BEGIN{exit !(x>t)}'
-}
-
-# If silent, optionally auto-pick loudest non-monitor source
-maybe_autoswitch_pulse() {
-  local cur="$1"
-  local cur_rms; cur_rms="$(rms_db_of_source "$cur")"
-  if _is_loud_enough "$cur_rms" "$AUDIO_SILENCE_THRESHOLD_DB"; then
-    echo "$cur"; return 0
-  fi
-  [[ "$AUDIO_AUTO_SWITCH" != "1" ]] && { echo "$cur"; return 0; }
-
-  local best="$cur" best_rms="-inf"
-  while read -r _ name _; do
-    [[ "$name" =~ monitor ]] && continue
-    local r; r="$(rms_db_of_source "$name")"
-    if [[ "$best_rms" == "-inf" && "$r" != "-inf" ]]; then best="$name"; best_rms="$r"; continue; fi
-    if _is_numeric "$r" && _is_numeric "$best_rms"; then
-      awk -v a="$r" -v b="$best_rms" 'BEGIN{exit !(a>b)}' && { best="$name"; best_rms="$r"; }
-    fi
-  done < <(pactl list short sources)
-
-  echo "$best"
-}
-
-# Read overall RMS dB from any ffmpeg audio input pipeline (prints a number or "-inf")
-_rms_from_ffmpeg() {
+# ------------------------- helpers --------------------------
+rms_db_from_ffmpeg() {
+  # Usage: rms_db_from_ffmpeg <ffmpeg-audio-input-flags...>
   ffmpeg -hide_banner -nostdin -v error "$@" -t 1 \
     -af astats=metadata=1:measure_overall=1:reset=1 -f null - 2>&1 \
     | awk -F'[: ]+' '/Overall RMS level/ {print $5; exit}' || echo "-inf"
 }
 
-_is_num() { [[ "$1" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; }
-_better() { awk -v a="$1" -v b="$2" 'BEGIN{exit !(a>b)}'; }  # returns 0 if a>b
-
-# Enumerate ALSA capture nodes and pick the loudest that matches ALSA_DEV_REGEX (if set).
 pick_alsa_dev() {
   local list best="" best_rms="-inf" r name
-  # Prefer 'plughw:' first (handles format/rate nicely), fall back to 'hw:'
-  list="$(arecord -L | awk '/^plughw:|^hw:/{print $1}')"
-  [[ -z "$list" ]] && echo "default" && return 0
+  if command -v arecord >/dev/null 2>&1; then
+    list="$(arecord -L | awk '/^plughw:|^hw:/{print $1}')"
+  else
+    list="plughw:1,0 hw:1,0 default"
+  fi
+  [[ -z "$list" ]] && { echo "default"; return; }
 
+  # First pass: honor regex if set
   for name in $list; do
     [[ -n "$ALSA_DEV_REGEX" && ! "$name" =~ $ALSA_DEV_REGEX ]] && continue
-    r="$(_rms_from_ffmpeg -f alsa -ac $ALSA_CHANNELS -ar $ALSA_RATE -i "$name")"
+    r="$(rms_db_from_ffmpeg -f alsa -ac "$ALSA_CHANNELS" -ar "$ALSA_RATE" -i "$name")"
     if [[ "$best_rms" == "-inf" && "$r" != "-inf" ]]; then best="$name"; best_rms="$r"; continue; fi
-    if _is_num "$r" && _is_num "$best_rms"; then _better "$r" "$best_rms" && { best="$name"; best_rms="$r"; }; fi
+    if [[ "$r" =~ ^-?[0-9]+([.][0-9]+)?$ && "$best_rms" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+      awk -v a="$r" -v b="$best_rms" 'BEGIN{exit !(a>b)}' && { best="$name"; best_rms="$r"; }
+    fi
   done
-
-  # If nothing matched regex, try again without filtering
+  # Second pass: no regex filter if nothing chosen
   if [[ -z "$best" ]]; then
     for name in $list; do
-      r="$(_rms_from_ffmpeg -f alsa -ac $ALSA_CHANNELS -ar $ALSA_RATE -i "$name")"
+      r="$(rms_db_from_ffmpeg -f alsa -ac "$ALSA_CHANNELS" -ar "$ALSA_RATE" -i "$name")"
       if [[ "$best_rms" == "-inf" && "$r" != "-inf" ]]; then best="$name"; best_rms="$r"; continue; fi
-      if _is_num "$r" && _is_num "$best_rms"; then _better "$r" "$best_rms" && { best="$name"; best_rms="$r"; }; fi
+      if [[ "$r" =~ ^-?[0-9]+([.][0-9]+)?$ && "$best_rms" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+        awk -v a="$r" -v b="$best_rms" 'BEGIN{exit !(a>b)}' && { best="$name"; best_rms="$r"; }
+      fi
     done
   fi
-
   echo "${best:-default}"
 }
 
-resolve_video() {
-  if [[ -n "${VIDEO_DEV:-}" && -e "${VIDEO_DEV}" ]]; then
-    echo "$VIDEO_DEV"; return 0
-  fi
-  for dev in /dev/video*; do
-    [[ -e "$dev" ]] || continue
-    if ffmpeg -v error -f v4l2 -input_format mjpeg -framerate 30 -video_size 1280x720 -i "$dev" \
-              -t 0.5 -f null - >/dev/null 2>&1; then
-      echo "$dev"; return 0
-    fi
-  done
-  set -- /dev/video*
-  [[ -e "$1" ]] && echo "$1" || echo ""
-}
-
-choose_codec() {
-  [[ "$VIDEO_CODEC" != "auto" ]] && { echo "$VIDEO_CODEC"; return 0; }
-  if ffmpeg -v error -f lavfi -i testsrc=size=1280x720:rate="${FRAME_RATE}" -t 1 \
-            -vf format=nv12 -pix_fmt nv12 -c:v h264_v4l2m2m -f null - >/dev/null 2>&1; then
-    echo "h264_v4l2m2m"
-  else
-    echo "libx264"
-  fi
-}
-
-preflight_output_url() {
-  local out_url="$1"
-  if [[ "$out_url" == rtmps://* ]]; then
-    local host="${out_url#rtmps://}"; host="${host%%/*}"
-    if command -v openssl >/dev/null 2>&1; then
-      if ! timeout 5 openssl s_client -connect "${host}:443" -servername "${host}" -brief </dev/null >/dev/null 2>&1; then
-        echo "[gameday] RTMPS handshake to ${host}:443 failed; switching to RTMP:1935."
-        local path="${out_url#rtmps://*/}"
-        echo "rtmp://a.rtmp.youtube.com/${path}"
-        return 0
-      fi
-    fi
-  fi
-  echo "$out_url"
-}
-
-# --- Resolve inputs ---
-VIDEO_DEV="$(resolve_video || true)"
-[[ -z "${VIDEO_DEV:-}" ]] && { echo "[gameday] ERROR: No /dev/video* device found."; exit 1; }
-
-USE_PULSE=1
-if ! command -v pactl >/dev/null 2>&1; then
-  USE_PULSE=0
-fi
-[[ "$AUDIO_INPUT" == "alsa" ]] && USE_PULSE=0
-
-if (( USE_PULSE )); then
-  PULSE_SRC="$(resolve_pulse || true)"
-  [[ -z "${PULSE_SRC:-}" ]] && { echo "[gameday] ERROR: No usable Pulse source."; pactl list short sources | awk '{print "  " $2}' ; exit 1; }
-  pactl set-source-mute "$PULSE_SRC" 0 || true
-  pactl set-source-volume "$PULSE_SRC" "${PULSE_VOL:-150%}" || true
-  PULSE_SRC="$(maybe_autoswitch_pulse "$PULSE_SRC")"
-  AUDIO_INPUT_OPTS=(-f pulse -thread_queue_size 8192 -i "${PULSE_SRC}")
-else
-  : "${ALSA_DEV:=$(pick_alsa_dev)}"
-  echo "[gameday] Using ALSA device: ${ALSA_DEV}"
-  AUDIO_INPUT_OPTS=(-f alsa -thread_queue_size 8192 -ac "$ALSA_CHANNELS" -ar "$ALSA_RATE" -i "${ALSA_DEV}")
-fi
-
-# --- Build video opts ---
-V_CODEC="$(choose_codec)"
+# ---------------------- build inputs ------------------------
 V4L2_INPUT_OPTS=(
   -f v4l2 -thread_queue_size 8192 -use_wallclock_as_timestamps 1 -rtbufsize 256M
-  -input_format "${V4L2_INPUT_FORMAT}"
-  -framerate "${FRAME_RATE}" -video_size "${VIDEO_SIZE}" -i "${VIDEO_DEV}"
+  -input_format "$V4L2_INPUT_FORMAT"
+  -framerate "$FRAME_RATE" -video_size "$VIDEO_SIZE" -i "$VIDEO_DEV"
 )
-# Map video from input 0 and audio from input 1 into the tee output
-MAP_OPTS=(-map 0:v:0 -map 1:a:0)
-if [[ "$V_CODEC" == "h264_v4l2m2m" ]]; then
-  V_PIXFMT_OPTS=(
-    -vf "scale=iw*sar:ih,setsar=1,format=nv12,scale=${VIDEO_SIZE}:flags=bicubic:force_original_aspect_ratio=decrease,pad=${VIDEO_SIZE}:(ow-iw)/2:(oh-ih)/2,fps=${FRAME_RATE},setsar=1"
-    -pix_fmt nv12
-  )
-  V_ENCODER_OPTS=(-c:v h264_v4l2m2m -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)) -profile:v high)
-else
-  V_PIXFMT_OPTS=(
-    -vf "scale=iw*sar:ih,setsar=1,scale=${VIDEO_SIZE}:flags=bicubic:force_original_aspect_ratio=decrease,pad=${VIDEO_SIZE}:(ow-iw)/2:(oh-ih)/2,fps=${FRAME_RATE},setsar=1"
-    -pix_fmt yuv420p
-  )
-  V_ENCODER_OPTS=(-c:v libx264 -preset veryfast -tune zerolatency -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)) -profile:v high)
+
+USE_PULSE=0
+if [[ "${AUDIO_INPUT}" == "pulse" ]] || { [[ "${AUDIO_INPUT}" == "auto" ]] && command -v pactl >/dev/null 2>&1; }; then
+  USE_PULSE=1
 fi
-
-# --- Build audio filter (dynamic normalization + limiter + sync) ---
-if [[ "${AUDIO_DYN_ENABLE}" == "1" ]]; then
-  AFILTER="asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0,dynaudnorm=${DYNAUDNORM_OPTS},highpass=f=100,alimiter=limit=-0.3dB:attack=5,adelay=${VID_DELAY}s:all=1"
-else
-  AFILTER="asetpts=PTS-STARTPTS,aresample=async=1:first_pts=0,highpass=f=100,acompressor=threshold=-22dB:ratio=3.5:attack=12:release=250,alimiter=limit=0.0dB:attack=5,adelay=${VID_DELAY}s:all=1"
-fi
-
-# --- Output URL (RTMPS preflight & fallback) ---
-OUT_URL="$(preflight_output_url "$YOUTUBE_RTMP_URL")"
-
-# --- Always-on recording via tee (YouTube + local segmented MP4s) ---
-mkdir -p "$RECORD_DIR"
-TEE_SPEC="[f=flv:onfail=ignore]${OUT_URL}|[f=segment:segment_time=${RECORD_SEGMENT_SEC}:strftime=1:reset_timestamps=1:segment_format=mp4:segment_format_options=movflags=+faststart]${RECORD_DIR}/%Y%m%d_%H%M%S.mp4"
-OUT_MUX=(-f tee "$TEE_SPEC")
 
 if (( USE_PULSE )); then
-  AUDIO_DESC="$PULSE_SRC"
+  # pick pulse source via regex if provided; else default
+  if command -v pactl >/dev/null 2>&1; then
+    # Try to find a matching, non-monitor source
+    PULSE_SRC="${PULSE_DEV:-}"
+    if [[ -z "${PULSE_SRC}" ]]; then
+      PULSE_SRC="$(pactl list short sources | awk '{print $2}' | awk '!/monitor/ {print}' | awk 'NR==1{print}')"
+    fi
+    pactl set-source-mute "$PULSE_SRC" 0 || true
+    pactl set-source-volume "$PULSE_SRC" "$PULSE_VOL" || true
+  else
+    PULSE_SRC="default"
+  fi
+  AUDIO_INPUT_OPTS=(-f pulse -thread_queue_size 8192 -i "${PULSE_SRC}")
+  AUDIO_MODE="pulse:${PULSE_SRC}"
 else
-  AUDIO_DESC="$ALSA_DEV"
+  ALSA_DEV="${ALSA_DEV:-$(pick_alsa_dev)}"
+  AUDIO_INPUT_OPTS=(-f alsa -thread_queue_size 8192 -ac "$ALSA_CHANNELS" -ar "$ALSA_RATE" -i "${ALSA_DEV}")
+  AUDIO_MODE="alsa:${ALSA_DEV}"
 fi
-echo "[gameday] Launch -> video=${VIDEO_DEV} ${VIDEO_SIZE}@${FRAME_RATE} | audio=${AUDIO_DESC} | vcodec=${V_CODEC} | rtmp=set | record_dir=${RECORD_DIR}"
+
+# ---------------------- filters & encoders ------------------
+# Force perfect 1280x720 canvas and legal TV range; preserve aspect, pad as needed.
+VF_CHAIN="scale=in_range=full:out_range=tv,format=yuv420p,scale=iw*sar:ih,setsar=1,scale=${VIDEO_SIZE}:flags=bicubic:force_original_aspect_ratio=decrease,pad=${VIDEO_SIZE}:(ow-iw)/2:(oh-ih)/2,fps=${FRAME_RATE},setpts=PTS-STARTPTS"
+
+V_PIXFMT_OPTS=(-vf "$VF_CHAIN" -pix_fmt yuv420p)
+
+if [[ "$VIDEO_CODEC" == "h264_v4l2m2m" ]]; then
+  # If you switch to HW encoder, keep nv12 pixfmt
+  V_PIXFMT_OPTS=(-vf "$VF_CHAIN" -pix_fmt nv12)
+  V_ENCODER_OPTS=(-c:v h264_v4l2m2m -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)))
+else
+  V_ENCODER_OPTS=(-c:v libx264 -preset veryfast -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)))
+fi
+
+# Dynamic volume control: gentle highpass, dynamic normalizer, safety limiter
+AFILTER="highpass=f=100,dynaudnorm=m=50:s=10:p=0.6,alimiter=limit=-0.3dB:attack=5"
+
+MAP_OPTS=(-map 0:v:0 -map 1:a:0)
+
+TEE_SPEC="[f=flv:onfail=ignore]${YOUTUBE_RTMP_URL}|[f=segment:segment_time=${RECORD_SEGMENT_SEC}:strftime=1:reset_timestamps=1:segment_format=mp4:segment_format_options=movflags=+faststart]${RECORD_DIR}/%Y%m%d_%H%M%S.mp4"
+OUT_MUX=(-f tee "$TEE_SPEC")
+
+# ------------------------- runner ---------------------------
+echo "[gameday] Launch -> video=${VIDEO_DEV} ${VIDEO_SIZE}@${FRAME_RATE} | ${AUDIO_MODE} | vcodec=${VIDEO_CODEC} | rtmp=$( [[ -n "$YOUTUBE_RTMP_URL" ]] && echo set || echo unset ) | record_dir=${RECORD_DIR}"
+
+STOP=0
+trap 'STOP=1; echo "[gameday] Caught interrupt; stopping…"' INT TERM
 
 run_ffmpeg() {
-  ffmpeg -hide_banner -loglevel info \
-    -fflags +genpts+discardcorrupt \
+  ffmpeg -hide_banner -loglevel info -fflags +genpts+discardcorrupt \
     "${V4L2_INPUT_OPTS[@]}" \
     "${AUDIO_INPUT_OPTS[@]}" \
     "${MAP_OPTS[@]}" \
@@ -257,15 +155,16 @@ run_ffmpeg() {
     "${OUT_MUX[@]}"
 }
 
-# --- Retry loop for network hiccups ---
-STOP=0
-trap 'STOP=1; echo "[gameday] Caught interrupt; stopping…"' INT TERM
-
 attempt=1; max_attempts=5
-until run_ffmpeg; do
+while true; do
+  set +e
+  run_ffmpeg
   rc=$?
-  (( STOP )) && exit "$rc"    # don’t retry if user asked to stop
+  set -e
+  (( STOP )) && exit "$rc"
+  (( attempt >= max_attempts )) && exit "$rc"
   echo "[gameday] ffmpeg exited with code $rc (attempt $attempt/$max_attempts)."
-  (( attempt++ )); (( attempt > max_attempts )) && exit "$rc"
+  attempt=$((attempt+1))
   sleep 3
+
 done
