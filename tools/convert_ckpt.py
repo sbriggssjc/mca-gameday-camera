@@ -26,12 +26,17 @@ def main():
         obj = torch.load(inp, map_location="cpu", weights_only=False)
     except TypeError:
         obj = torch.load(inp, map_location="cpu")
+
     sd = extract_state_dict(obj)
     if sd is None:
         top = list(obj.keys())[:20] if isinstance(obj, dict) else type(obj).__name__
         raise RuntimeError(f"Couldn't find a state_dict. Top-level: {top}")
+
+    # strip DDP 'module.' if present
     sd = { (k[7:] if k.startswith("module.") else k): v for k, v in sd.items() }
+
     torch.save(sd, outp)
     print(f"Saved state_dict with {len(sd)} tensors -> {outp}")
-if __name__=="__main__":
+
+if __name__ == "__main__":
     main()
