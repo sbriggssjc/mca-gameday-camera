@@ -116,9 +116,15 @@ else
   AUDIO_MODE="alsa:${ALSA_DEV}"
 fi
 
+# ---- derive numeric width/height for filters (VIDEO_SIZE uses 1280x720) ----
+if [[ "$VIDEO_SIZE" =~ ^([0-9]+)x([0-9]+)$ ]]; then
+  VW="${BASH_REMATCH[1]}"; VH="${BASH_REMATCH[2]}";
+else
+  VW=1280; VH=720;  # safe fallback
+fi
 # ---------------------- filters & encoders ------------------
 # Force perfect 1280x720 canvas and legal TV range; preserve aspect, pad as needed.
-VF_CHAIN="scale=in_range=full:out_range=tv,format=yuv420p,scale=iw*sar:ih,setsar=1,scale=${VIDEO_SIZE}:flags=bicubic:force_original_aspect_ratio=decrease,pad=${VIDEO_SIZE}:(ow-iw)/2:(oh-ih)/2,fps=${FRAME_RATE},setpts=PTS-STARTPTS"
+VF_CHAIN="scale=in_range=full:out_range=tv,format=yuv420p,scale=iw*sar:ih,setsar=1,scale=${VW}:${VH}:flags=bicubic:force_original_aspect_ratio=decrease,pad=${VW}:${VH}:(ow-iw)/2:(oh-ih)/2,fps=${FRAME_RATE},setpts=PTS-STARTPTS"
 
 V_PIXFMT_OPTS=(-vf "$VF_CHAIN" -pix_fmt yuv420p)
 
