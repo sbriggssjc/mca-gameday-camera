@@ -211,21 +211,13 @@ V4L2_INPUT_OPTS=(
 MAP_OPTS=(-map 0:v:0 -map 1:a:0)
 if [[ "$V_CODEC" == "h264_v4l2m2m" ]]; then
   V_PIXFMT_OPTS=(
-    -vf "scale=in_range=full:out_range=tv,format=nv12,\
-scale=iw*sar:ih,setsar=1,\
-scale=${VIDEO_SIZE}:flags=bicubic:force_original_aspect_ratio=decrease,\
-pad=${VIDEO_SIZE}:(ow-iw)/2:(oh-ih)/2,\
-fps=${FRAME_RATE},setpts=PTS-STARTPTS"
+    -vf "scale=iw*sar:ih,setsar=1,format=nv12,scale=${VIDEO_SIZE}:flags=bicubic:force_original_aspect_ratio=decrease,pad=${VIDEO_SIZE}:(ow-iw)/2:(oh-ih)/2,fps=${FRAME_RATE},setsar=1"
     -pix_fmt nv12
   )
   V_ENCODER_OPTS=(-c:v h264_v4l2m2m -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)) -profile:v high)
 else
   V_PIXFMT_OPTS=(
-    -vf "scale=in_range=full:out_range=tv,format=yuv420p,\
-scale=iw*sar:ih,setsar=1,\
-scale=${VIDEO_SIZE}:flags=bicubic:force_original_aspect_ratio=decrease,\
-pad=${VIDEO_SIZE}:(ow-iw)/2:(oh-ih)/2,\
-fps=${FRAME_RATE},setpts=PTS-STARTPTS"
+    -vf "scale=iw*sar:ih,setsar=1,scale=${VIDEO_SIZE}:flags=bicubic:force_original_aspect_ratio=decrease,pad=${VIDEO_SIZE}:(ow-iw)/2:(oh-ih)/2,fps=${FRAME_RATE},setsar=1"
     -pix_fmt yuv420p
   )
   V_ENCODER_OPTS=(-c:v libx264 -preset veryfast -tune zerolatency -b:v 4500k -maxrate 5000k -bufsize 6000k -g $((FRAME_RATE*2)) -profile:v high)
