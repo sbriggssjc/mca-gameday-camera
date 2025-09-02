@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-
-# --- size helpers for video filters (VIDEO_SIZE is WxH with an x) ---
-: "${VIDEO_SIZE:=1280x720}"
-case "$VIDEO_SIZE" in
-  *x*) VW="${VIDEO_SIZE%x*}"; VH="${VIDEO_SIZE#*x}" ;;
-  *)   VW=1280; VH=720 ;;
-esac
-VF_SIZE_COLON="${VW}:${VH}"
-
 # gameday — drop-in launcher for Jetson + YouTube Live with local recording
 # - Perfect 1280x720 canvas (no stretch/crop; pads as needed)
 # - Dynamic audio leveling (dynaudnorm + limiter)
@@ -133,7 +124,7 @@ else
 fi
 # ---------------------- filters & encoders ------------------
 # Force perfect 1280x720 canvas and legal TV range; preserve aspect, pad as needed.
-VF_CHAIN="scale=in_range=full:out_range=tv,format=yuv420p,scale=iw*sar:ih,setsar=1,scale=${VF_SIZE_COLON}:flags=bicubic:force_original_aspect_ratio=decrease,pad=${VF_SIZE_COLON}:(ow-iw)/2:(oh-ih)/2,fps=${FRAME_RATE},setpts=PTS-STARTPTS"
+VF_CHAIN="scale=in_range=full:out_range=tv,format=yuv420p,scale=iw*sar:ih,setsar=1,scale=${VW}:${VH}:flags=bicubic:force_original_aspect_ratio=decrease,pad=${VW}:${VH}:(ow-iw)/2:(oh-ih)/2,fps=${FRAME_RATE},setpts=PTS-STARTPTS"
 
 V_PIXFMT_OPTS=(-vf "$VF_CHAIN" -pix_fmt yuv420p)
 
