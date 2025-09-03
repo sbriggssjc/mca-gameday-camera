@@ -12,9 +12,11 @@ import argparse
 import importlib
 import os
 import pathlib
+import re
 import shlex
 import subprocess
 import sys
+from datetime import datetime
 from typing import List, Optional
 
 # .env is optional
@@ -124,23 +126,52 @@ def hw_encoder_ok(size: str, fps: int) -> bool:
         return False
 
 
+def ffmpeg_major_version() -> int:
+    try:
+        out = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True).stdout
+        m = re.search(r"ffmpeg version\s+(\d+)\.", out)
+        return int(m.group(1)) if m else 4
+    except Exception:
+        return 4
+
+
 def build_ffmpeg_cmd(args: argparse.Namespace, encoder: str) -> List[str]:
     """Build the ffmpeg command according to requirements."""
 
     gop = args.fps * 2
-    out_dir = pathlib.Path(args.out_dir)
+
+    major = ffmpeg_major_version()
+    seg_seconds = 0 if getattr(args, "no_segment", False) else args.segment_seconds
+    raw_dir = pathlib.Path(args.out_dir)
+    raw_dir.mkdir(parents=True, exist_ok=True)
+
+    yt_sink = f"[f=flv:onfail=ignore]rtmps://a.rtmps.youtube.com/live2/{args.stream_key}"
+
+    if seg_seconds and seg_seconds > 0:
+        if major < 5:
+            raw_sink = (
+                f"[f=segment:use_fifo=1:segment_format=mpegts:"
+                f"segment_time={seg_seconds}:reset_timestamps=1:strftime=1]"
+                f"{raw_dir}/%Y%m%d_%H%M%S.ts"
+            )
+        else:
+            container = getattr(args, "raw_container", "mkv")
+            seg_format = "mpegts" if container == "mpegts" else "matroska"
+            ext = "ts" if seg_format == "mpegts" else "mkv"
+            raw_sink = (
+                f"[f=segment:use_fifo=1:segment_format={seg_format}:"
+                f"segment_time={seg_seconds}:reset_timestamps=1:strftime=1]"
+                f"{raw_dir}/%Y%m%d_%H%M%S.{ext}"
+            )
+    else:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        raw_sink = f"[f=matroska]{raw_dir}/{stamp}.mkv"
+
+    tee_arg = f"{yt_sink}|{raw_sink}"
 
     pix = "nv12" if encoder == "h264_v4l2m2m" else "yuv420p"
     vf = f"[0:v]settb=AVTB,setpts=PTS-STARTPTS,scale=in_range=pc:out_range=tv,format={pix}[v]"
     af = "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]"
-
-    segment_sink = (
-        "[f=segment:segment_format=matroska:"
-        f"segment_time={args.segment_seconds}:reset_timestamps=1:strftime=1]"
-        f"{out_dir / '%Y%m%d_%H%M%S.mkv'}"
-    )
-    flv_sink = f"[f=flv:onfail=ignore]rtmps://a.rtmps.youtube.com/live2/{args.stream_key}"
-    tee_url = f"{flv_sink}|{segment_sink}"
 
     global_flags = [
         "-fflags",
@@ -214,10 +245,10 @@ def build_ffmpeg_cmd(args: argparse.Namespace, encoder: str) -> List[str]:
         "48000",
         "-ac",
         "2",
-        "-f",
-        "tee",
-        tee_url,
     ]
+
+    # Add safer tee flags BEFORE -f tee
+    ff_args += ["-tee_flags", "+use_fifo+resend_headers", "-f", "tee", tee_arg]
 
     cmd.extend(ff_args)
     return cmd
@@ -243,7 +274,7 @@ def validate_segment(out_dir: pathlib.Path) -> bool:
     """Validate newest local file with ffprobe."""
 
     try:
-        latest = max(out_dir.glob("*.mkv"), key=lambda p: p.stat().st_mtime)
+        latest = max(out_dir.glob("*"), key=lambda p: p.stat().st_mtime)
     except ValueError:
         print("[gameday] no local segment found", file=sys.stderr)
         return False
@@ -307,6 +338,13 @@ def main() -> int:
     p.add_argument("--alsa-dev", default=os.getenv("ALSA_DEV", "plughw:2,0"))
     p.add_argument(
         "--segment-seconds", type=int, default=int(os.getenv("SEGMENT_SECONDS", "900"))
+    )
+    p.add_argument("--no-segment", action="store_true", help="Disable segmented recording")
+    p.add_argument(
+        "--raw-container",
+        choices=["mkv", "mpegts"],
+        default="mkv",
+        help="Container for raw segments when supported",
     )
     p.add_argument("--out-dir", default=os.getenv("OUT_DIR", "recordings/raw"))
     p.add_argument(
