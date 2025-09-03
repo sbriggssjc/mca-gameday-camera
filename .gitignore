@@ -26,3 +26,4 @@ credentials.json# Google/GCP service account keys (never commit these)
 modular-conduit-*-*.json
 .gameday.env
 recordings/
+video/
