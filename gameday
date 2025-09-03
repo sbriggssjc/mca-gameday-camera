@@ -1,197 +1,243 @@
-#!/usr/bin/env bash
-# Ensure executable: chmod 755 gameday
+#!/usr/bin/env python3
+"""Launch ffmpeg with a shared encode for YouTube and local recording.
 
-# --- size helpers moved below to respect .gameday.env overrides ---
-# : "${VIDEO_SIZE:=1280x720}"
-# case "$VIDEO_SIZE" in
-#   *x*) VW="${VIDEO_SIZE%x*}"; VH="${VIDEO_SIZE#*x}" ;;
-#   *)   VW=1280; VH=720 ;;
-# esac
-# VF_SIZE_COLON="${VW}:${VH}"
+This wrapper performs a single H.264/AAC encode and uses the tee muxer to
+simultaneously stream to YouTube and write local segment files.  It accepts a
+small set of CLI options and validates the resulting recording.
+"""
 
-# gameday — drop-in launcher for Jetson + YouTube Live with local recording
-# - Perfect 1280x720 canvas (no stretch/crop; pads as needed)
-# - Dynamic audio leveling (dynaudnorm + limiter)
-# - Streams to RTMP(S) and records MP4 segments
-# - Pulse or ALSA audio (no pactl required)
+from __future__ import annotations
 
-# set -Eeuo pipefail  # replaced: -E not needed
-set -euo pipefail
+import argparse
+import os
+import pathlib
+import shlex
+import subprocess
+import sys
+from typing import List
 
-cd "$(dirname "$0")"
 
-# --------- load .gameday.env safely (only KEY=VALUE lines) ----------
-if [[ -f .gameday.env ]]; then
-  while IFS= read -r line; do
-    [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || continue
-    export "$line"
-  done < .gameday.env
-fi
+def detect_encoder() -> str:
+    """Return the best available H.264 encoder."""
 
-# ------------------------- defaults -------------------------
-: "${VIDEO_DEV:=/dev/video0}"
-: "${ALSA_DEV:=plughw:2,0}"
-: "${FRAME_RATE:=30}"
-: "${VIDEO_SIZE:=1280x720}"
-: "${RECORD_TRANSCODED_SEGMENTS:=0}"
-: "${STREAM_TO_YOUTUBE:=1}"
+    try:
+        out = subprocess.check_output([
+            "ffmpeg",
+            "-hide_banner",
+            "-encoders",
+        ], text=True)
+    except Exception:  # pragma: no cover - ffmpeg expected to exist
+        return "libx264"
 
-# ------------------------- required -------------------------
-if (( STREAM_TO_YOUTUBE )); then
-  if [[ -z "${YOUTUBE_RTMP_URL:-}" ]]; then
-    echo "[gameday] ERROR: YOUTUBE_RTMP_URL is required" >&2
-    exit 1  # To record raw-only, set STREAM_TO_YOUTUBE=0
-  fi
-else
-  # When STREAM_TO_YOUTUBE=0, raw archival continues without streaming
-  YOUTUBE_RTMP_URL=""
-fi
+    if "h264_nvmpi" in out:
+        return "h264_nvmpi"
+    if "h264_v4l2m2m" in out:
+        return "h264_v4l2m2m"
+    return "libx264"
 
-# Input from sensor (try h264 for cleaner capture; fallback mjpeg)
-# : "${V4L2_INPUT_FORMAT:=mjpeg}"            # replaced by fixed mjpeg input for simplicity
 
-# Encoding (CPU libx264 by default; set VIDEO_CODEC=h264_v4l2m2m to try HW encoder)
-# : "${VIDEO_CODEC:=libx264}"  # replaced by automatic codec detection below
+def build_ffmpeg_cmd(args: argparse.Namespace, encoder: str) -> List[str]:
+    """Build the ffmpeg command according to requirements."""
 
-# Audio backends
-# : "${AUDIO_INPUT:=auto}"                   # replaced by AUDIO_BACKEND=alsa|pulse
-: "${AUDIO_BACKEND:=alsa}"
-: "${ALSA_RATE:=48000}"
-: "${ALSA_CHANNELS:=2}"
+    gop = args.fps * 2
+    outputs = (
+        f"[f=flv:onfail=ignore]rtmps://a.rtmps.youtube.com/live2/{args.stream_key}|"
+        f"[f=segment:segment_time={args.segment_seconds}:reset_timestamps=1:strftime=1]"
+        f"{args.out_dir}/%Y%m%d_%H%M%S.mkv"
+    )
 
-# Legacy Pulse path retained for reference
-pulse_audio_input() {
-  : "${PULSE_DEV:=default}"
-  AUDIO_INPUT_OPTS=(-thread_queue_size 1024 -f pulse -i "${PULSE_DEV}")
-}
+    cmd = [
+        "ffmpeg",
+        "-fflags",
+        "+genpts+igndts+discardcorrupt",
+        "-avoid_negative_ts",
+        "make_zero",
+        "-f",
+        "v4l2",
+        "-input_format",
+        args.cam_input_format,
+        "-framerate",
+        str(args.fps),
+        "-video_size",
+        args.size,
+        "-thread_queue_size",
+        "1024",
+        "-i",
+        args.cam_dev,
+        "-f",
+        "alsa",
+        "-thread_queue_size",
+        "1024",
+        "-i",
+        args.alsa_dev,
+        "-filter_complex",
+        "[0:v]settb=AVTB,setpts=RTCTIME-startpts,scale=in_range=pc:out_range=tv,format=yuv420p[v];"
+        "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]",
+        "-map",
+        "[v]",
+        "-map",
+        "[a]",
+    ]
 
-# Recording
-: "${RECORD_DIR:=recordings}"
-: "${RECORD_SEGMENT_SEC:=900}"
+    if encoder == "libx264":
+        cmd += [
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-tune",
+            "zerolatency",
+            "-b:v",
+            args.bitrate,
+            "-maxrate",
+            "4000k",
+            "-bufsize",
+            "6000k",
+            "-g",
+            str(gop),
+        ]
+    else:
+        cmd += [
+            "-c:v",
+            encoder,
+            "-b:v",
+            args.bitrate,
+            "-maxrate",
+            "4000k",
+            "-bufsize",
+            "6000k",
+            "-g",
+            str(gop),
+        ]
 
-mkdir -p "$RECORD_DIR" "${RECORD_DIR}/raw"
+    cmd += [
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        "-f",
+        "tee",
+        outputs,
+    ]
 
-command -v ffmpeg >/dev/null 2>&1 || { echo "[gameday] ERROR: ffmpeg not found" >&2; exit 1; }
+    return cmd
 
-# ------------------------- helpers --------------------------
-rms_db_from_ffmpeg() {
-  # Usage: rms_db_from_ffmpeg <ffmpeg-audio-input-flags...>
-  ffmpeg -hide_banner -nostdin -v error "$@" -t 1 \
-    -af astats=metadata=1:measure_overall=1:reset=1 -f null - 2>&1 \
-    | awk -F'[: ]+' '/Overall RMS level/ {print $5; exit}' || echo "-inf"
-}
 
-pick_alsa_dev() {
-  local list best="" best_rms="-inf" r name
-  if command -v arecord >/dev/null 2>&1; then
-    list="$(arecord -L | awk '/^plughw:|^hw:/{print $1}')"
-  else
-    list="plughw:1,0 hw:1,0 default"
-  fi
-  [[ -z "$list" ]] && { echo "default"; return; }
+def run_ffmpeg(cmd: List[str], stream_key: str) -> tuple[int, str]:
+    """Run ffmpeg, returning (rc, combined stderr)."""
 
-  # First pass: honor regex if set
-  for name in $list; do
-    [[ -n "$ALSA_DEV_REGEX" && ! "$name" =~ $ALSA_DEV_REGEX ]] && continue
-    r="$(rms_db_from_ffmpeg -f alsa -ac "$ALSA_CHANNELS" -ar "$ALSA_RATE" -i "$name")"
-    if [[ "$best_rms" == "-inf" && "$r" != "-inf" ]]; then best="$name"; best_rms="$r"; continue; fi
-    if [[ "$r" =~ ^-?[0-9]+([.][0-9]+)?$ && "$best_rms" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
-      awk -v a="$r" -v b="$best_rms" 'BEGIN{exit !(a>b)}' && { best="$name"; best_rms="$r"; }
-    fi
-  done
-  # Second pass: no regex filter if nothing chosen
-  if [[ -z "$best" ]]; then
-    for name in $list; do
-      r="$(rms_db_from_ffmpeg -f alsa -ac "$ALSA_CHANNELS" -ar "$ALSA_RATE" -i "$name")"
-      if [[ "$best_rms" == "-inf" && "$r" != "-inf" ]]; then best="$name"; best_rms="$r"; continue; fi
-      if [[ "$r" =~ ^-?[0-9]+([.][0-9]+)?$ && "$best_rms" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
-        awk -v a="$r" -v b="$best_rms" 'BEGIN{exit !(a>b)}' && { best="$name"; best_rms="$r"; }
-      fi
-    done
-  fi
-  echo "${best:-default}"
-}
+    sanitized = [c.replace(stream_key, "<STREAM_KEY>") for c in cmd]
+    print("[gameday] encoder command:")
+    print("[gameday]", " ".join(shlex.quote(c) for c in sanitized))
 
-# ---------------------- build inputs ------------------------
-# V4L2_INPUT_OPTS and dynamic audio selection replaced with explicit opts
-if [[ "${AUDIO_BACKEND}" == "pulse" ]]; then
-  # legacy pulse path retained (AUDIO_BACKEND=pulse)
-  pulse_audio_input
-  AUDIO_MODE="pulse:${PULSE_DEV}"
-else
-  AUDIO_INPUT_OPTS=(-thread_queue_size 1024 -f alsa -ac 2 -ar 48000 -i "${ALSA_DEV}")
-  AUDIO_MODE="alsa:${ALSA_DEV}"
-fi
+    proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True)
+    assert proc.stderr is not None
+    lines = []
+    for line in proc.stderr:
+        sys.stderr.write(line)
+        lines.append(line)
+    rc = proc.wait()
+    return rc, "".join(lines)
 
-# ---- derive numeric width/height for filters (VIDEO_SIZE uses 1280x720) ----
-if [[ "$VIDEO_SIZE" =~ ^([0-9]+)x([0-9]+)$ ]]; then
-  VW="${BASH_REMATCH[1]}"; VH="${BASH_REMATCH[2]}"
-else
-  VW=1280; VH=720  # safe fallback
-fi
-VF_SIZE_COLON="${VW}:${VH}"
-# ---------------------- filters & encoders ------------------
-# Force perfect 1280x720 canvas and legal TV range; preserve aspect, pad as needed.
-# VF_CHAIN="scale=in_range=full:out_range=tv,format=yuv420p,scale=iw*sar:ih,setsar=1,scale=${VF_SIZE_COLON}:flags=bicubic:force_original_aspect_ratio=decrease,pad=${VF_SIZE_COLON}:(ow-iw)/2:(oh-ih)/2,fps=${FRAME_RATE},setpts=PTS-STARTPTS" # replaced to guarantee fill
-VF_CHAIN="scale=iw*sar:ih,setsar=1,scale=${VF_SIZE_COLON}:flags=bicubic:force_original_aspect_ratio=increase,crop=${VF_SIZE_COLON},fps=${FRAME_RATE},setpts=PTS-STARTPTS"
 
-# Video encoder detection prefers Jetson HW when available
-if ffmpeg -hide_banner -encoders | grep -q h264_v4l2m2m; then
-  VCODEC=h264_v4l2m2m
-  VOPTS=(-c:v h264_v4l2m2m -b:v 3500k -maxrate 4000k -bufsize 6000k -g $((FRAME_RATE*2)) -pix_fmt yuv420p)
-else
-  VCODEC=libx264
-  VOPTS=(-c:v libx264 -preset ultrafast -tune zerolatency -b:v 3500k -maxrate 4000k -bufsize 6000k -g $((FRAME_RATE*2)) -pix_fmt yuv420p)
-fi
-echo "[gameday] Encoder: $VCODEC"
+def validate_segment(out_dir: pathlib.Path) -> bool:
+    """Validate newest local file with ffprobe."""
 
-# # Dynamic volume control: gentle highpass, dynamic normalizer, safety limiter
-# AFILTER="highpass=f=100,dynaudnorm=m=50:s=10:p=0.6,alimiter=limit=-0.3dB:attack=5"  # not used in new chain
+    try:
+        latest = max(out_dir.glob("*.mkv"), key=lambda p: p.stat().st_mtime)
+    except ValueError:
+        print("[gameday] no local segment found", file=sys.stderr)
+        return False
 
-# MAP_OPTS and tee mux replaced by explicit filter_complex outputs
+    try:
+        v = subprocess.check_output(
+            [
+                "ffprobe",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=codec_name,pix_fmt",
+                "-of",
+                "csv=p=0",
+                str(latest),
+            ],
+            text=True,
+        ).strip()
+        a = subprocess.check_output(
+            [
+                "ffprobe",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=codec_name",
+                "-of",
+                "csv=p=0",
+                str(latest),
+            ],
+            text=True,
+        ).strip()
+    except subprocess.CalledProcessError as exc:
+        print(f"[gameday] ffprobe failed: {exc}", file=sys.stderr)
+        return False
 
-# ------------------------- runner ---------------------------
-# echo "[gameday] Launch -> video=${VIDEO_DEV} ${VIDEO_SIZE}@${FRAME_RATE} | ${AUDIO_MODE} | vcodec=${VIDEO_CODEC} | rtmp=$( [[ -n "$YOUTUBE_RTMP_URL" ]] && echo set || echo unset ) | record_dir=${RECORD_DIR}"  # replaced summary
-echo "[gameday] Launch -> size=${VW}x${VH}@${FRAME_RATE} | audio=${AUDIO_MODE} | encoder=${VCODEC} | raw=${RECORD_DIR}/raw | yt=$( (( STREAM_TO_YOUTUBE )) && echo on || echo off )"
+    v_codec, pix_fmt = (v.split(",") + [""] * 2)[:2]
+    if v_codec != "h264" or pix_fmt != "yuv420p" or a != "aac":
+        print("[gameday] validation failed: expected h264/yuv420p + aac", file=sys.stderr)
+        print("[gameday] remediation: ensure tee muxer and avoid '-c copy'", file=sys.stderr)
+        return False
+    return True
 
-STOP=0
-trap 'STOP=1; echo "[gameday] Caught interrupt; stopping…"' INT TERM
 
-run_ffmpeg() {
-  local cmd=(ffmpeg -hide_banner -loglevel info -fflags +genpts+discardcorrupt
-    -thread_queue_size 1024 -f v4l2 -input_format mjpeg -framerate "$FRAME_RATE" -video_size "$VIDEO_SIZE" -i "$VIDEO_DEV"
-    "${AUDIO_INPUT_OPTS[@]}"
-    -filter_complex "[0:v]${VF_CHAIN}[vout]")
-  if (( STREAM_TO_YOUTUBE )); then
-    cmd+=(-map "[vout]" -map 1:a "${VOPTS[@]}" -c:a aac -b:a 128k -f flv "$YOUTUBE_RTMP_URL")
-  fi
-  cmd+=(-map 0:v -map 1:a -c:v copy -c:a flac -f segment -segment_time ${RECORD_SEGMENT_SEC} -strftime 1 "${RECORD_DIR}/raw/%Y%m%d_%H%M%S.mkv")
-  if (( RECORD_TRANSCODED_SEGMENTS )); then
-    cmd+=(-map "[vout]" -map 1:a -c:v "$VCODEC" -c:a aac -b:a 128k -f segment -segment_time ${RECORD_SEGMENT_SEC} -reset_timestamps 1 -strftime 1 -segment_format mp4 -segment_format_options movflags=+faststart "${RECORD_DIR}/%Y%m%d_%H%M%S.mp4")
-  fi
-  "${cmd[@]}"
-}
+def main() -> int:
+    p = argparse.ArgumentParser()
+    p.add_argument("--size", default=os.getenv("SIZE", "1280x720"))
+    p.add_argument("--fps", type=int, default=int(os.getenv("FPS", "30")))
+    p.add_argument("--bitrate", default=os.getenv("BITRATE", "3500k"))
+    p.add_argument("--alsa-dev", default=os.getenv("ALSA_DEV", "plughw:2,0"))
+    p.add_argument(
+        "--segment-seconds", type=int, default=int(os.getenv("SEGMENT_SECONDS", "900"))
+    )
+    p.add_argument("--out-dir", default=os.getenv("OUT_DIR", "recordings/raw"))
+    p.add_argument("--stream-key", required=True)
+    p.add_argument("--cam-dev", default=os.getenv("CAM_DEV", "/dev/video0"))
+    p.add_argument(
+        "--cam-input-format", default=os.getenv("CAM_INPUT_FORMAT", "mjpeg")
+    )
+    args = p.parse_args()
 
-attempt=1; max_attempts=5
-while true; do
-  set +e
-  run_ffmpeg
-  rc=$?
-  set -e
-  (( STOP )) && exit "$rc"
-  (( attempt >= max_attempts )) && exit "$rc"
-  echo "[gameday] ffmpeg exited with code $rc (attempt $attempt/$max_attempts)."
-  attempt=$((attempt+1))
-  sleep 3
+    out_dir = pathlib.Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-done
+    encoder = detect_encoder()
+    print(f"[gameday] chosen encoder: {encoder}")
 
-# --- operator acceptance checks ---
-# Start: ./gameday
-# After ~20–30s, YouTube should report good health and the preview should fill 16:9.
-# Verify the raw file really is MJPEG + FLAC:
-# latest_raw=$(ls -1t recordings/raw/*.mkv | head -n1); echo "$latest_raw"
-# ffmpeg -hide_banner -i "$latest_raw" -t 0 -f null - 2>&1 | egrep 'Video:|Audio:'
-# Expect: Video: mjpeg ; Audio: flac
-# If RECORD_TRANSCODED_SEGMENTS=1 verify the MP4 segment shows:
-# Video: h264, 1280x720 [SAR 1:1 DAR 16:9] and Audio: aac
+    cmd = build_ffmpeg_cmd(args, encoder)
+    rc, log = run_ffmpeg(cmd, args.stream_key)
+
+    if "Output #0, tee, to '" not in log:
+        print("[gameday] ERROR: tee not engaged", file=sys.stderr)
+        return 1
+
+    if rc != 0:
+        print(f"[gameday] ffmpeg exited with code {rc}", file=sys.stderr)
+        return rc
+
+    if not validate_segment(out_dir):
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - CLI entry
+    sys.exit(main())
+
