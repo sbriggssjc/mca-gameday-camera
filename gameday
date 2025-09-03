@@ -9,12 +9,91 @@ small set of CLI options and validates the resulting recording.
 from __future__ import annotations
 
 import argparse
+import importlib
 import os
 import pathlib
 import shlex
 import subprocess
 import sys
-from typing import List
+from typing import List, Optional
+
+# .env is optional
+try:  # pragma: no cover - optional dependency
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # pragma: no cover
+    load_dotenv = None  # sentinel
+
+KEY_ENV_ORDER = ("YT_STREAM_KEY", "YOUTUBE_STREAM_KEY", "STREAM_KEY")
+KEY_FILE = pathlib.Path.home() / ".config" / "mca-gameday" / "yt.key"
+OPTIONAL_MODULES = ("config", "settings", "secrets")
+
+
+def _from_env() -> Optional[str]:
+    for k in KEY_ENV_ORDER:
+        v = os.getenv(k)
+        if v and v.strip():
+            return v.strip()
+    return None
+
+
+def _from_dotenv(repo_root: pathlib.Path) -> Optional[str]:
+    if load_dotenv is None:
+        return None
+    env_path = repo_root / ".env"
+    if not env_path.exists():
+        return None
+    load_dotenv(env_path)
+    return _from_env()
+
+
+def _from_modules() -> Optional[str]:
+    for mod in OPTIONAL_MODULES:
+        try:
+            m = importlib.import_module(mod)
+        except Exception:
+            continue
+        for attr in KEY_ENV_ORDER:
+            v = getattr(m, attr, None)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+    return None
+
+
+def _from_key_file() -> Optional[str]:
+    try:
+        if KEY_FILE.exists():
+            return KEY_FILE.read_text(encoding="utf-8").strip()
+    except Exception:
+        pass
+    return None
+
+
+def resolve_stream_key(args, repo_root: Optional[pathlib.Path] = None) -> Optional[str]:
+    if getattr(args, "stream_key", None):
+        v = args.stream_key.strip()
+        if v:
+            return v
+    v = _from_env()
+    if v:
+        return v
+    root = repo_root or pathlib.Path(__file__).resolve().parent
+    v = _from_dotenv(root)
+    if v:
+        return v
+    v = _from_modules()
+    if v:
+        return v
+    v = _from_key_file()
+    if v:
+        return v
+    return None
+
+
+def redact_key(k: str) -> str:
+    k = k.strip()
+    if len(k) <= 4:
+        return "*" * len(k)
+    return f"{k[:4]}{'*' * (len(k) - 4)}"
 
 
 def detect_encoder() -> str:
@@ -208,21 +287,34 @@ def main() -> int:
         "--segment-seconds", type=int, default=int(os.getenv("SEGMENT_SECONDS", "900"))
     )
     p.add_argument("--out-dir", default=os.getenv("OUT_DIR", "recordings/raw"))
-    p.add_argument("--stream-key", required=True)
+    p.add_argument(
+        "--stream-key",
+        help="YouTube RTMPS stream key (optional; can come from env/.env/config/key file)",
+    )
     p.add_argument("--cam-dev", default=os.getenv("CAM_DEV", "/dev/video0"))
     p.add_argument(
         "--cam-input-format", default=os.getenv("CAM_INPUT_FORMAT", "mjpeg")
     )
     args = p.parse_args()
 
+    stream_key = resolve_stream_key(args)
+    if not stream_key:
+        p.error(
+            "No YouTube stream key found. Provide --stream-key, or set YT_STREAM_KEY / YOUTUBE_STREAM_KEY / STREAM_KEY, or put it in .env, or ~/.config/mca-gameday/yt.key"
+        )
+    args.stream_key = stream_key
+
     out_dir = pathlib.Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     encoder = detect_encoder()
-    print(f"[gameday] chosen encoder: {encoder}")
+    safe_key = redact_key(stream_key)
+    print(
+        f"[gameday] Launch -> size={args.size}@{args.fps} | audio={args.alsa_dev} | encoder={encoder} | raw={args.out_dir} | yt=on (key={safe_key})"
+    )
 
     cmd = build_ffmpeg_cmd(args, encoder)
-    rc, log = run_ffmpeg(cmd, args.stream_key)
+    rc, log = run_ffmpeg(cmd, stream_key)
 
     if "Output #0, tee, to '" not in log:
         print("[gameday] ERROR: tee not engaged", file=sys.stderr)
