@@ -119,18 +119,31 @@ def build_ffmpeg_cmd(args: argparse.Namespace, encoder: str) -> List[str]:
     """Build the ffmpeg command according to requirements."""
 
     gop = args.fps * 2
-    outputs = (
-        f"[f=flv:onfail=ignore]rtmps://a.rtmps.youtube.com/live2/{args.stream_key}|"
-        f"[f=segment:segment_time={args.segment_seconds}:reset_timestamps=1:strftime=1]"
-        f"{args.out_dir}/%Y%m%d_%H%M%S.mkv"
-    )
+    out_dir = pathlib.Path(args.out_dir)
 
-    cmd = [
-        "ffmpeg",
+    vf = "[0:v]settb=AVTB,setpts=PTS-STARTPTS,scale=in_range=pc:out_range=tv,format=yuv420p[v]"
+    af = "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]"
+
+    segment_sink = (
+        "[f=segment:segment_format=matroska:"
+        f"segment_time={args.segment_seconds}:reset_timestamps=1:strftime=1]"
+        f"{out_dir / '%Y%m%d_%H%M%S.mkv'}"
+    )
+    flv_sink = f"[f=flv:onfail=ignore]rtmps://a.rtmps.youtube.com/live2/{args.stream_key}"
+    tee_url = f"{flv_sink}|{segment_sink}"
+
+    global_flags = [
         "-fflags",
         "+genpts+igndts+discardcorrupt",
         "-avoid_negative_ts",
         "make_zero",
+        "-use_wallclock_as_timestamps",
+        "1",
+    ]
+
+    cmd = [
+        "ffmpeg",
+        *global_flags,
         "-f",
         "v4l2",
         "-input_format",
@@ -150,46 +163,21 @@ def build_ffmpeg_cmd(args: argparse.Namespace, encoder: str) -> List[str]:
         "-i",
         args.alsa_dev,
         "-filter_complex",
-        "[0:v]settb=AVTB,setpts=RTCTIME-startpts,scale=in_range=pc:out_range=tv,format=yuv420p[v];"
-        "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]",
+        f"{vf};{af}",
         "-map",
         "[v]",
         "-map",
         "[a]",
-    ]
-
-    if encoder == "libx264":
-        cmd += [
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-tune",
-            "zerolatency",
-            "-b:v",
-            args.bitrate,
-            "-maxrate",
-            "4000k",
-            "-bufsize",
-            "6000k",
-            "-g",
-            str(gop),
-        ]
-    else:
-        cmd += [
-            "-c:v",
-            encoder,
-            "-b:v",
-            args.bitrate,
-            "-maxrate",
-            "4000k",
-            "-bufsize",
-            "6000k",
-            "-g",
-            str(gop),
-        ]
-
-    cmd += [
+        "-c:v",
+        encoder,
+        "-b:v",
+        args.bitrate,
+        "-maxrate",
+        "4000k",
+        "-bufsize",
+        "6000k",
+        "-g",
+        str(gop),
         "-c:a",
         "aac",
         "-b:a",
@@ -200,11 +188,10 @@ def build_ffmpeg_cmd(args: argparse.Namespace, encoder: str) -> List[str]:
         "2",
         "-f",
         "tee",
-        outputs,
+        tee_url,
     ]
 
     return cmd
-
 
 def run_ffmpeg(cmd: List[str], stream_key: str) -> tuple[int, str]:
     """Run ffmpeg, returning (rc, combined stderr)."""
