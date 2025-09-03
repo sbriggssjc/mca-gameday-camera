@@ -96,23 +96,32 @@ def redact_key(k: str) -> str:
     return f"{k[:4]}{'*' * (len(k) - 4)}"
 
 
-def detect_encoder() -> str:
-    """Return the best available H.264 encoder."""
+def hw_encoder_ok(size: str, fps: int) -> bool:
+    """Return True if the V4L2 hardware encoder appears functional."""
 
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        f"testsrc2=size={size}:rate={fps}",
+        "-t",
+        "1",
+        "-pix_fmt",
+        "nv12",
+        "-c:v",
+        "h264_v4l2m2m",
+        "-f",
+        "null",
+        "-",
+    ]
     try:
-        out = subprocess.check_output([
-            "ffmpeg",
-            "-hide_banner",
-            "-encoders",
-        ], text=True)
-    except Exception:  # pragma: no cover - ffmpeg expected to exist
-        return "libx264"
-
-    if "h264_nvmpi" in out:
-        return "h264_nvmpi"
-    if "h264_v4l2m2m" in out:
-        return "h264_v4l2m2m"
-    return "libx264"
+        return subprocess.run(cmd).returncode == 0
+    except Exception:
+        return False
 
 
 def build_ffmpeg_cmd(args: argparse.Namespace, encoder: str) -> List[str]:
@@ -121,7 +130,8 @@ def build_ffmpeg_cmd(args: argparse.Namespace, encoder: str) -> List[str]:
     gop = args.fps * 2
     out_dir = pathlib.Path(args.out_dir)
 
-    vf = "[0:v]settb=AVTB,setpts=PTS-STARTPTS,scale=in_range=pc:out_range=tv,format=yuv420p[v]"
+    pix = "nv12" if encoder == "h264_v4l2m2m" else "yuv420p"
+    vf = f"[0:v]settb=AVTB,setpts=PTS-STARTPTS,scale=in_range=pc:out_range=tv,format={pix}[v]"
     af = "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]"
 
     segment_sink = (
@@ -162,14 +172,32 @@ def build_ffmpeg_cmd(args: argparse.Namespace, encoder: str) -> List[str]:
         "1024",
         "-i",
         args.alsa_dev,
+    ]
+
+    ff_args: List[str] = [
         "-filter_complex",
         f"{vf};{af}",
         "-map",
         "[v]",
         "-map",
         "[a]",
-        "-c:v",
-        encoder,
+    ]
+
+    if encoder == "h264_v4l2m2m":
+        ff_args += ["-c:v", "h264_v4l2m2m"]
+    else:
+        ff_args += [
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-tune",
+            "zerolatency",
+            "-pix_fmt",
+            "yuv420p",
+        ]
+
+    ff_args += [
         "-b:v",
         args.bitrate,
         "-maxrate",
@@ -191,6 +219,7 @@ def build_ffmpeg_cmd(args: argparse.Namespace, encoder: str) -> List[str]:
         tee_url,
     ]
 
+    cmd.extend(ff_args)
     return cmd
 
 def run_ffmpeg(cmd: List[str], stream_key: str) -> tuple[int, str]:
@@ -265,7 +294,13 @@ def validate_segment(out_dir: pathlib.Path) -> bool:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(
+        epilog=(
+            "Quick HW encoder test:\n"
+            "  ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=size=1280x720:rate=30 -t 1 -pix_fmt nv12 -c:v h264_v4l2m2m -f null -"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p.add_argument("--size", default=os.getenv("SIZE", "1280x720"))
     p.add_argument("--fps", type=int, default=int(os.getenv("FPS", "30")))
     p.add_argument("--bitrate", default=os.getenv("BITRATE", "3500k"))
@@ -282,6 +317,11 @@ def main() -> int:
     p.add_argument(
         "--cam-input-format", default=os.getenv("CAM_INPUT_FORMAT", "mjpeg")
     )
+    p.add_argument(
+        "--encoder",
+        choices=["h264_v4l2m2m", "libx264"],
+        default=os.getenv("ENCODER", "h264_v4l2m2m"),
+    )
     args = p.parse_args()
 
     stream_key = resolve_stream_key(args)
@@ -294,7 +334,11 @@ def main() -> int:
     out_dir = pathlib.Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    encoder = detect_encoder()
+    encoder = args.encoder
+    if encoder == "h264_v4l2m2m" and not hw_encoder_ok(args.size, args.fps):
+        print("[gameday] h264_v4l2m2m unavailable; falling back to libx264")
+        encoder = "libx264"
+
     safe_key = redact_key(stream_key)
     print(
         f"[gameday] Launch -> size={args.size}@{args.fps} | audio={args.alsa_dev} | encoder={encoder} | raw={args.out_dir} | yt=on (key={safe_key})"
@@ -308,7 +352,12 @@ def main() -> int:
         return 1
 
     if rc != 0:
+        first_line = next((l.strip() for l in log.splitlines() if l.strip()), "")
         print(f"[gameday] ffmpeg exited with code {rc}", file=sys.stderr)
+        print(f"[gameday] encoder: {encoder}", file=sys.stderr)
+        if first_line:
+            print(f"[gameday] first error line: {first_line}", file=sys.stderr)
+        print("[gameday] Try ./gameday --encoder libx264", file=sys.stderr)
         return rc
 
     if not validate_segment(out_dir):
