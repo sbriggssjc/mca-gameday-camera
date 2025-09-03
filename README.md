@@ -83,6 +83,16 @@ If port 1935 is open and you prefer RTMP:
 
 rtmp://a.rtmp.youtube.com/live2/<key>
 
+## Stream key discovery (precedence)
+
+`gameday` looks for the YouTube stream key in the following order (first non-empty wins):
+
+1. `--stream-key` CLI argument
+2. Environment: `YT_STREAM_KEY`, `YOUTUBE_STREAM_KEY`, `STREAM_KEY`
+3. `.env` file in the repository root (same keys as above)
+4. Optional modules: `config.py`, `settings.py`, `secrets.py`
+5. Secret file: `~/.config/mca-gameday/yt.key`
+
 Notes
 
 The launcher prints a one-line “Launch -> …” status to stderr and emits JSON config to stdout internally. If it says missing or invalid RTMP URL, fix your key.
