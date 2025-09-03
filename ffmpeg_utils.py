@@ -1,6 +1,10 @@
 import logging
 import subprocess
 import threading
+import os
+import shlex
+import time
+from datetime import datetime
 from typing import List, Optional, Tuple
 
 
@@ -281,3 +285,148 @@ def build_ffmpeg_args(
     else:
         cmd += ["-f", "flv", output_url]
     return cmd
+
+def build_stream_command(
+    stream_key: str,
+    *,
+    video_device: str = "/dev/video0",
+    resolution: str = "1280x720",
+    framerate: int = 30,
+    input_format: str = "mjpeg",
+    encoder: str = "h264_v4l2m2m",
+    audio_backend: str = "pulse",
+    record_path: str = "recordings/raw/%Y%m%d_%H%M%S.mkv",
+) -> List[str]:
+    """Build the FFmpeg command for streaming and local recording."""
+    video_in = [
+        "-f",
+        "v4l2",
+        "-thread_queue_size",
+        "8192",
+        "-framerate",
+        str(framerate),
+        "-video_size",
+        resolution,
+        "-input_format",
+        input_format,
+        "-i",
+        video_device,
+    ]
+    if audio_backend == "pulse":
+        audio_in = ["-f", "pulse", "-thread_queue_size", "8192", "-i", "default"]
+    else:
+        audio_in = ["-f", "alsa", "-thread_queue_size", "8192", "-i", "plughw:1,0"]
+    common = [
+        "-filter:a",
+        "aresample=async=1:min_hard_comp=0.100:first_pts=0",
+        "-use_wallclock_as_timestamps",
+        "1",
+        "-fflags",
+        "+genpts",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+    ]
+    if encoder == "h264_v4l2m2m":
+        v_flags = [
+            "-c:v",
+            "h264_v4l2m2m",
+            "-pix_fmt",
+            "yuv420p",
+            "-b:v",
+            "4500k",
+            "-maxrate",
+            "5000k",
+            "-bufsize",
+            "10000k",
+            "-g",
+            "60",
+            "-sc_threshold",
+            "0",
+        ]
+    else:
+        v_flags = [
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-tune",
+            "zerolatency",
+            "-pix_fmt",
+            "yuv420p",
+            "-b:v",
+            "4500k",
+            "-maxrate",
+            "5000k",
+            "-bufsize",
+            "10000k",
+            "-g",
+            "60",
+            "-x264-params",
+            "keyint=60:min-keyint=60:scenecut=0",
+        ]
+    a_flags = [
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-ac",
+        "2",
+        "-ar",
+        "48000",
+    ]
+    out_spec = (
+        f"[f=flv:onfail=ignore]rtmps://a.rtmp.youtube.com/live2/{stream_key}"
+        f"|[f=matroska]{record_path}"
+    )
+    return [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "info",
+        "-stats_period",
+        "2",
+    ] + video_in + audio_in + common + v_flags + a_flags + ["-f", "tee", out_spec]
+
+
+def launch_ffmpeg(stream_key: str, *, dry_run: bool = False) -> subprocess.Popen | None:
+    """Launch FFmpeg with automatic fallbacks.
+
+    Returns the running ``Popen`` instance or ``None`` in ``dry_run`` mode.
+    """
+    attempts = [
+        ("mjpeg", "h264_v4l2m2m", "pulse"),
+        ("mjpeg", "h264_v4l2m2m", "alsa"),
+        ("yuyv422", "h264_v4l2m2m", "pulse"),
+        ("yuyv422", "h264_v4l2m2m", "alsa"),
+        ("mjpeg", "libx264", "pulse"),
+        ("mjpeg", "libx264", "alsa"),
+        ("yuyv422", "libx264", "pulse"),
+        ("yuyv422", "libx264", "alsa"),
+    ]
+    for fmt, enc, audio in attempts:
+        cmd = build_stream_command(stream_key, input_format=fmt, encoder=enc, audio_backend=audio)
+        logging.info("FFmpeg command: %s", shlex.join(cmd))
+        if dry_run:
+            print(shlex.join(cmd))
+            return None
+        process = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True)
+        last = time.time()
+        try:
+            assert process.stderr is not None
+            for line in process.stderr:
+                logging.error("[ffmpeg] %s", line.rstrip())
+                if "frame=" in line:
+                    last = time.time()
+                if any(err in line for err in ["Device or resource busy", "Input queue full", "Failed to open" ]):
+                    raise RuntimeError("device error")
+                if time.time() - last > 5:
+                    raise RuntimeError("stalled")
+            rc = process.wait()
+            if rc == 0:
+                return process
+        except Exception as exc:
+            process.kill()
+            logging.warning("FFmpeg failed with %s", exc)
+    return None
