@@ -34,10 +34,10 @@ crash-safe).
 
 ### Optional hooks
 
-To block large files from commits:
+To block large files from commits opt‑in with:
 
 ```bash
-ln -s ../../hooks/pre-commit.maxsize .git/hooks/pre-commit
+git config core.hooksPath hooks
 ```
 
 ### Cleaning history

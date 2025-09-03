@@ -1,32 +1,58 @@
 #!/usr/bin/env python3
-"""Verify newest local recording contains H.264 video and AAC audio."""
-import subprocess
-from pathlib import Path
-import sys
-import os
+"""Verify the newest local recording is H.264(yuv420p)+AAC."""
 
-def ffprobe_field(path: Path, stream: str, field: str) -> str:
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+def probe(path: Path, stream: str) -> dict:
     cmd = [
-        "ffprobe", "-v", "error", "-select_streams", stream,
-        "-show_entries", f"stream={field}",
-        "-of", "default=noprint_wrappers=1:nokey=1", str(path)
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        stream,
+        "-show_entries",
+        "stream=codec_name,pix_fmt,width,height,r_frame_rate",
+        "-of",
+        "json",
+        str(path),
     ]
-    return subprocess.check_output(cmd, text=True).strip().split("\n")[0]
+    data = subprocess.check_output(cmd, text=True)
+    info = json.loads(data)["streams"][0]
+    return info
+
 
 def main() -> int:
-    out_dir = Path(os.getenv("OUT_DIR", "./video/raw"))
+    out_dir = Path(os.getenv("OUT_DIR", "video/raw"))
     files = sorted(out_dir.glob("*"), key=lambda p: p.stat().st_mtime)
     if not files:
         print(f"no recordings found in {out_dir}", file=sys.stderr)
         return 1
+
     latest = files[-1]
-    vcodec = ffprobe_field(latest, "v:0", "codec_name")
-    pix = ffprobe_field(latest, "v:0", "pix_fmt")
-    acodec = ffprobe_field(latest, "a:0", "codec_name")
-    print(f"{latest}: video={vcodec} pix_fmt={pix} audio={acodec}")
-    if vcodec != "h264" or pix != "yuv420p" or acodec != "aac":
+    v = probe(latest, "v:0")
+    a = probe(latest, "a:0")
+    if v.get("codec_name") != "h264" or v.get("pix_fmt") != "yuv420p" or a.get("codec_name") != "aac":
+        print(
+            f"bad streams: video={v.get('codec_name')}/{v.get('pix_fmt')} audio={a.get('codec_name')}",
+            file=sys.stderr,
+        )
         return 1
+    num, den = v.get("r_frame_rate", "0/1").split("/")
+    fps = int(round(int(num) / int(den))) if den != "0" else 0
+    print(
+        f"OK: H.264(yuv420p)+AAC {v.get('width')}x{v.get('height')}p{fps}",
+        flush=True,
+    )
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
