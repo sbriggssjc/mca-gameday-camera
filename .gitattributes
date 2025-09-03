@@ -4,4 +4,5 @@
 =======
 >>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 >>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
+video/*.mp4 filter=lfs diff=lfs merge=lfs -text
 video/game_20250726_182529.mp4 filter=lfs diff=lfs merge=lfs -text
