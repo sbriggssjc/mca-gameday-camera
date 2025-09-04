@@ -1,13 +1,9 @@
-python-dotenv
+python-dotenv>=1.0.1
 ultralytics
 deep_sort_realtime
 easyocr
 opencv-python
 torch
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 schedule>=1.2.0
 # Google Drive sync
 google-api-python-client
@@ -15,8 +11,3 @@ google-auth
 google-auth-httplib2
 google-auth-oauthlib
 tqdm
-<<<<<<< HEAD
-=======
->>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
-=======
->>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
