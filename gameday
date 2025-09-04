@@ -17,6 +17,17 @@ from gameday_config import get_stream_key, mask_key
 import re
 
 
+def _parse_bitrate(value: str) -> int:
+    """Convert an ffmpeg-style bitrate string like ``3500k`` or ``6M`` to int bits/s."""
+
+    v = value.strip().lower()
+    if v.endswith("k"):
+        return int(float(v[:-1]) * 1000)
+    if v.endswith("m"):
+        return int(float(v[:-1]) * 1000_000)
+    return int(float(v))
+
+
 def build_filter_graph() -> str:
     """Return the shared A/V filter graph.
 
@@ -111,6 +122,8 @@ def build_cmd(
     os.makedirs(raw_out_dir, exist_ok=True)
     raw_pattern = os.path.join(raw_out_dir, "%Y%m%d_%H%M%S.ts")
 
+    bitrate = _parse_bitrate(args.bitrate)
+
     yt_url: str | None = None
     if not args.no_yt:
         yt_base = f"rtmps://{args.yt_ingest}.rtmps.youtube.com/live2"
@@ -170,11 +183,11 @@ def build_cmd(
         cmd += ["-preset", "veryfast", "-tune", "zerolatency", "-pix_fmt", "yuv420p"]
     cmd += [
         "-b:v",
-        args.bitrate,
+        str(bitrate),
         "-maxrate",
-        "4000k",
+        str(int(bitrate * 1.14)),
         "-bufsize",
-        "6000k",
+        str(int(bitrate * 1.71)),
         "-g",
         str(args.fps * 2),
         "-c:a",
