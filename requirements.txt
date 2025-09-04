@@ -1,3 +1,4 @@
+python-dotenv
 ultralytics
 deep_sort_realtime
 easyocr
