@@ -43,30 +43,125 @@ def build_filter_graph() -> str:
     )
 
 
-def run_ffmpeg(cmd: List[str], stream_key: str | None = None) -> Tuple[int, List[str]]:
+def run_ffmpeg(
+    args: argparse.Namespace, encoder: str, stream_key: str | None = None
+) -> Tuple[int, List[str]]:
+    import select
     import signal
+    import time
 
-    proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True, bufsize=1)
     log: List[str] = []
+    input_format = args.cam_input_format
+    allow_switch = False
+    if input_format == "auto":
+        input_format = "mjpeg"
+        allow_switch = True
+
+    backoffs = [2, 4, 8]
+    attempt = 0
     masked = mask_key(stream_key) if stream_key else None
-    try:
-        assert proc.stderr is not None
-        for line in proc.stderr:
-            if not line:
-                break
-            if stream_key:
-                line = line.replace(stream_key, masked)
-            log.append(line.rstrip("\n"))
-            sys.stderr.write(line)
-    except KeyboardInterrupt:
-        print("\n[gameday] stopping…")
+
+    while True:
+        local_args = argparse.Namespace(**vars(args))
+        local_args.cam_input_format = input_format
+        cmd = build_cmd(local_args, encoder, stream_key, "unused")
+        proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True, bufsize=1)
+
+        start_time = time.monotonic()
+        last_frame = start_time
+        first_frame = None
+        frames_out = 0
+        zero_byte = 0
+        live_logged = False
+        restarting = False
+        zero_re = re.compile(r"Dequeued .* corrupted data \(0 bytes\)")
+        frame_re = re.compile(r"frame=\s*(\d+)")
+
         try:
-            proc.send_signal(signal.SIGINT)
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-    rc = proc.wait()
-    return rc, log
+            assert proc.stderr is not None
+            while True:
+                now = time.monotonic()
+                ready, _, _ = select.select([proc.stderr], [], [], 0.25)
+                if ready:
+                    line = proc.stderr.readline()
+                    if not line:
+                        break
+                    if stream_key:
+                        line = line.replace(stream_key, masked)
+                    sys.stderr.write(line)
+                    log.append(line.rstrip("\n"))
+
+                    if zero_re.search(line):
+                        zero_byte += 1
+                        if (
+                            allow_switch
+                            and zero_byte > 30
+                            and now - start_time <= 10
+                        ):
+                            print(
+                                "[gameday] v4l2: too many zero-byte frames; switching to yuyv422"
+                            )
+                            try:
+                                proc.send_signal(signal.SIGINT)
+                                proc.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                proc.kill()
+                                proc.wait()
+                            input_format = "yuyv422"
+                            allow_switch = False
+                            restarting = True
+                            break
+
+                    m = frame_re.search(line)
+                    if m:
+                        count = int(m.group(1))
+                        if count > frames_out:
+                            frames_out = count
+                            last_frame = now
+                            if first_frame is None and count > 0:
+                                first_frame = now
+                            if (
+                                not live_logged
+                                and first_frame is not None
+                                and count >= 90
+                                and now - first_frame >= 3
+                            ):
+                                print(
+                                    f"[gameday] LIVE: streaming and recording (encoder={encoder}, input={input_format})"
+                                )
+                                live_logged = True
+
+                if not live_logged and now - last_frame > 20:
+                    try:
+                        proc.send_signal(signal.SIGINT)
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+                    if attempt < len(backoffs):
+                        delay = backoffs[attempt]
+                        attempt += 1
+                        time.sleep(delay)
+                        restarting = True
+                        break
+                    else:
+                        print(
+                            "[gameday] ERROR: RTMP not accepting data after retries."
+                        )
+                        return 1, log
+
+        except KeyboardInterrupt:
+            print("\n[gameday] stopping…")
+            try:
+                proc.send_signal(signal.SIGINT)
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+        rc = proc.wait()
+        if restarting:
+            continue
+        return rc, log
 
 
 def start_remux_watcher(out_dir: str, keep_ts: bool):
@@ -235,7 +330,11 @@ def main() -> int:
         help="Print the masked stream key and exit",
     )
     p.add_argument("--cam-dev", default="/dev/video0")
-    p.add_argument("--cam-input-format", default="mjpeg")
+    p.add_argument(
+        "--cam-input-format",
+        choices=["auto", "mjpeg", "yuyv422"],
+        default="auto",
+    )
     p.add_argument(
         "--mezzanine",
         choices=["auto", "copy", "crf", "off"],
@@ -283,24 +382,36 @@ def main() -> int:
     print(f"[gameday] Launch -> {yt_display} | raw={raw_display}")
 
     encoder = "h264_v4l2m2m"
-    cmd = build_cmd(args, encoder, stream_key, "unused")
+    start_input = "mjpeg" if args.cam_input_format == "auto" else args.cam_input_format
+    tee_display = "yt+segments" if not args.no_yt else "segments"
+    print(
+        f"[gameday] input_format={start_input} | hw_encoder={encoder} | tee={tee_display}"
+    )
+
+    display_args = argparse.Namespace(**vars(args))
+    if display_args.cam_input_format == "auto":
+        display_args.cam_input_format = "mjpeg"
+    cmd = build_cmd(display_args, encoder, stream_key, "unused")
     sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
     print("[gameday] ffmpeg command:")
     print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
     if args.dry_run:
         return 0
-    rc, log = run_ffmpeg(cmd, stream_key)
+    rc, log = run_ffmpeg(args, encoder, stream_key)
 
     if need_fallback(rc, log):
         print("[gameday] hw encoder failed; retrying with libx264")
         encoder = "libx264"
-        cmd = build_cmd(args, encoder, stream_key, "unused")
+        display_args = argparse.Namespace(**vars(args))
+        if display_args.cam_input_format == "auto":
+            display_args.cam_input_format = "mjpeg"
+        cmd = build_cmd(display_args, encoder, stream_key, "unused")
         sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
         print("[gameday] ffmpeg command:")
         print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
         if args.dry_run:
             return 0
-        rc, log = run_ffmpeg(cmd, stream_key)
+        rc, log = run_ffmpeg(args, encoder, stream_key)
 
 
     if rc != 0 and args.yt_optional and not args.no_yt:
