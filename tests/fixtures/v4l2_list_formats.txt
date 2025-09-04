@@ -1,0 +1,13 @@
+ioctl: VIDIOC_ENUM_FMT
+Type: Video Capture
+
+    [0]: 'MJPG' (Motion-JPEG)
+        Size: Discrete 1280x720
+            Interval: Discrete 0.033s (30.000 fps)
+        Size: Discrete 640x480
+            Interval: Discrete 0.033s (30.000 fps)
+    [1]: 'YUYV' (YUYV 4:2:2)
+        Size: Discrete 1280x720
+            Interval: Discrete 0.066s (15.000 fps)
+        Size: Discrete 640x480
+            Interval: Discrete 0.033s (30.000 fps)
