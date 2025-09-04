@@ -108,6 +108,18 @@ def build_cmd(
     cmd: List[str] = ["ffmpeg", "-loglevel", loglevel]
     if args.debug:
         cmd += ["-report"]
+    if mezz_mode == "crf":
+        filters = (
+            "[0:v]settb=AVTB,setpts=PTS-STARTPTS[v0];"
+            "[v0]split[v_master][v_stream];"
+            "[v_stream]scale=in_range=pc:out_range=tv,format=yuv420p[v];"
+            "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]"
+        )
+    else:
+        filters = (
+            "[0:v]settb=AVTB,setpts=PTS-STARTPTS,scale=in_range=pc:out_range=tv,format=yuv420p[v];"
+            "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]"
+        )
     cmd += [
         "-fflags",
         "+genpts+igndts+discardcorrupt",
@@ -134,7 +146,7 @@ def build_cmd(
         "-i",
         args.alsa_dev,
         "-filter_complex",
-        "[0:v]settb=AVTB,setpts=PTS-STARTPTS[v0];[v0]split[v_master][v_stream];[v_stream]scale=in_range=pc:out_range=tv,format=yuv420p[v];[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]",
+        filters,
     ]
     # Streaming output
     if outputs:
