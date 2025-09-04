@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from gameday_config import get_stream_key, mask_key
+import camera_modes
 import re
 
 
@@ -45,16 +46,18 @@ def build_filter_graph() -> str:
 
 
 def run_ffmpeg(
-    args: argparse.Namespace, encoder: str, stream_key: str | None = None
+    args: argparse.Namespace,
+    encoder: str,
+    stream_key: str | None,
+    start_mode: camera_modes.CamMode,
+    usb2: bool,
 ) -> Tuple[int, List[str]]:
     import select
     import signal
     import time
 
     log: List[str] = []
-    requested_if = args.cam_input_format
-    active_if = "mjpeg" if requested_if == "auto" else requested_if
-    did_if_fallback = False
+    active_mode = start_mode
 
     backoffs = [2, 4, 8]
     attempt = 0
@@ -63,21 +66,21 @@ def run_ffmpeg(
 
     while True:
         local_args = argparse.Namespace(**vars(args))
-        local_args.cam_input_format = active_if
+        local_args.cam_input_format = active_mode.pixfmt
+        local_args.fps = active_mode.fps
+        local_args.size = f"{active_mode.w}x{active_mode.h}"
         cmd = build_cmd(local_args, encoder, stream_key, "unused")
         sanitized = [c.replace(stream_key, masked) if stream_key else c for c in cmd]
         print(
-            f"[gameday] input_format={active_if} | hw_encoder={encoder} | tee={tee_display}"
+            f"[gameday] input_format={active_mode.pixfmt} | hw_encoder={encoder} | tee={tee_display}"
         )
         print("[gameday] ffmpeg command:")
         print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
         proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True, bufsize=1)
 
-        start_time = time.monotonic()
-        last_frame = start_time
+        last_frame = time.monotonic()
         first_frame = None
         frames_out = 0
-        zero_count = 0
         zero_times: deque[float] = deque()
         live_logged = False
         restarting = False
@@ -99,33 +102,24 @@ def run_ffmpeg(
                     log.append(line.rstrip("\n"))
 
                     if zero_re.search(line):
-                        zero_count += 1
                         zero_times.append(now)
-                        while zero_times and now - zero_times[0] > 2:
+                        while zero_times and now - zero_times[0] > 3:
                             zero_times.popleft()
-                        if (
-                            not did_if_fallback
-                            and active_if == "mjpeg"
-                            and requested_if in ("auto", "mjpeg")
-                            and (
-                                (zero_count >= 30 and now - start_time <= 10)
-                                or len(zero_times) >= 8
-                            )
-                        ):
-                            print(
-                                "[gameday] v4l2: too many zero-byte frames; switching to yuyv422"
-                            )
-                            try:
-                                proc.send_signal(signal.SIGINT)
-                                proc.wait(timeout=5)
-                            except subprocess.TimeoutExpired:
-                                proc.kill()
-                                proc.wait()
-                            active_if = "yuyv422"
-                            args.cam_input_format = "yuyv422"
-                            did_if_fallback = True
-                            restarting = True
-                            break
+                        if len(zero_times) > 5:
+                            next_mode = camera_modes.next_fallback(active_mode, usb2)
+                            if next_mode:
+                                print(
+                                    f"[gameday] WARNING: zero-byte frames; switching {camera_modes.format_mode(active_mode)} -> {camera_modes.format_mode(next_mode)}"
+                                )
+                                try:
+                                    proc.send_signal(signal.SIGINT)
+                                    proc.wait(timeout=5)
+                                except subprocess.TimeoutExpired:
+                                    proc.kill()
+                                    proc.wait()
+                                active_mode = next_mode
+                                restarting = True
+                                break
 
                     m = frame_re.search(line)
                     if m:
@@ -142,7 +136,7 @@ def run_ffmpeg(
                                 and now - first_frame >= 3
                             ):
                                 print(
-                                    f"[gameday] LIVE: streaming and recording (encoder={encoder}, input={active_if})"
+                                    f"[gameday] LIVE: streaming and recording (encoder={encoder}, input={active_mode.pixfmt})"
                                 )
                                 live_logged = True
 
@@ -270,6 +264,10 @@ def build_cmd(
         str(args.fps),
         "-video_size",
         args.size,
+    ]
+    if args.cam_input_format == "mjpeg" and camera_modes.has_use_libv4l2():
+        cmd += ["-use_libv4l2", "1"]
+    cmd += [
         "-thread_queue_size",
         "1024",
         "-i",
@@ -330,6 +328,7 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--size", default="1280x720")
     p.add_argument("--fps", type=int, default=30)
+    p.add_argument("--cam-max-fps", type=int, default=30)
     p.add_argument("--bitrate", default="3500k")
     p.add_argument("--alsa-dev", default="plughw:2,0")
     p.add_argument("--segment", action="store_true", help="also save low-bitrate stream archive")
@@ -387,6 +386,29 @@ def main() -> int:
             print(masked_key)
             return 0
 
+    modes = camera_modes.probe_camera_modes(args.cam_dev)
+    usb2 = camera_modes.is_usb2(args.cam_dev)
+    requested_size = args.size if args.cam_input_format != "auto" else None
+    requested_fps = args.fps if args.cam_input_format != "auto" else None
+    cam_mode, cam_warnings = camera_modes.select_mode(
+        modes,
+        args.cam_input_format,
+        requested_size,
+        requested_fps,
+        args.cam_max_fps,
+        usb2,
+    )
+    args.cam_input_format = cam_mode.pixfmt
+    args.size = f"{cam_mode.w}x{cam_mode.h}"
+    args.fps = cam_mode.fps
+    args._cam_mode = cam_mode
+    args._usb2 = usb2
+    for w in cam_warnings:
+        print(f"[gameday] WARNING: {w}")
+    print(
+        f"[gameday] camera mode: {camera_modes.format_mode(cam_mode)} (usb2={usb2})"
+    )
+
     if args.remux_mp4:
         start_remux_watcher(args.mezz_dir, args.remux_keep_ts)
 
@@ -400,8 +422,6 @@ def main() -> int:
 
     if args.dry_run:
         display_args = argparse.Namespace(**vars(args))
-        if display_args.cam_input_format == "auto":
-            display_args.cam_input_format = "mjpeg"
         tee_display = "yt+segments" if not args.no_yt else "segments"
         print(
             f"[gameday] input_format={display_args.cam_input_format} | hw_encoder={encoder} | tee={tee_display}"
@@ -412,15 +432,13 @@ def main() -> int:
         print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
         return 0
 
-    rc, log = run_ffmpeg(args, encoder, stream_key)
+    rc, log = run_ffmpeg(args, encoder, stream_key, args._cam_mode, args._usb2)
 
     if need_fallback(rc, log):
         print("[gameday] hw encoder failed; retrying with libx264")
         encoder = "libx264"
         if args.dry_run:
             display_args = argparse.Namespace(**vars(args))
-            if display_args.cam_input_format == "auto":
-                display_args.cam_input_format = "mjpeg"
             tee_display = "yt+segments" if not args.no_yt else "segments"
             print(
                 f"[gameday] input_format={display_args.cam_input_format} | hw_encoder={encoder} | tee={tee_display}"
@@ -430,7 +448,7 @@ def main() -> int:
             print("[gameday] ffmpeg command:")
             print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
             return 0
-        rc, log = run_ffmpeg(args, encoder, stream_key)
+        rc, log = run_ffmpeg(args, encoder, stream_key, args._cam_mode, args._usb2)
 
 
     if rc != 0 and args.yt_optional and not args.no_yt:

@@ -29,6 +29,12 @@ encode. A high-quality mezzanine is captured alongside the stream:
 ./gameday --size 1280x720 --fps 30 --bitrate 6M
 ```
 
+### Camera modes
+
+`gameday` auto-probes the camera and USB bus to pick a sustainable mode. On
+USB2 links, raw YUYV 1280×720 is capped at 15 fps to avoid bandwidth
+starvation; use MJPEG to reach 720p30.
+
 By default, segments are written to `recordings/raw/` in 15 minute chunks. Use
 `--mezzanine off` to disable the master leg.
 
