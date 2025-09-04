@@ -84,15 +84,18 @@ def start_remux_watcher(out_dir: str, keep_ts: bool):
     t.start()
 
 
-def build_cmd(args: argparse.Namespace, encoder: str, stream_key: str | None) -> List[str]:
+def build_cmd(
+    args: argparse.Namespace, encoder: str, stream_key: str | None, mezz_mode: str
+) -> List[str]:
     seg_time = max(1, int(args.segment_seconds))
     outputs: List[str] = []
+    yt_url: str | None = None
     if not args.no_yt:
         yt_base = f"rtmps://{args.yt_ingest}.rtmps.youtube.com/live2"
         yt_url = f"{yt_base}/{stream_key}?rtmp_live=1"
         flv_opts = "f=flv:onfail=ignore" if args.yt_optional else "f=flv"
         outputs.append(f"[{flv_opts}]{yt_url}")
-    if not args.no_segment:
+    if args.segment:
         out_dir = Path(args.out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         outputs.append(
@@ -100,11 +103,7 @@ def build_cmd(args: argparse.Namespace, encoder: str, stream_key: str | None) ->
         )
     tee_arg = "|".join(outputs)
     loglevel = "verbose" if args.debug else "warning"
-    cmd: List[str] = [
-        "ffmpeg",
-        "-loglevel",
-        loglevel,
-    ]
+    cmd: List[str] = ["ffmpeg", "-loglevel", loglevel]
     if args.debug:
         cmd += ["-report"]
     cmd += [
@@ -133,39 +132,98 @@ def build_cmd(args: argparse.Namespace, encoder: str, stream_key: str | None) ->
         "-i",
         args.alsa_dev,
         "-filter_complex",
-        "[0:v]settb=AVTB,setpts=PTS-STARTPTS,scale=in_range=pc:out_range=tv,format=yuv420p[v];[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]",
-        "-map",
-        "[v]",
-        "-map",
-        "[a]",
-        "-c:v",
-        encoder,
+        "[0:v]settb=AVTB,setpts=PTS-STARTPTS[v0];[v0]split[v_master][v_stream];[v_stream]scale=in_range=pc:out_range=tv,format=yuv420p[v];[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]",
     ]
-    if encoder == "libx264":
-        cmd += ["-preset", "veryfast", "-tune", "zerolatency", "-pix_fmt", "yuv420p"]
-    cmd += [
-        "-b:v",
-        args.bitrate,
-        "-maxrate",
-        "4000k",
-        "-bufsize",
-        "6000k",
-        "-g",
-        "60",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-ar",
-        "48000",
-        "-ac",
-        "2",
-        "-flvflags",
-        "no_duration_filesize",
-        "-f",
-        "tee",
-        tee_arg,
-    ]
+    # Streaming output
+    if outputs:
+        cmd += [
+            "-map",
+            "[v]",
+            "-map",
+            "[a]",
+            "-c:v",
+            encoder,
+        ]
+        if encoder == "libx264":
+            cmd += ["-preset", "veryfast", "-tune", "zerolatency", "-pix_fmt", "yuv420p"]
+        cmd += [
+            "-b:v",
+            args.bitrate,
+            "-maxrate",
+            "4000k",
+            "-bufsize",
+            "6000k",
+            "-g",
+            "60",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            "-flvflags",
+            "no_duration_filesize",
+            "-f",
+            "tee",
+            tee_arg,
+        ]
+    # Mezzanine output
+    mezz_dir = Path(args.mezz_dir)
+    if mezz_mode != "off":
+        mezz_dir.mkdir(parents=True, exist_ok=True)
+        mezz_seg = max(1, int(args.mezz_segment_seconds))
+        if mezz_mode == "copy":
+            cmd += [
+                "-map",
+                "0:v",
+                "-map",
+                "1:a",
+                "-c:v",
+                "copy",
+                "-c:a",
+                "copy",
+                "-f",
+                "segment",
+                "-segment_time",
+                str(mezz_seg),
+                "-reset_timestamps",
+                "1",
+                "-strftime",
+                "1",
+                f"{mezz_dir}/%Y%m%d_%H%M%S.mkv",
+            ]
+        elif mezz_mode == "crf":
+            cmd += [
+                "-map",
+                "[v_master]",
+                "-map",
+                "[a]",
+                "-c:v",
+                "libx264",
+                "-preset",
+                args.mezz_preset,
+                "-crf",
+                str(args.mezz_crf),
+                "-pix_fmt",
+                "yuv420p",
+                "-g",
+                "60",
+                "-c:a",
+                "aac",
+                "-b:a",
+                args.mezz_audio_bitrate,
+                "-f",
+                "segment",
+                "-segment_time",
+                str(mezz_seg),
+                "-reset_timestamps",
+                "1",
+                "-strftime",
+                "1",
+                f"{mezz_dir}/%Y%m%d_%H%M%S.mp4",
+            ]
     return cmd
 
 
@@ -173,7 +231,7 @@ def need_fallback(rc: int, log: List[str]) -> bool:
     text = "\n".join(log)
     if "Could not find a valid device" in text or "can't configure encoder" in text:
         return True
-    if rc != 0 and not any("Output #0, tee," in l for l in log):
+    if rc != 0 and not any("Output #0" in l for l in log):
         return True
     return False
 
@@ -184,23 +242,34 @@ def main() -> int:
     p.add_argument("--fps", type=int, default=30)
     p.add_argument("--bitrate", default="3500k")
     p.add_argument("--alsa-dev", default="plughw:2,0")
+    p.add_argument("--segment", action="store_true", help="also save low-bitrate stream archive")
     p.add_argument("--segment-seconds", type=int, default=900)
-    p.add_argument("--out-dir", default="recordings/raw")
+    p.add_argument("--out-dir", default="recordings/archive")
     p.add_argument("--stream-key")
     p.add_argument("--cam-dev", default="/dev/video0")
     p.add_argument("--cam-input-format", default="mjpeg")
+    p.add_argument(
+        "--mezzanine",
+        choices=["auto", "copy", "crf", "off"],
+        default="auto",
+        help="high-quality master recording mode",
+    )
+    p.add_argument("--mezz-dir", default="recordings/raw")
+    p.add_argument("--mezz-segment-seconds", type=int, default=900)
+    p.add_argument("--mezz-crf", type=int, default=18)
+    p.add_argument("--mezz-preset", default="medium")
+    p.add_argument("--mezz-audio-bitrate", default="192k")
     p.add_argument("--remux-mp4", action="store_true")
     p.add_argument("--remux-keep-ts", action="store_true")
     p.add_argument("--no-yt", action="store_true")
-    p.add_argument("--no-segment", action="store_true")
     p.add_argument("--yt-optional", action="store_true")
     p.add_argument("--yt-ingest", choices=["a", "b"], default="a")
     p.add_argument("--debug", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
 
-    if args.no_yt and args.no_segment:
-        print("[gameday] ERROR: both --no-yt and --no-segment specified", file=sys.stderr)
+    if args.no_yt and not args.segment and args.mezzanine == "off":
+        print("[gameday] ERROR: no outputs specified", file=sys.stderr)
         return 2
 
     stream_key = None
@@ -213,11 +282,24 @@ def main() -> int:
             return 2
         masked_key = mask_key(stream_key)
 
-    if args.remux_mp4 and not args.no_segment:
+    if args.remux_mp4 and args.segment:
         start_remux_watcher(args.out_dir, args.remux_keep_ts)
 
+    mezz_mode = args.mezzanine
+    if mezz_mode == "auto":
+        if args.cam_input_format.lower() == "mjpeg":
+            mezz_mode = "copy"
+        else:
+            mezz_mode = "crf"
+
+    yt_display = "off"
+    if not args.no_yt and stream_key:
+        yt_display = f"rtmps://{args.yt_ingest}.rtmps.youtube.com/live2/{masked_key}"
+    raw_display = args.mezz_dir if mezz_mode != "off" else "off"
+    print(f"[gameday] Launch -> {yt_display} | raw={raw_display} (mode={mezz_mode})")
+
     encoder = "h264_v4l2m2m"
-    cmd = build_cmd(args, encoder, stream_key)
+    cmd = build_cmd(args, encoder, stream_key, mezz_mode)
     sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
     print("[gameday] ffmpeg command:")
     print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
@@ -228,7 +310,18 @@ def main() -> int:
     if need_fallback(rc, log):
         print("[gameday] hw encoder failed; retrying with libx264")
         encoder = "libx264"
-        cmd = build_cmd(args, encoder, stream_key)
+        cmd = build_cmd(args, encoder, stream_key, mezz_mode)
+        sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
+        print("[gameday] ffmpeg command:")
+        print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
+        if args.dry_run:
+            return 0
+        rc, log = run_ffmpeg(cmd, stream_key)
+
+    if rc != 0 and mezz_mode != "off":
+        print("[gameday] ERROR: mezzanine leg failed; retrying without mezzanine", file=sys.stderr)
+        mezz_mode = "off"
+        cmd = build_cmd(args, encoder, stream_key, mezz_mode)
         sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
         print("[gameday] ffmpeg command:")
         print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))

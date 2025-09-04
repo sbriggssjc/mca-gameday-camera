@@ -75,6 +75,9 @@ export PULSE_DEV='alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_XXXXXXXX-00.mono-fal
 ./gameday
 ```
 
+By default `gameday` saves a high-quality mezzanine recording under
+`recordings/raw/`. Disable with `--mezzanine off`.
+
 If 443/rtmps is flaky, try:
 
 rtmps://b.rtmps.youtube.com/live2/<key>

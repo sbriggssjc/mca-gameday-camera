@@ -17,20 +17,20 @@ scripts/kill_conflicts.sh
 
 - `gameday` will pick the first available H.264 encoder (libx264 or hardware
   `h264_*`). Ensure your ffmpeg build includes at least one.
+- `gameday` also saves a high-quality master recording under `recordings/raw`
+  by default. Disable with `--mezzanine off`.
 
 ## Shared encoder launcher
 
 Use the single-process launcher to stream and record with a shared H.264/AAC
-encode:
+encode. A high-quality mezzanine is captured alongside the stream:
 
 ```bash
-./gameday.sh --stream true --record-format mkv --segment-seconds 900 \
-  --size 1280x720 --fps 30 --bitrate 6M
+./gameday --size 1280x720 --fps 30 --bitrate 6M
 ```
 
-Local files land under `video/raw/` and YouTube streaming uses the same
-encode.  Pass `--record-format mp4 --segment-seconds 0` for a single MP4 (less
-crash-safe).
+By default, segments are written to `recordings/raw/` in 15 minute chunks. Use
+`--mezzanine off` to disable the master leg.
 
 ### Raw MKV has no video?
 
@@ -48,7 +48,9 @@ ffmpeg -fflags +genpts+igndts+discardcorrupt -avoid_negative_ts make_zero \
   -map "[v]" -map "[a]" -c:v libx264 -preset veryfast -tune zerolatency \
   -b:v 3500k -maxrate 4000k -bufsize 6000k -g 60 -c:a aac -b:a 128k \
   -ar 48000 -ac 2 -f tee \
-  "[f=flv:onfail=ignore]rtmps://a.rtmps.youtube.com/live2/STREAM_KEY|[f=segment:segment_time=900:reset_timestamps=1:strftime=1]recordings/raw/%Y%m%d_%H%M%S.mkv"
+  "[f=flv:onfail=ignore]rtmps://a.rtmps.youtube.com/live2/STREAM_KEY" \
+  -map 0:v -map 1:a -c:v copy -c:a copy \
+  -f segment -segment_time 900 -reset_timestamps 1 -strftime 1 recordings/raw/%Y%m%d_%H%M%S.mkv
 ```
 
 This ensures the raw MKV contains valid H.264 video alongside AAC audio.
