@@ -1,133 +1,134 @@
 #!/usr/bin/env python3
-"""Launch ffmpeg with a shared encode for YouTube and local recording.
-
-This wrapper performs a single H.264/AAC encode and uses the tee muxer to
-simultaneously stream to YouTube and write local segment files.  It accepts a
-small set of CLI options and validates the resulting recording.
-
-Acceptance tests:
-    Single file test (no segments):
-        ./gameday --segment-seconds 0
-
-    Segments on FFmpeg 4.x:
-        ./gameday --segment-seconds 900
-
-    Segments on FFmpeg 5+:
-        ./gameday --segment-seconds 900
+"""
+Launch ffmpeg with a shared encode for YouTube and local recording.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
-import re
 import shlex
 import subprocess
 import sys
-from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 
-def resolve_stream_key(args) -> str:
-    import os, json
-    from pathlib import Path
-    key = (getattr(args, "stream_key", None)
-           or os.environ.get("YT_STREAM_KEY")
-           or os.environ.get("YOUTUBE_STREAM_KEY"))
+def load_stream_key(cli_key: str | None) -> str:
+    """Resolve the YouTube stream key from env/file/CLI."""
+    key = os.getenv("YOUTUBE_STREAM_KEY")
     if not key:
-        try:
-            from dotenv import load_dotenv  # do not hard fail if missing
-            load_dotenv()
-            key = (os.environ.get("YT_STREAM_KEY") or os.environ.get("YOUTUBE_STREAM_KEY"))
-        except Exception:
-            pass
+        env_path = Path(".env")
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                if line.strip().startswith("YOUTUBE_STREAM_KEY="):
+                    key = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    break
     if not key:
-        for p in ("config.json", "config/secrets.json", "secrets.json"):
-            fp = Path(p)
-            if fp.exists():
-                try:
-                    data = json.loads(fp.read_text())
-                    key = (data.get("yt_stream_key") or data.get("youtube_stream_key") or data.get("stream_key"))
-                    if key: break
-                except Exception:
-                    pass
+        sk = Path(".stream_key")
+        if sk.exists():
+            key = sk.read_text().strip()
+    if not key and cli_key:
+        key = cli_key.strip()
     if not key:
-        raise SystemExit("Missing stream key. Pass --stream-key or set YT_STREAM_KEY / YOUTUBE_STREAM_KEY.")
+        print(
+            "[gameday] ERROR: Missing stream key. Set YOUTUBE_STREAM_KEY, create .stream_key, or pass --stream-key."
+        )
+        raise SystemExit(2)
     return key
 
 
-def ffmpeg_major_version() -> int:
-    import re, subprocess
+def mask_stream_key(k: str) -> str:
+    if not k:
+        return ""
+    return k[:4] + "*" * max(0, len(k) - 4)
+
+
+def run_ffmpeg(cmd: List[str], stream_key: str | None = None) -> Tuple[int, List[str]]:
+    import signal
+    import time
+
+    proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True, bufsize=1)
+    log: List[str] = []
+    masked = mask_stream_key(stream_key) if stream_key else None
     try:
-        out = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True).stdout
-        m = re.search(r"ffmpeg version\s+(\d+)\.", out or "")
-        return int(m.group(1)) if m else 4
-    except Exception:
-        return 4
+        assert proc.stderr is not None
+        for line in proc.stderr:
+            if not line:
+                break
+            if stream_key:
+                line = line.replace(stream_key, masked)
+            log.append(line.rstrip("\n"))
+            sys.stderr.write(line)
+    except KeyboardInterrupt:
+        print("\n[gameday] stopping…")
+        try:
+            proc.send_signal(signal.SIGINT)
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    rc = proc.wait()
+    return rc, log
 
 
-def hw_encoder_ok(size: str, fps: int) -> bool:
-    """Return True if the V4L2 hardware encoder appears functional."""
+def start_remux_watcher(out_dir: str, keep_ts: bool):
+    import threading
+    import time
 
-    cmd = [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-f",
-        "lavfi",
-        "-i",
-        f"testsrc2=size={size}:rate={fps}",
-        "-t",
-        "1",
-        "-pix_fmt",
-        "nv12",
-        "-c:v",
-        "h264_v4l2m2m",
-        "-f",
-        "null",
-        "-",
-    ]
-    try:
-        return subprocess.run(cmd).returncode == 0
-    except Exception:
-        return False
+    def _worker():
+        p = Path(out_dir)
+        p.mkdir(parents=True, exist_ok=True)
+        while True:
+            try:
+                now = time.time()
+                for ts in sorted(p.glob("*.ts")):
+                    mp4 = ts.with_suffix(".mp4")
+                    if mp4.exists():
+                        continue
+                    if now - ts.stat().st_mtime < 60:
+                        continue
+                    cmd = [
+                        "ffmpeg",
+                        "-y",
+                        "-i",
+                        str(ts),
+                        "-c",
+                        "copy",
+                        "-bsf:a",
+                        "aac_adtstoasc",
+                        str(mp4),
+                    ]
+                    print(f"[gameday] remux -> {mp4.name}")
+                    r = subprocess.run(cmd)
+                    if r.returncode == 0 and not keep_ts:
+                        try:
+                            ts.unlink()
+                        except OSError:
+                            pass
+            except Exception as e:  # pragma: no cover - best effort logging
+                print(f"[gameday] remux watcher error: {e}")
+            time.sleep(10)
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
 
 
-def build_ffmpeg_cmd(args: argparse.Namespace, encoder: str, stream_key: str, raw_dir: Path) -> tuple[List[str], str]:
-    seg_seconds = max(0, int(args.segment_seconds))
-    ffver = ffmpeg_major_version()
-    yt_sink = f"[f=flv:onfail=ignore]rtmps://a.rtmps.youtube.com/live2/{stream_key}"
+def build_cmd(args: argparse.Namespace, encoder: str, stream_key: str | None) -> List[str]:
+    seg_time = max(1, int(args.segment_seconds))
+    outputs: List[str] = []
+    if not args.no_yt:
+        outputs.append(
+            f"[f=flv:onfail=ignore]rtmps://a.rtmps.youtube.com/live2/{stream_key}"
+        )
+    if not args.no_record:
+        out_dir = Path(args.out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        outputs.append(
+            f"[f=segment:use_fifo=1:segment_format=mpegts:segment_time={seg_time}:reset_timestamps=1:strftime=1]{out_dir}/%Y%m%d_%H%M%S.ts"
+        )
+    tee_arg = "|".join(outputs)
 
-    if seg_seconds > 0:
-        if ffver < 5:
-            raw_sink = (
-                f"[f=segment:use_fifo=1:segment_format=mpegts:"
-                f"segment_time={seg_seconds}:reset_timestamps=1:strftime=1]"
-                f"{raw_dir}/%Y%m%d_%H%M%S.ts"
-            )
-            ext = "ts"
-        else:
-            raw_sink = (
-                f"[f=segment:use_fifo=1:segment_format=matroska:"
-                f"segment_time={seg_seconds}:reset_timestamps=1:strftime=1]"
-                f"{raw_dir}/%Y%m%d_%H%M%S.mkv"
-            )
-            ext = "mkv"
-    else:
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        raw_sink = f"[f=matroska]{raw_dir}/{stamp}.mkv"
-        ext = "mkv"
-
-    tee_arg_real = f"{yt_sink}|{raw_sink}"
-
-    tee_muxer_opts: List[str] = []
-    if ffver >= 5:
-        tee_muxer_opts += ["-tee_flags", "+use_fifo+resend_headers"]
-
-    cmd = [
+    cmd: List[str] = [
         "ffmpeg",
         "-fflags",
         "+genpts+igndts+discardcorrupt",
@@ -154,28 +155,16 @@ def build_ffmpeg_cmd(args: argparse.Namespace, encoder: str, stream_key: str, ra
         "-i",
         args.alsa_dev,
         "-filter_complex",
-        "[0:v]settb=AVTB,setpts=PTS-STARTPTS,scale=in_range=pc:out_range=tv,format=yuv420p[v];"
-        "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]",
+        "[0:v]settb=AVTB,setpts=PTS-STARTPTS,scale=in_range=pc:out_range=tv,format=yuv420p[v];[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]",
         "-map",
         "[v]",
         "-map",
         "[a]",
+        "-c:v",
+        encoder,
     ]
-
-    if encoder == "h264_v4l2m2m":
-        cmd += ["-c:v", "h264_v4l2m2m", "-pix_fmt", "yuv420p"]
-    else:
-        cmd += [
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-tune",
-            "zerolatency",
-            "-pix_fmt",
-            "yuv420p",
-        ]
-
+    if encoder == "libx264":
+        cmd += ["-preset", "veryfast", "-tune", "zerolatency", "-pix_fmt", "yuv420p"]
     cmd += [
         "-b:v",
         args.bitrate,
@@ -193,164 +182,70 @@ def build_ffmpeg_cmd(args: argparse.Namespace, encoder: str, stream_key: str, ra
         "48000",
         "-ac",
         "2",
-    ] + tee_muxer_opts + [
         "-f",
         "tee",
-        tee_arg_real,
+        tee_arg,
     ]
-
-    return cmd, ext
-
-
-def run_ffmpeg(cmd: List[str], stream_key: str) -> tuple[int, str]:
-    proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True)
-    assert proc.stderr is not None
-    lines = []
-    for line in proc.stderr:
-        safe = line.replace(stream_key, "<STREAM_KEY>")
-        sys.stderr.write(safe)
-        lines.append(safe)
-    rc = proc.wait()
-    return rc, "".join(lines)
+    return cmd
 
 
-def validate_segment(out_dir: Path, ext: str) -> bool:
-    try:
-        latest = max(out_dir.glob(f"*.{ext}"), key=lambda p: p.stat().st_mtime)
-    except ValueError:
-        print("[gameday] no local segment found", file=sys.stderr)
-        return False
-    try:
-        v = subprocess.check_output(
-            [
-                "ffprobe",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "stream=codec_name,pix_fmt",
-                "-of",
-                "csv=p=0",
-                str(latest),
-            ],
-            text=True,
-        ).strip()
-        a = subprocess.check_output(
-            [
-                "ffprobe",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-select_streams",
-                "a:0",
-                "-show_entries",
-                "stream=codec_name",
-                "-of",
-                "csv=p=0",
-                str(latest),
-            ],
-            text=True,
-        ).strip()
-    except subprocess.CalledProcessError as exc:
-        print(f"[gameday] ffprobe failed: {exc}", file=sys.stderr)
-        return False
-
-    v_codec, pix_fmt = (v.split(",") + [""] * 2)[:2]
-    if v_codec != "h264" or pix_fmt != "yuv420p" or a != "aac":
-        print("[gameday] validation failed: expected h264/yuv420p + aac", file=sys.stderr)
-        return False
-    return True
+def need_fallback(rc: int, log: List[str]) -> bool:
+    text = "\n".join(log)
+    if "Could not find a valid device" in text or "can't configure encoder" in text:
+        return True
+    if rc != 0 and not any("Output #0, tee," in l for l in log):
+        return True
+    return False
 
 
 def main() -> int:
-    epilog = (
-        "Single file test:\n"
-        "  ./gameday --segment-seconds 0\n\n"
-        "Segments on FFmpeg 4.x:\n"
-        "  ./gameday --segment-seconds 900\n\n"
-        "Segments on FFmpeg 5+:\n"
-        "  ./gameday --segment-seconds 900"
-    )
-    p = argparse.ArgumentParser(
-        epilog=epilog,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        conflict_handler="resolve",
-    )
-    p.add_argument("--size", default=os.getenv("SIZE", "1280x720"))
-    p.add_argument("--fps", type=int, default=int(os.getenv("FPS", "30")))
-    p.add_argument("--bitrate", default=os.getenv("BITRATE", "3500k"))
-    p.add_argument("--alsa-dev", default=os.getenv("ALSA_DEV", "plughw:2,0"))
-    p.add_argument(
-        "--segment-seconds",
-        type=int,
-        default=int(os.getenv("SEGMENT_SECONDS", "900")),
-        help="Seconds per segment (0 = single file). Default: 900",
-    )
-    p.add_argument("--out-dir", default=os.getenv("OUT_DIR", "recordings/raw"))
-    p.add_argument("--stream-key", help="YouTube RTMPS stream key")
-    p.add_argument("--cam-dev", default=os.getenv("CAM_DEV", "/dev/video0"))
-    p.add_argument("--cam-input-format", default=os.getenv("CAM_INPUT_FORMAT", "mjpeg"))
-    p.add_argument(
-        "--encoder",
-        choices=["h264_v4l2m2m", "libx264"],
-        default=os.getenv("ENCODER", "h264_v4l2m2m"),
-    )
+    p = argparse.ArgumentParser()
+    p.add_argument("--size", default="1280x720")
+    p.add_argument("--fps", type=int, default=30)
+    p.add_argument("--bitrate", default="3500k")
+    p.add_argument("--alsa-dev", default="plughw:2,0")
+    p.add_argument("--segment-seconds", type=int, default=900)
+    p.add_argument("--out-dir", default="recordings/raw")
+    p.add_argument("--stream-key")
+    p.add_argument("--cam-dev", default="/dev/video0")
+    p.add_argument("--cam-input-format", default="mjpeg")
+    p.add_argument("--remux-mp4", action="store_true")
+    p.add_argument("--remux-keep-ts", action="store_true")
+    p.add_argument("--no-yt", action="store_true")
+    p.add_argument("--no-record", action="store_true")
     args = p.parse_args()
 
-    try:
-        stream_key = resolve_stream_key(args)
-    except SystemExit as exc:
-        p.error(str(exc))
+    if args.no_yt and args.no_record:
+        print("[gameday] ERROR: both --no-yt and --no-record specified", file=sys.stderr)
+        return 2
 
-    raw_dir = Path(args.out_dir)
-    raw_dir.mkdir(parents=True, exist_ok=True)
+    stream_key = None
+    masked_key = ""
+    if not args.no_yt:
+        stream_key = load_stream_key(args.stream_key)
+        masked_key = mask_stream_key(stream_key)
 
-    encoder = args.encoder
-    if encoder == "h264_v4l2m2m" and not hw_encoder_ok(args.size, args.fps):
-        print("h264_v4l2m2m unavailable; falling back to libx264")
-        encoder = "libx264"
+    if args.remux_mp4 and not args.no_record:
+        start_remux_watcher(args.out_dir, args.remux_keep_ts)
 
-    safe_key = stream_key[:4] + "***"
-    print(
-        f"[gameday] Launch -> size={args.size}@{args.fps} | audio={args.alsa_dev} | encoder={encoder} | raw={args.out_dir} | yt=on (key={safe_key})"
-    )
-
-    cmd, ext = build_ffmpeg_cmd(args, encoder, stream_key, raw_dir)
-    sanitized = [c.replace(stream_key, "<STREAM_KEY>") for c in cmd]
-    print("[gameday] encoder command:")
-
-    parts = []
-    i = 0
-    while i < len(sanitized):
-        if sanitized[i] == "-tee_flags" and i + 1 < len(sanitized):
-            parts.append(f"[-tee_flags {shlex.quote(sanitized[i + 1])}]")
-            i += 2
-        else:
-            parts.append(shlex.quote(sanitized[i]))
-            i += 1
-    print("[gameday]", " ".join(parts))
-
+    encoder = "h264_v4l2m2m"
+    cmd = build_cmd(args, encoder, stream_key)
+    sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
+    print("[gameday] ffmpeg command:")
+    print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
     rc, log = run_ffmpeg(cmd, stream_key)
 
-    if "Output #0, tee, to '" not in log:
-        print("[gameday] ERROR: tee not engaged", file=sys.stderr)
-        return 1
+    if need_fallback(rc, log):
+        print("[gameday] hw encoder failed; retrying with libx264")
+        encoder = "libx264"
+        cmd = build_cmd(args, encoder, stream_key)
+        sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
+        print("[gameday] ffmpeg command:")
+        print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
+        rc, log = run_ffmpeg(cmd, stream_key)
 
-    if rc != 0:
-        first_line = next((l.strip() for l in log.splitlines() if l.strip()), "")
-        print(f"[gameday] ffmpeg exited with code {rc}", file=sys.stderr)
-        if first_line:
-            print(f"[gameday] first error line: {first_line}", file=sys.stderr)
-        return rc
-
-    if not validate_segment(raw_dir, ext):
-        return 1
-
-    return 0
+    return rc
 
 
-if __name__ == "__main__":  # pragma: no cover - CLI entry
+if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())
-
