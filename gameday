@@ -98,18 +98,23 @@ def hw_encoder_ok(size: str, fps: int) -> bool:
 
 def build_ffmpeg_cmd(args: argparse.Namespace, encoder: str, stream_key: str, raw_dir: Path) -> tuple[List[str], str]:
     seg_seconds = max(0, int(args.segment_seconds))
+    ffver = ffmpeg_major_version()
     yt_sink = f"[f=flv:onfail=ignore]rtmps://a.rtmps.youtube.com/live2/{stream_key}"
 
     if seg_seconds > 0:
-        if ffmpeg_major_version() < 5:
-            raw_sink = (f"[f=segment:use_fifo=1:segment_format=mpegts:"
-                        f"segment_time={seg_seconds}:reset_timestamps=1:strftime=1]"
-                        f"{raw_dir}/%Y%m%d_%H%M%S.ts")
+        if ffver < 5:
+            raw_sink = (
+                f"[f=segment:use_fifo=1:segment_format=mpegts:"
+                f"segment_time={seg_seconds}:reset_timestamps=1:strftime=1]"
+                f"{raw_dir}/%Y%m%d_%H%M%S.ts"
+            )
             ext = "ts"
         else:
-            raw_sink = (f"[f=segment:use_fifo=1:segment_format=matroska:"
-                        f"segment_time={seg_seconds}:reset_timestamps=1:strftime=1]"
-                        f"{raw_dir}/%Y%m%d_%H%M%S.mkv")
+            raw_sink = (
+                f"[f=segment:use_fifo=1:segment_format=matroska:"
+                f"segment_time={seg_seconds}:reset_timestamps=1:strftime=1]"
+                f"{raw_dir}/%Y%m%d_%H%M%S.mkv"
+            )
             ext = "mkv"
     else:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -117,6 +122,10 @@ def build_ffmpeg_cmd(args: argparse.Namespace, encoder: str, stream_key: str, ra
         ext = "mkv"
 
     tee_arg_real = f"{yt_sink}|{raw_sink}"
+
+    tee_muxer_opts: List[str] = []
+    if ffver >= 5:
+        tee_muxer_opts += ["-tee_flags", "+use_fifo+resend_headers"]
 
     cmd = [
         "ffmpeg",
@@ -184,8 +193,7 @@ def build_ffmpeg_cmd(args: argparse.Namespace, encoder: str, stream_key: str, ra
         "48000",
         "-ac",
         "2",
-        "-tee_flags",
-        "+use_fifo+resend_headers",
+    ] + tee_muxer_opts + [
         "-f",
         "tee",
         tee_arg_real,
@@ -312,7 +320,17 @@ def main() -> int:
     cmd, ext = build_ffmpeg_cmd(args, encoder, stream_key, raw_dir)
     sanitized = [c.replace(stream_key, "<STREAM_KEY>") for c in cmd]
     print("[gameday] encoder command:")
-    print("[gameday]", " ".join(shlex.quote(c) for c in sanitized))
+
+    parts = []
+    i = 0
+    while i < len(sanitized):
+        if sanitized[i] == "-tee_flags" and i + 1 < len(sanitized):
+            parts.append(f"[-tee_flags {shlex.quote(sanitized[i + 1])}]")
+            i += 2
+        else:
+            parts.append(shlex.quote(sanitized[i]))
+            i += 1
+    print("[gameday]", " ".join(parts))
 
     rc, log = run_ffmpeg(cmd, stream_key)
 
