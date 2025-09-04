@@ -126,6 +126,7 @@ def build_cmd(
     if args.debug:
         cmd += ["-report"]
 
+
     raw_mode = getattr(args, "raw_mode", "encode" if mezz_mode == "crf" else "copy")
     raw_out_dir = getattr(args, "raw_out_dir", None)
     if raw_out_dir is None and mezz_mode != "off":
@@ -135,6 +136,20 @@ def build_cmd(
 
     use_split = raw_mode == "encode"
     filter_complex = build_filter_graph(use_split)
+
+
+    if mezz_mode == "crf":
+        filters = (
+            "[0:v]settb=AVTB,setpts=PTS-STARTPTS[v0];"
+            "[v0]split[v_master][v_stream];"
+            "[v_stream]scale=in_range=pc:out_range=tv,format=yuv420p[v];"
+            "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a];[v_master]nullsink"
+        )
+    else:
+        filters = (
+            "[0:v]settb=AVTB,setpts=PTS-STARTPTS,scale=in_range=pc:out_range=tv,format=yuv420p[v];"
+            "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a];[v_master]nullsink"
+        )
 
     cmd += [
         "-fflags",
