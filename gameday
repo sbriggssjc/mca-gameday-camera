@@ -17,6 +17,23 @@ from gameday_config import get_stream_key, mask_key
 import re
 
 
+def build_filter_graph(use_split: bool) -> str:
+    if use_split:
+        # For ENCODE mezzanine: we'll map [v_master] later.
+        return (
+            "[0:v]settb=AVTB,setpts=PTS-STARTPTS[v0];"
+            "[v0]split[v_master][v_stream];"
+            "[v_stream]scale=in_range=pc:out_range=tv,format=yuv420p[v];"
+            "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]"
+        )
+    # For COPY mezzanine or no mezzanine/fallback: no split.
+    return (
+        "[0:v]settb=AVTB,setpts=PTS-STARTPTS,"
+        "scale=in_range=pc:out_range=tv,format=yuv420p[v];"
+        "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]"
+    )
+
+
 def run_ffmpeg(cmd: List[str], stream_key: str | None = None) -> Tuple[int, List[str]]:
     import signal
 
@@ -108,6 +125,19 @@ def build_cmd(
     cmd: List[str] = ["ffmpeg", "-loglevel", loglevel]
     if args.debug:
         cmd += ["-report"]
+
+
+    raw_mode = getattr(args, "raw_mode", "encode" if mezz_mode == "crf" else "copy")
+    raw_out_dir = getattr(args, "raw_out_dir", None)
+    if raw_out_dir is None and mezz_mode != "off":
+        raw_out_dir = args.mezz_dir
+    if mezz_mode == "off":
+        raw_out_dir = None
+
+    use_split = raw_mode == "encode"
+    filter_complex = build_filter_graph(use_split)
+
+
     if mezz_mode == "crf":
         filters = (
             "[0:v]settb=AVTB,setpts=PTS-STARTPTS[v0];"
@@ -120,6 +150,7 @@ def build_cmd(
             "[0:v]settb=AVTB,setpts=PTS-STARTPTS,scale=in_range=pc:out_range=tv,format=yuv420p[v];"
             "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a];[v_master]nullsink"
         )
+
     cmd += [
         "-fflags",
         "+genpts+igndts+discardcorrupt",
@@ -146,7 +177,7 @@ def build_cmd(
         "-i",
         args.alsa_dev,
         "-filter_complex",
-        filters,
+        filter_complex,
     ]
     # Streaming output
     if outputs:
@@ -183,12 +214,36 @@ def build_cmd(
             "tee",
             tee_url,
         ]
-    # Mezzanine output
-    mezz_dir = Path(args.mezz_dir)
-    if mezz_mode != "off":
-        mezz_dir.mkdir(parents=True, exist_ok=True)
-        mezz_seg = max(1, int(args.mezz_segment_seconds))
-        if mezz_mode == "copy":
+    # Mezzanine leg
+    if raw_out_dir:
+        Path(raw_out_dir).mkdir(parents=True, exist_ok=True)
+        if raw_mode == "encode":
+            cmd += [
+                "-map",
+                "[v_master]",
+                "-map",
+                "[a]",
+                "-c:v",
+                "libx264",
+                "-crf",
+                "18",
+                "-preset",
+                "fast",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-f",
+                "segment",
+                "-segment_time",
+                str(args.segment_seconds),
+                "-reset_timestamps",
+                "1",
+                "-strftime",
+                "1",
+                os.path.join(raw_out_dir, "%Y%m%d_%H%M%S.mkv"),
+            ]
+        else:
             cmd += [
                 "-map",
                 "0:v",
@@ -201,42 +256,12 @@ def build_cmd(
                 "-f",
                 "segment",
                 "-segment_time",
-                str(mezz_seg),
+                str(args.segment_seconds),
                 "-reset_timestamps",
                 "1",
                 "-strftime",
                 "1",
-                f"{mezz_dir}/%Y%m%d_%H%M%S.mkv",
-            ]
-        elif mezz_mode == "crf":
-            cmd += [
-                "-map",
-                "[v_master]",
-                "-map",
-                "[a]",
-                "-c:v",
-                "libx264",
-                "-preset",
-                args.mezz_preset,
-                "-crf",
-                str(args.mezz_crf),
-                "-pix_fmt",
-                "yuv420p",
-                "-g",
-                "60",
-                "-c:a",
-                "aac",
-                "-b:a",
-                args.mezz_audio_bitrate,
-                "-f",
-                "segment",
-                "-segment_time",
-                str(mezz_seg),
-                "-reset_timestamps",
-                "1",
-                "-strftime",
-                "1",
-                f"{mezz_dir}/%Y%m%d_%H%M%S.mp4",
+                os.path.join(raw_out_dir, "%Y%m%d_%H%M%S.mkv"),
             ]
     return cmd
 
@@ -338,6 +363,7 @@ def main() -> int:
     if need_fallback(rc, log):
         print("[gameday] hw encoder failed; retrying with libx264")
         encoder = "libx264"
+        mezz_mode = "off"
         cmd = build_cmd(args, encoder, stream_key, mezz_mode)
         sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
         print("[gameday] ffmpeg command:")
