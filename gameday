@@ -13,44 +13,15 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
-
-def load_stream_key(cli_key: str | None) -> str:
-    """Resolve the YouTube stream key from env/file/CLI."""
-    key = os.getenv("YOUTUBE_STREAM_KEY")
-    if not key:
-        env_path = Path(".env")
-        if env_path.exists():
-            for line in env_path.read_text().splitlines():
-                if line.strip().startswith("YOUTUBE_STREAM_KEY="):
-                    key = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    break
-    if not key:
-        sk = Path(".stream_key")
-        if sk.exists():
-            key = sk.read_text().strip()
-    if not key and cli_key:
-        key = cli_key.strip()
-    if not key:
-        print(
-            "[gameday] ERROR: Missing stream key. Set YOUTUBE_STREAM_KEY, create .stream_key, or pass --stream-key."
-        )
-        raise SystemExit(2)
-    return key
-
-
-def mask_stream_key(k: str) -> str:
-    if not k:
-        return ""
-    return k[:4] + "*" * max(0, len(k) - 4)
+from gameday_config import get_stream_key, mask_key
 
 
 def run_ffmpeg(cmd: List[str], stream_key: str | None = None) -> Tuple[int, List[str]]:
     import signal
-    import time
 
     proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True, bufsize=1)
     log: List[str] = []
-    masked = mask_stream_key(stream_key) if stream_key else None
+    masked = mask_key(stream_key) if stream_key else None
     try:
         assert proc.stderr is not None
         for line in proc.stderr:
@@ -117,19 +88,26 @@ def build_cmd(args: argparse.Namespace, encoder: str, stream_key: str | None) ->
     seg_time = max(1, int(args.segment_seconds))
     outputs: List[str] = []
     if not args.no_yt:
-        outputs.append(
-            f"[f=flv:onfail=ignore]rtmps://a.rtmps.youtube.com/live2/{stream_key}"
-        )
-    if not args.no_record:
+        yt_base = f"rtmps://{args.yt_ingest}.rtmps.youtube.com/live2"
+        yt_url = f"{yt_base}/{stream_key}?rtmp_live=1"
+        flv_opts = "f=flv:onfail=ignore" if args.yt_optional else "f=flv"
+        outputs.append(f"[{flv_opts}]{yt_url}")
+    if not args.no_segment:
         out_dir = Path(args.out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         outputs.append(
             f"[f=segment:use_fifo=1:segment_format=mpegts:segment_time={seg_time}:reset_timestamps=1:strftime=1]{out_dir}/%Y%m%d_%H%M%S.ts"
         )
     tee_arg = "|".join(outputs)
-
+    loglevel = "verbose" if args.debug else "warning"
     cmd: List[str] = [
         "ffmpeg",
+        "-loglevel",
+        loglevel,
+    ]
+    if args.debug:
+        cmd += ["-report"]
+    cmd += [
         "-fflags",
         "+genpts+igndts+discardcorrupt",
         "-avoid_negative_ts",
@@ -182,6 +160,8 @@ def build_cmd(args: argparse.Namespace, encoder: str, stream_key: str | None) ->
         "48000",
         "-ac",
         "2",
+        "-flvflags",
+        "no_duration_filesize",
         "-f",
         "tee",
         tee_arg,
@@ -212,20 +192,28 @@ def main() -> int:
     p.add_argument("--remux-mp4", action="store_true")
     p.add_argument("--remux-keep-ts", action="store_true")
     p.add_argument("--no-yt", action="store_true")
-    p.add_argument("--no-record", action="store_true")
+    p.add_argument("--no-segment", action="store_true")
+    p.add_argument("--yt-optional", action="store_true")
+    p.add_argument("--yt-ingest", choices=["a", "b"], default="a")
+    p.add_argument("--debug", action="store_true")
+    p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
 
-    if args.no_yt and args.no_record:
-        print("[gameday] ERROR: both --no-yt and --no-record specified", file=sys.stderr)
+    if args.no_yt and args.no_segment:
+        print("[gameday] ERROR: both --no-yt and --no-segment specified", file=sys.stderr)
         return 2
 
     stream_key = None
     masked_key = ""
     if not args.no_yt:
-        stream_key = load_stream_key(args.stream_key)
-        masked_key = mask_stream_key(stream_key)
+        try:
+            stream_key = get_stream_key(args.stream_key)
+        except RuntimeError as e:
+            print(f"[gameday] ERROR: {e}", file=sys.stderr)
+            return 2
+        masked_key = mask_key(stream_key)
 
-    if args.remux_mp4 and not args.no_record:
+    if args.remux_mp4 and not args.no_segment:
         start_remux_watcher(args.out_dir, args.remux_keep_ts)
 
     encoder = "h264_v4l2m2m"
@@ -233,6 +221,8 @@ def main() -> int:
     sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
     print("[gameday] ffmpeg command:")
     print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
+    if args.dry_run:
+        return 0
     rc, log = run_ffmpeg(cmd, stream_key)
 
     if need_fallback(rc, log):
@@ -242,7 +232,13 @@ def main() -> int:
         sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
         print("[gameday] ffmpeg command:")
         print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
+        if args.dry_run:
+            return 0
         rc, log = run_ffmpeg(cmd, stream_key)
+
+    if rc != 0 and args.yt_optional and not args.no_yt:
+        print("[gameday] WARNING: YouTube leg failed; local recording may be incomplete", file=sys.stderr)
+        rc = 0
 
     return rc
 

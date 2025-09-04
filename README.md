@@ -81,23 +81,22 @@ rtmps://b.rtmps.youtube.com/live2/<key>
 
 If port 1935 is open and you prefer RTMP:
 
-rtmp://a.rtmp.youtube.com/live2/<key>
+## Stream key and ingest
 
-## Stream key discovery (precedence)
+Create a `.env` file in the repository root with::
 
-`gameday` looks for the YouTube stream key in the following order (first non-empty wins):
+``
+YOUTUBE_STREAM_KEY=your_key_here
+```
 
-1. `--stream-key` CLI argument
-2. Environment: `YT_STREAM_KEY`, `YOUTUBE_STREAM_KEY`, `STREAM_KEY`
-3. `.env` file in the repository root (same keys as above)
-4. Optional modules: `config.py`, `settings.py`, `secrets.py`
-5. Secret file: `~/.config/mca-gameday/yt.key`
+`gameday` resolves the key in this order:
 
-Notes
+1. `--stream-key` flag
+2. `YOUTUBE_STREAM_KEY` environment variable
+3. `.env` file
+4. Backward compatible env names (`YT_STREAM_KEY`, `STREAM_KEY`, `YOUTUBE_RTMP_URL`)
 
-The launcher prints a one-line “Launch -> …” status to stderr and emits JSON config to stdout internally. If it says missing or invalid RTMP URL, fix your key.
-
-If YouTube shows “No data” or a very low bitrate, verify network, try b.rtmps, or switch to rtmp:// if 1935 is open.
+Keys are masked in logs. Use `--yt-ingest a|b` to switch ingest servers. Add `--yt-optional` to keep local recording if YouTube is unreachable.
 
 We avoid aresample min_comp/max_comp entirely for compatibility.
 
@@ -329,7 +328,7 @@ YouTube using `ffmpeg`. Set the `VIDEO_DEVICE` environment variable if you need
 to use a different camera. Place your YouTube stream key in a `.env` file:
 
 ```ini
-YOUTUBE_STREAM_KEY=your_actual_stream_key
+YOUTUBE_STREAM_KEY=your_key_here
 ```
 
 You can also provide the key at runtime with `--stream-key`. Logs are written to the `livestream_logs` folder and the script will
@@ -712,7 +711,7 @@ YouTube using `ffmpeg`. Set the `VIDEO_DEVICE` environment variable if you need
 to use a different camera. Place your YouTube stream key in a `.env` file:
 
 ```ini
-YOUTUBE_STREAM_KEY=your_actual_stream_key
+YOUTUBE_STREAM_KEY=your_key_here
 ```
 
 You can also provide the key at runtime with `--stream-key`. Logs are written to the `livestream_logs` folder and the script will
