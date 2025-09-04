@@ -18,10 +18,9 @@ def _default_args():
 def test_arg_defaults():
     args = _default_args()
     assert args.use_libv4l2 is False
-    assert args.rw_timeout_ms == 2000
 
 
-def test_builder_rw_timeout_and_libv4l2():
+def test_builder_video_input_and_libv4l2():
     args = _default_args()
     # Populate required fields
     args.cam_input_format = "mjpeg"
@@ -30,9 +29,15 @@ def test_builder_rw_timeout_and_libv4l2():
     args.cam_dev = "/dev/video0"
     args.alsa_dev = "plughw:2,0"
     cmd = build_cmd(args, "h264_v4l2m2m", None, "unused")
-    assert "-rw_timeout" in cmd
-    idx = cmd.index("-rw_timeout")
-    assert cmd[idx + 1] == "2000000"
+    assert "-f" in cmd
+    assert cmd[cmd.index("-f") + 1] == "v4l2"
+    assert "-input_format" in cmd
+    assert cmd[cmd.index("-input_format") + 1] == "mjpeg"
+    assert "-framerate" in cmd
+    assert cmd[cmd.index("-framerate") + 1] == "30"
+    assert "-video_size" in cmd
+    assert cmd[cmd.index("-video_size") + 1] == "1280x720"
+    assert "-rw_timeout" not in cmd
     assert "-use_libv4l2" not in cmd
 
     args.use_libv4l2 = True

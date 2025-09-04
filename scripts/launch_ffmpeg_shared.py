@@ -169,8 +169,6 @@ def build_cmd(args: argparse.Namespace, encoder: str) -> tuple[list[str], str, l
         "1",
         "-reconnect_at_eof",
         "1",
-        "-rw_timeout",
-        "15000000",
         "-f",
         "tee",
         "|".join(outputs),
