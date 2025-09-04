@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-YOUTUBE_RTMP_URL="${YOUTUBE_RTMP_URL:-rtmp://a.rtmp.youtube.com/live2/REPLACE_ME}"
+YOUTUBE_RTMP_URL="${YOUTUBE_RTMP_URL:-rtmp://a.rtmp.youtube.com/live2/ks9t-460s-mq27-mm75-4mc8}"
 VBR="${VIDEO_BITRATE:-3500k}"
 MAXRATE="${VIDEO_MAXRATE:-4000k}"
 BUFSIZE="${VIDEO_BUFSIZE:-6000k}"
@@ -10,7 +10,7 @@ GOP="$(( FPS * 2 ))"
 
 echo "[gameday-testsrc] Out=${YOUTUBE_RTMP_URL} ${VBR}/${MAXRATE}/${BUFSIZE} @ ${FPS}fps" >&2
 
-if [[ "$YOUTUBE_RTMP_URL" == *REPLACE_ME* ]] || [[ -z "$YOUTUBE_RTMP_URL" ]]; then
+if [[ -z "$YOUTUBE_RTMP_URL" ]]; then
   echo "[gameday-testsrc] ERROR: set YOUTUBE_RTMP_URL to your exact key." >&2
   exit 2
 fi

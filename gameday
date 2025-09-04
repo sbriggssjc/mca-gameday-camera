@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from gameday_config import get_stream_key, mask_key
+import re
 
 
 def run_ffmpeg(cmd: List[str], stream_key: str | None = None) -> Tuple[int, List[str]]:
@@ -101,7 +102,8 @@ def build_cmd(
         outputs.append(
             f"[f=segment:use_fifo=1:segment_format=mpegts:segment_time={seg_time}:reset_timestamps=1:strftime=1]{out_dir}/%Y%m%d_%H%M%S.ts"
         )
-    tee_arg = "|".join(outputs)
+    tee_url = "|".join(outputs)
+    assert "<STREAM_KEY>" not in tee_url and "{STREAM_KEY}" not in tee_url, "STREAM_KEY placeholder detected in tee URL"
     loglevel = "verbose" if args.debug else "warning"
     cmd: List[str] = ["ffmpeg", "-loglevel", loglevel]
     if args.debug:
@@ -167,7 +169,7 @@ def build_cmd(
             "no_duration_filesize",
             "-f",
             "tee",
-            tee_arg,
+            tee_url,
         ]
     # Mezzanine output
     mezz_dir = Path(args.mezz_dir)
@@ -245,7 +247,15 @@ def main() -> int:
     p.add_argument("--segment", action="store_true", help="also save low-bitrate stream archive")
     p.add_argument("--segment-seconds", type=int, default=900)
     p.add_argument("--out-dir", default="recordings/archive")
-    p.add_argument("--stream-key")
+    p.add_argument(
+        "--stream-key",
+        help="Optional. If omitted, STREAM_KEY is read from environment or .env.",
+    )
+    p.add_argument(
+        "--print-key",
+        action="store_true",
+        help="Print the masked stream key and exit",
+    )
     p.add_argument("--cam-dev", default="/dev/video0")
     p.add_argument("--cam-input-format", default="mjpeg")
     p.add_argument(
@@ -280,7 +290,13 @@ def main() -> int:
         except RuntimeError as e:
             print(f"[gameday] ERROR: {e}", file=sys.stderr)
             return 2
+        if not re.fullmatch(r"[A-Za-z0-9-]{10,64}", stream_key):
+            print("[gameday] ERROR: STREAM_KEY format looks invalid.", file=sys.stderr)
+            return 2
         masked_key = mask_key(stream_key)
+        if args.print_key:
+            print(masked_key)
+            return 0
 
     if args.remux_mp4 and args.segment:
         start_remux_watcher(args.out_dir, args.remux_keep_ts)
