@@ -10,6 +10,7 @@ import os
 import shlex
 import subprocess
 import sys
+from collections import deque
 from pathlib import Path
 from typing import List, Tuple
 
@@ -60,18 +61,26 @@ def run_ffmpeg(
     backoffs = [2, 4, 8]
     attempt = 0
     masked = mask_key(stream_key) if stream_key else None
+    tee_display = "yt+segments" if not args.no_yt else "segments"
 
     while True:
         local_args = argparse.Namespace(**vars(args))
         local_args.cam_input_format = input_format
         cmd = build_cmd(local_args, encoder, stream_key, "unused")
+        sanitized = [c.replace(stream_key, masked) if stream_key else c for c in cmd]
+        print(
+            f"[gameday] input_format={input_format} | hw_encoder={encoder} | tee={tee_display}"
+        )
+        print("[gameday] ffmpeg command:")
+        print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
         proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True, bufsize=1)
 
         start_time = time.monotonic()
         last_frame = start_time
         first_frame = None
         frames_out = 0
-        zero_byte = 0
+        zero_count = 0
+        zero_times: deque[float] = deque()
         live_logged = False
         restarting = False
         zero_re = re.compile(r"Dequeued .* corrupted data \(0 bytes\)")
@@ -92,11 +101,16 @@ def run_ffmpeg(
                     log.append(line.rstrip("\n"))
 
                     if zero_re.search(line):
-                        zero_byte += 1
+                        zero_count += 1
+                        zero_times.append(now)
+                        while zero_times and now - zero_times[0] > 2:
+                            zero_times.popleft()
                         if (
                             allow_switch
-                            and zero_byte > 30
-                            and now - start_time <= 10
+                            and (
+                                (zero_count >= 30 and now - start_time <= 10)
+                                or len(zero_times) >= 8
+                            )
                         ):
                             print(
                                 "[gameday] v4l2: too many zero-byte frames; switching to yuyv422"
@@ -108,6 +122,7 @@ def run_ffmpeg(
                                 proc.kill()
                                 proc.wait()
                             input_format = "yuyv422"
+                            args.cam_input_format = "yuyv422"
                             allow_switch = False
                             restarting = True
                             break
@@ -382,34 +397,38 @@ def main() -> int:
     print(f"[gameday] Launch -> {yt_display} | raw={raw_display}")
 
     encoder = "h264_v4l2m2m"
-    start_input = "mjpeg" if args.cam_input_format == "auto" else args.cam_input_format
-    tee_display = "yt+segments" if not args.no_yt else "segments"
-    print(
-        f"[gameday] input_format={start_input} | hw_encoder={encoder} | tee={tee_display}"
-    )
 
-    display_args = argparse.Namespace(**vars(args))
-    if display_args.cam_input_format == "auto":
-        display_args.cam_input_format = "mjpeg"
-    cmd = build_cmd(display_args, encoder, stream_key, "unused")
-    sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
-    print("[gameday] ffmpeg command:")
-    print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
     if args.dry_run:
+        display_args = argparse.Namespace(**vars(args))
+        if display_args.cam_input_format == "auto":
+            display_args.cam_input_format = "mjpeg"
+        tee_display = "yt+segments" if not args.no_yt else "segments"
+        print(
+            f"[gameday] input_format={display_args.cam_input_format} | hw_encoder={encoder} | tee={tee_display}"
+        )
+        cmd = build_cmd(display_args, encoder, stream_key, "unused")
+        sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
+        print("[gameday] ffmpeg command:")
+        print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
         return 0
+
     rc, log = run_ffmpeg(args, encoder, stream_key)
 
     if need_fallback(rc, log):
         print("[gameday] hw encoder failed; retrying with libx264")
         encoder = "libx264"
-        display_args = argparse.Namespace(**vars(args))
-        if display_args.cam_input_format == "auto":
-            display_args.cam_input_format = "mjpeg"
-        cmd = build_cmd(display_args, encoder, stream_key, "unused")
-        sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
-        print("[gameday] ffmpeg command:")
-        print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
         if args.dry_run:
+            display_args = argparse.Namespace(**vars(args))
+            if display_args.cam_input_format == "auto":
+                display_args.cam_input_format = "mjpeg"
+            tee_display = "yt+segments" if not args.no_yt else "segments"
+            print(
+                f"[gameday] input_format={display_args.cam_input_format} | hw_encoder={encoder} | tee={tee_display}"
+            )
+            cmd = build_cmd(display_args, encoder, stream_key, "unused")
+            sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
+            print("[gameday] ffmpeg command:")
+            print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
             return 0
         rc, log = run_ffmpeg(args, encoder, stream_key)
 
