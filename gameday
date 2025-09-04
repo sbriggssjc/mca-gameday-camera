@@ -52,11 +52,9 @@ def run_ffmpeg(
     import time
 
     log: List[str] = []
-    input_format = args.cam_input_format
-    allow_switch = False
-    if input_format == "auto":
-        input_format = "mjpeg"
-        allow_switch = True
+    requested_if = args.cam_input_format
+    active_if = "mjpeg" if requested_if == "auto" else requested_if
+    did_if_fallback = False
 
     backoffs = [2, 4, 8]
     attempt = 0
@@ -65,11 +63,11 @@ def run_ffmpeg(
 
     while True:
         local_args = argparse.Namespace(**vars(args))
-        local_args.cam_input_format = input_format
+        local_args.cam_input_format = active_if
         cmd = build_cmd(local_args, encoder, stream_key, "unused")
         sanitized = [c.replace(stream_key, masked) if stream_key else c for c in cmd]
         print(
-            f"[gameday] input_format={input_format} | hw_encoder={encoder} | tee={tee_display}"
+            f"[gameday] input_format={active_if} | hw_encoder={encoder} | tee={tee_display}"
         )
         print("[gameday] ffmpeg command:")
         print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
@@ -83,7 +81,7 @@ def run_ffmpeg(
         zero_times: deque[float] = deque()
         live_logged = False
         restarting = False
-        zero_re = re.compile(r"Dequeued .* corrupted data \(0 bytes\)")
+        zero_re = re.compile(r"corrupted data \(0 bytes\)", re.IGNORECASE)
         frame_re = re.compile(r"frame=\s*(\d+)")
 
         try:
@@ -106,7 +104,9 @@ def run_ffmpeg(
                         while zero_times and now - zero_times[0] > 2:
                             zero_times.popleft()
                         if (
-                            allow_switch
+                            not did_if_fallback
+                            and active_if == "mjpeg"
+                            and requested_if in ("auto", "mjpeg")
                             and (
                                 (zero_count >= 30 and now - start_time <= 10)
                                 or len(zero_times) >= 8
@@ -121,9 +121,9 @@ def run_ffmpeg(
                             except subprocess.TimeoutExpired:
                                 proc.kill()
                                 proc.wait()
-                            input_format = "yuyv422"
+                            active_if = "yuyv422"
                             args.cam_input_format = "yuyv422"
-                            allow_switch = False
+                            did_if_fallback = True
                             restarting = True
                             break
 
@@ -142,7 +142,7 @@ def run_ffmpeg(
                                 and now - first_frame >= 3
                             ):
                                 print(
-                                    f"[gameday] LIVE: streaming and recording (encoder={encoder}, input={input_format})"
+                                    f"[gameday] LIVE: streaming and recording (encoder={encoder}, input={active_if})"
                                 )
                                 live_logged = True
 
