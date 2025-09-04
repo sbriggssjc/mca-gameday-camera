@@ -275,8 +275,6 @@ def build_cmd(
         str(args.fps),
         "-video_size",
         args.size,
-        "-rw_timeout",
-        str(args.rw_timeout_ms * 1000),
     ]
     if args.use_libv4l2:
         cmd += ["-use_libv4l2", "1"]
@@ -381,7 +379,6 @@ def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     p.add_argument("--debug", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--use-libv4l2", action="store_true", default=False)
-    p.add_argument("--rw-timeout-ms", type=int, default=2000)
     return p.parse_args(argv)
 
 
@@ -425,7 +422,7 @@ def main() -> int:
     for w in cam_warnings:
         print(f"[gameday] WARNING: {w}")
     print(
-        f"[gameday] camera mode: {cam_mode.pixfmt} {cam_mode.w}x{cam_mode.h}@{cam_mode.fps} (libv4l2={args.use_libv4l2}, rw_timeout={args.rw_timeout_ms}ms)"
+        f"[gameday] camera mode: {cam_mode.pixfmt} {cam_mode.w}x{cam_mode.h}@{cam_mode.fps} (libv4l2={args.use_libv4l2})"
     )
 
     if args.remux_mp4:

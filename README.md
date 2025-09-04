@@ -66,20 +66,17 @@ python3 gameday_capture.py --probe-only
 python3 gameday_capture.py --duration 30 --local-only
 ```
 
-### V4L2 I/O and read timeout
+### Camera capture
 
-`gameday` defaults to the kernel V4L2 driver with blocking I/O and a 2000 ms
-read timeout. This avoids the recurring `Dequeued v4l2 buffer contains
-corrupted data (0 bytes)` warnings that can appear when the device is opened in
-nonblocking mode.
+`gameday` defaults to the kernel V4L2 driver with blocking I/O. This avoids the
+recurring `Dequeued v4l2 buffer contains corrupted data (0 bytes)` warnings that
+can appear when the device is opened in nonblocking mode.
 
-Use `--use-libv4l2` to force libv4l2 nonblocking I/O. Some cameras require
-this shim, but it may surface empty buffers. When enabled, consider increasing
-`--rw-timeout-ms` (accepted values are in milliseconds; 1000–5000 ms are
-typical safe values).
+Use `--use-libv4l2` to force libv4l2 nonblocking I/O. Some cameras require this
+shim, but it may surface empty buffers on others.
 
-`--rw-timeout-ms` is tunable regardless of libv4l2 usage and is converted to
-microseconds for ffmpeg's `-rw_timeout` demuxer option.
+The ffmpeg `-rw_timeout` demuxer option is not used because it is unsupported on
+FFmpeg 4.4.x V4L2.
 
 ## Game-day one-liners
 
