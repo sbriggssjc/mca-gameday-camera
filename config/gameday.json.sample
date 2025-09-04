@@ -1,5 +1,5 @@
 {
-  "rtmp_url": "rtmps://a.rtmps.youtube.com/live2/your-key-here",
+  "rtmp_url": "rtmps://a.rtmps.youtube.com/live2/ks9t-460s-mq27-mm75-4mc8",
   "video_dev": "/dev/video0",
   "pulse_source": "alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_XXXXXXXX-00.mono-fallback",
   "video_size": "1280x720",

@@ -155,7 +155,7 @@ fi
 export FFREPORT="file=$LOGDIR/ffmpeg_$(ts).log:level=32"
 
 # -------- outputs --------
-YOUTUBE="${YOUTUBE_RTMP_URL:-rtmps://a.rtmps.youtube.com/live2/REPLACE_ME}"
+YOUTUBE="${YOUTUBE_RTMP_URL:-rtmps://a.rtmps.youtube.com/live2/ks9t-460s-mq27-mm75-4mc8}"
 ARCHIVE_OUT="$VIDDIR/game_$(ts)_ARCHIVE.mp4"
 TERM="$LOGDIR/terminal_$(ts).log"
 

@@ -130,7 +130,7 @@ def stream_key_present() -> Tuple[bool, str]:
     """Check if a stream key is available via environment variables."""
 
     key = os.getenv("YOUTUBE_STREAM_KEY") or os.getenv("STREAM_KEY")
-    if key and "YOUR_STREAM_KEY" not in key:
+    if key:
         return True, "key set"
     return False, "missing"
 

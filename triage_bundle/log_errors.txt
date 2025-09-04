@@ -1,2 +1,0 @@
-[video4linux2,v4l2 @ 0xaaaae4d13940] Dequeued v4l2 buffer contains corrupted data (0 bytes).
-Output #0, tee, to '[f=flv]rtmps://a.rtmps.youtube.com/live2/xcuz-3x1d-9y7v-ghec-2xmh|[f=mp4]livestream_logs/stream_20250822-202531.mp4':

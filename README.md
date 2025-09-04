@@ -1,12 +1,29 @@
 # mca-gameday-camera
 
 This repository contains utilities for tracking play participation during a game.
-<<<<<<< HEAD
-=======
 
 Large video recordings (`.mp4`) are saved in the `video/` folder but individual recording files are ignored by Git. Use `upload_to_drive.py` to sync these videos to Google Drive instead of committing them.
 
 This project uses a single playbook at `playbooks/mca_5th_playbook.json`.
+
+## Stream Key Setup
+
+Create a `.env` file in the repository root or export the key in your environment.
+
+```bash
+# Preferred: .env in repo root
+echo 'STREAM_KEY=ks9t-460s-mq27-mm75-4mc8' > .env
+
+# Or use env var
+export STREAM_KEY=ks9t-460s-mq27-mm75-4mc8
+```
+
+The application reads `STREAM_KEY` automatically and masks it in logs.
+
+### Troubleshooting
+
+* **STREAM_KEY not found** – ensure the variable is set in your environment or `.env`.
+* **STREAM_KEY format looks invalid** – verify the key matches the alphanumeric-with-dashes format provided by YouTube.
 
 ## Development setup
 
@@ -35,7 +52,7 @@ scripts/gameday.sh
 ### Configure defaults via `.env`
 
 ```
-YOUTUBE_RTMP_URL=rtmps://a.rtmps.youtube.com/live2/<key>
+STREAM_KEY=ks9t-460s-mq27-mm75-4mc8
 VIDEO_DEV=/dev/video0
 PULSE_DEV=hw:1,0            # or Pulse source name
 RES=1280x720
@@ -80,7 +97,7 @@ By default `gameday` saves a high-quality mezzanine recording under
 
 If 443/rtmps is flaky, try:
 
-rtmps://b.rtmps.youtube.com/live2/<key>
+rtmps://b.rtmps.youtube.com/live2/ks9t-460s-mq27-mm75-4mc8
 
 If port 1935 is open and you prefer RTMP:
 
@@ -89,7 +106,7 @@ If port 1935 is open and you prefer RTMP:
 Create a `.env` file in the repository root with::
 
 ``
-YOUTUBE_STREAM_KEY=your_key_here
+STREAM_KEY=ks9t-460s-mq27-mm75-4mc8
 ```
 
 `gameday` resolves the key in this order:
@@ -297,11 +314,9 @@ python motion_detector.py path/to/video.mp4
 ```
 
 You can adjust the detection sensitivity using `--threshold` and minimum segment length with `--min-duration`.
-<<<<<<< HEAD
 This repository provides simple scripts for streaming and recording a camera
 feed. Frames can be captured with OpenCV and piped to `ffmpeg` for encoding and
 upload.
->>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 
 Large video recordings (`.mp4`) are saved in the `video/` folder but individual recording files are ignored by Git. Use `upload_to_drive.py` to sync these videos to Google Drive instead of committing them.
 
@@ -318,12 +333,8 @@ scripts/dev_setup.sh
 
 The script detects your L4T version, installs the matching NVIDIA PyTorch
 wheel, and falls back to NVIDIA's official L4T PyTorch container if needed.
-=======
->>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 
-<<<<<<< HEAD
 ## Robust game-day capture
-=======
 ## stream_to_youtube.py
 
 `stream_to_youtube.py` streams a video device (default `/dev/video0`) to
@@ -331,7 +342,7 @@ YouTube using `ffmpeg`. Set the `VIDEO_DEVICE` environment variable if you need
 to use a different camera. Place your YouTube stream key in a `.env` file:
 
 ```ini
-YOUTUBE_STREAM_KEY=your_key_here
+STREAM_KEY=ks9t-460s-mq27-mm75-4mc8
 ```
 
 You can also provide the key at runtime with `--stream-key`. Logs are written to the `livestream_logs` folder and the script will
@@ -414,15 +425,12 @@ ALLOW_SILENT_STREAM=true ./gameday
 
 
 ## Requirements
->>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 
 `gameday_capture.py` is a single-entry CLI that always records a local MP4 and
 streams to YouTube when possible.  A thin wrapper is provided under
 `scripts/gameday.sh` which loads `.env` and launches the capture.
 
-<<<<<<< HEAD
 ### One-liner
-=======
 Install FFmpeg on Jetson with:
 
 ```bash
@@ -434,18 +442,15 @@ hardware encoder `h264_v4l2m2m` by default and automatically fall back
 to `libx264` when no hardware encoder is available.
 
 This repository contains simple utilities for analyzing football plays.
->>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 
 ```bash
 scripts/gameday.sh
 ```
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 ### Configure defaults via `.env`
 
 ```
-YOUTUBE_RTMP_URL=rtmps://a.rtmps.youtube.com/live2/<key>
+STREAM_KEY=ks9t-460s-mq27-mm75-4mc8
 VIDEO_DEV=/dev/video0
 PULSE_DEV=hw:1,0            # or Pulse source name
 RES=1280x720
@@ -487,11 +492,11 @@ export PULSE_DEV='alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_XXXXXXXX-00.mono-fal
 
 If 443/rtmps is flaky, try:
 
-rtmps://b.rtmps.youtube.com/live2/<key>
+rtmps://b.rtmps.youtube.com/live2/ks9t-460s-mq27-mm75-4mc8
 
 If port 1935 is open and you prefer RTMP:
 
-rtmp://a.rtmp.youtube.com/live2/<key>
+rtmp://a.rtmp.youtube.com/live2/ks9t-460s-mq27-mm75-4mc8
 
 Notes
 
@@ -669,18 +674,12 @@ python play_count_tracker.py --voice --quarters
 This repository contains tools for processing sports game footage. The `motion_detector.py` script scans a video and prints timecodes for periods of high motion. These timecodes are useful for extracting highlight clips from a full game recording.
 
 ## Usage
-=======
-=======
->>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 - `play_classifier.py` – includes the `PlayClassifier` class for touchdown detection
   and a `classify_play` function to label short clips using a pretrained video model.
   Run `python play_classifier.py --folder clips/ --output predictions.json` to classify
   a directory of clips.
-<<<<<<< HEAD
 - `record_video.py` – records 1280x720 video from /dev/video0 to output.mp4
-=======
 - `record_video.py` – records 640x480 video from /dev/video0 to output.mp4
->>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 - `highlight_recorder.py` – automatically captures 10-second clips when motion is detected
 - `play_recognizer.py` – identifies plays based on formations in `playbooks/mca_5th_playbook.json` and writes results to `play_log.json`.
 - `practice_trainer.py` – analyzes labeled practice clips and stores motion
@@ -689,7 +688,6 @@ This repository contains tools for processing sports game footage. The `motion_d
 python play_recognizer.py path/to/game.mp4 --playbook playbooks/mca_5th_playbook.json --output play_log.csv
 ```
 You can generate training data from practice clips:
->>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
 
 ```bash
 python practice_trainer.py practice_clips/ --output training_set.json
@@ -703,8 +701,6 @@ You can also build a dataset from highlight clips:
 python build_highlight_dataset.py highlights/ dataset/
 ```
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 You can adjust the detection sensitivity using `--threshold` and minimum segment length with `--min-duration`.
 
 ## stream_to_youtube.py
@@ -714,7 +710,7 @@ YouTube using `ffmpeg`. Set the `VIDEO_DEVICE` environment variable if you need
 to use a different camera. Place your YouTube stream key in a `.env` file:
 
 ```ini
-YOUTUBE_STREAM_KEY=your_key_here
+STREAM_KEY=ks9t-460s-mq27-mm75-4mc8
 ```
 
 You can also provide the key at runtime with `--stream-key`. Logs are written to the `livestream_logs` folder and the script will
@@ -842,8 +838,6 @@ You can also build a dataset from highlight clips:
 python build_highlight_dataset.py highlights/ dataset/
 ```
 
-=======
->>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 This copies the clips into `dataset` and creates `dataset/metadata.csv`:
 
 ```csv
@@ -851,8 +845,6 @@ filepath,label,quarter,time,player
 dataset/TD_JaxonBrunner_Jet_Sweep_Q2_05m12s.mp4,Jet Sweep,Q2,05:12,JaxonBrunner
 ```
 
-<<<<<<< HEAD
-=======
 This copies the clips into `dataset` and creates `dataset/metadata.csv`:
 
 ```csv
@@ -860,9 +852,6 @@ filepath,label,quarter,time,player
 dataset/TD_JaxonBrunner_Jet_Sweep_Q2_05m12s.mp4,Jet Sweep,Q2,05:12,JaxonBrunner
 ```
 
->>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
-=======
->>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb
 The `HighlightClipDataset` class in `highlight_dataset.py` loads these clips as
 PyTorch tensors for training models.
 
@@ -924,7 +913,6 @@ run uses OAuth2 to store credentials in `token.json`.
 ```bash
 python youtube_uploader.py --file path/to/video.mp4 --title "My Title" \
     --description "Short description" --privacy public
-<<<<<<< HEAD
 ```
 
 ## upload_to_drive.py
@@ -1102,7 +1090,7 @@ tmux attach -t gameday
 
 ```bash
 # Optional: override via env
-export YOUTUBE_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/<your-key>'
+export YOUTUBE_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/ks9t-460s-mq27-mm75-4mc8'
 export VIDEO_DEV=/dev/video0
 export PULSE_DEV='alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_17477F5D-00.mono-fallback'
 # If MJPEG is flaky:
@@ -1209,8 +1197,6 @@ The capture script stops PipeWire for reliability.  To restore audio services af
 ```bash
 systemctl --user start pipewire pipewire-media-session
 ```
-<<<<<<< HEAD
-=======
 ```
 
 ## upload_to_drive.py
@@ -1297,6 +1283,3 @@ python generate_hudl_csv.py --week 3 --opponent "Victory Christian"
 ```
 
 Use `--player 23` to limit rows to a specific jersey number.
->>>>>>> 2b9951a1158af8c7517af053bac01392a45f96fa
-=======
->>>>>>> 3fb8c6c8bd1feab7561579284c161798bd1142cb

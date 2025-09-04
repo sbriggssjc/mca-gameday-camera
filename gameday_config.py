@@ -15,19 +15,23 @@ def _fallback_load_env(path: str = ".env") -> None:
         pass
 
 
-# Try python-dotenv; if unavailable, use the tiny fallback parser
 try:
-    from dotenv import load_dotenv  # type: ignore
-    load_dotenv()  # loads ./.env if present
+    from dotenv import load_dotenv  # optional
+    load_dotenv()
 except Exception:
     _fallback_load_env()
 
 
-def get_stream_key() -> str:
-    key = (os.getenv("STREAM_KEY") or os.getenv("YOUTUBE_STREAM_KEY") or "").strip()
+def get_stream_key(cli_override: Optional[str] = None) -> str:
+    key = (
+        cli_override
+        or os.getenv("STREAM_KEY")
+        or os.getenv("YOUTUBE_STREAM_KEY")
+        or ""
+    ).strip()
     if not key:
         raise RuntimeError(
-            "STREAM_KEY not found. Set it in the environment or create a .env file with STREAM_KEY=..."
+            "STREAM_KEY not found. Set it as an env var or in a .env file in the repo root."
         )
     return key
 
