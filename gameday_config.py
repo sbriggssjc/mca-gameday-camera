@@ -1,54 +1,36 @@
-from __future__ import annotations
-
 import os
-from pathlib import Path
 from typing import Optional
 
-from dotenv import load_dotenv
 
-_BACKCOMPAT_VARS = [
-    "YT_STREAM_KEY",
-    "STREAM_KEY",
-    "YOUTUBE_RTMP_URL",
-]
+def _fallback_load_env(path: str = ".env") -> None:
+    try:
+        with open(path, "r") as f:
+            for line in f:
+                s = line.strip()
+                if not s or s.startswith("#") or "=" not in s:
+                    continue
+                k, v = s.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+    except FileNotFoundError:
+        pass
 
 
-def _load_env() -> None:
-    env_path = Path(".env")
-    if env_path.exists():
-        load_dotenv(dotenv_path=env_path)
+# Try python-dotenv; if unavailable, use the tiny fallback parser
+try:
+    from dotenv import load_dotenv  # type: ignore
+    load_dotenv()  # loads ./.env if present
+except Exception:
+    _fallback_load_env()
 
 
-def get_stream_key(cli_value: Optional[str]) -> str:
-    """Return the YouTube stream key using CLI/env/.env resolution."""
-    if cli_value:
-        key = cli_value.strip()
-        if key:
-            return key
-
-    key = os.getenv("YOUTUBE_STREAM_KEY")
-    if not key:
-        _load_env()
-        key = os.getenv("YOUTUBE_STREAM_KEY")
-
-    if not key:
-        for name in _BACKCOMPAT_VARS:
-            val = os.getenv(name)
-            if not val:
-                continue
-            if name == "YOUTUBE_RTMP_URL":
-                val = val.rsplit("/", 1)[-1]
-            key = val.strip()
-            break
-
+def get_stream_key() -> str:
+    key = (os.getenv("STREAM_KEY") or os.getenv("YOUTUBE_STREAM_KEY") or "").strip()
     if not key:
         raise RuntimeError(
-            "Missing stream key. Set YOUTUBE_STREAM_KEY in the environment or .env, or pass --stream-key."
+            "STREAM_KEY not found. Set it in the environment or create a .env file with STREAM_KEY=..."
         )
     return key
 
 
-def mask_key(k: str) -> str:
-    if len(k) <= 7:
-        return "***"
-    return f"{k[:4]}***{k[-3:]}"
+def mask_key(key: str) -> str:
+    return key[:4] + "*" * max(0, len(key) - 4) if key else "<missing>"
