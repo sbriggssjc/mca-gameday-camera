@@ -113,12 +113,12 @@ def build_cmd(
             "[0:v]settb=AVTB,setpts=PTS-STARTPTS[v0];"
             "[v0]split[v_master][v_stream];"
             "[v_stream]scale=in_range=pc:out_range=tv,format=yuv420p[v];"
-            "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]"
+            "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a];[v_master]nullsink"
         )
     else:
         filters = (
             "[0:v]settb=AVTB,setpts=PTS-STARTPTS,scale=in_range=pc:out_range=tv,format=yuv420p[v];"
-            "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]"
+            "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a];[v_master]nullsink"
         )
     cmd += [
         "-fflags",
