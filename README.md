@@ -134,6 +134,16 @@ rtmps://b.rtmps.youtube.com/live2/<your_key>
 
 If port 1935 is open and you prefer RTMP:
 
+### YouTube ingest overrides
+
+* `--yt-host` / `YT_HOST` (default `a.rtmps.youtube.com`)
+* `--yt-transport` / `YT_TRANSPORT` (`rtmps` by default, or `rtmp`)
+
+On startup `gameday` logs the selected ingest and masks your key. If the
+initial `rtmps://a.rtmps.youtube.com` publish fails with a TLS handshake
+error, it automatically retries `b.rtmps.youtube.com` and finally falls back
+to unencrypted `rtmp://a.rtmp.youtube.com` before giving up.
+
 ## Stream key and ingest
 
 Create a `.env` file in the repository root with::

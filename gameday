@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import re
 import sys
 import shlex
 import argparse
@@ -7,16 +8,27 @@ import subprocess
 from pathlib import Path
 from gameday_config import get_stream_key, mask_key
 
-def run_and_log(cmd: list[str], stream_key: str) -> int:
+def run_and_log(cmd: list[str], stream_key: str, *, dry_run: bool = False) -> tuple[int, str]:
     print("[gameday] ffmpeg command:")
     masked_cmd = [c.replace(stream_key, mask_key(stream_key)) for c in cmd]
     print("[gameday] " + " ".join(shlex.quote(x) for x in masked_cmd))
-    proc = subprocess.Popen(cmd)
+    if dry_run:
+        return 0, ""
+    proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True)
+    lines: list[str] = []
     try:
-        return proc.wait()
+        while True:
+            line = proc.stderr.readline()
+            if line == "" and proc.poll() is not None:
+                break
+            if line:
+                lines.append(line)
+                sys.stderr.write(line)
+        return proc.wait(), "".join(lines)
     except KeyboardInterrupt:
         proc.terminate()
-        return proc.wait()
+        proc.wait()
+        return proc.returncode, "".join(lines)
 
 def warmup(video_dev: str, size: str, fps: int) -> None:
     # Flush empty V4L2 buffers so we don't get 'Dequeued ... 0 bytes' spam on start
@@ -32,8 +44,52 @@ def warmup(video_dev: str, size: str, fps: int) -> None:
 def ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
-def build_yt_url(stream_key: str) -> str:
-    return f"rtmps://a.rtmps.youtube.com/live2/{stream_key}?rtmp_live=1"
+def build_yt_url(stream_key: str, host: str | None = None, transport: str | None = None) -> str:
+    transport = (transport or os.environ.get("YT_TRANSPORT", "rtmps")).lower()
+    default_host = "a.rtmps.youtube.com" if transport == "rtmps" else "a.rtmp.youtube.com"
+    host = host or os.environ.get("YT_HOST", default_host)
+    scheme = "rtmps" if transport == "rtmps" else "rtmp"
+    if scheme == "rtmps":
+        return f"{scheme}://{host}/live2/{stream_key}?rtmp_live=1"
+    return f"{scheme}://{host}/live2/{stream_key}"
+
+
+def _is_tls_error(stderr: str) -> bool:
+    s = stderr.lower()
+    return (
+        bool(re.search(r"tls.*pull function", s))
+        or "error opening rtmps://" in s
+        or "input/output error" in s
+    )
+
+
+def publish_with_retry(build_cmd, stream_key: str, host: str, transport: str, *, dry_run: bool) -> tuple[int, bool]:
+    attempt = 1
+    while True:
+        url = build_yt_url(stream_key, host, transport)
+        cmd = build_cmd(url)
+        rc, stderr = run_and_log(cmd, stream_key, dry_run=dry_run)
+        if dry_run:
+            return rc, False
+        if rc == 0:
+            return 0, False
+        if _is_tls_error(stderr):
+            if attempt == 1:
+                host = "b.rtmps.youtube.com"
+                transport = "rtmps"
+                print(f"[gameday] retry -> ingest=rtmps host={host}")
+                attempt += 1
+                continue
+            if attempt == 2:
+                print("[gameday] RTMPS handshake failed; falling back to RTMP (unencrypted).")
+                host = "a.rtmp.youtube.com"
+                transport = "rtmp"
+                print(f"[gameday] retry -> ingest=rtmp host={host}")
+                attempt += 1
+                continue
+            print("[gameday] YouTube publish failed. Check firewall/egress TLS inspection, system time/CA bundle, or try another network.")
+            return rc, True
+        return rc, False
 
 def build_ffmpeg_copy(video_dev: str, audio_dev: str, size: str, fps: int,
                       yt_url: str, seg_dir: Path, seg_len: int) -> list[str]:
@@ -89,6 +145,10 @@ def main(argv=None) -> int:
     ap.add_argument("--stream-key", default=None, help="override stream key (normally use env/.env)")
     ap.add_argument("--skip-warmup", action="store_true")
     ap.add_argument("--no-yt-hint", action="store_true", help="suppress YouTube auto-start hint")
+    ap.add_argument("--yt-host", default=os.environ.get("YT_HOST", "a.rtmps.youtube.com"))
+    ap.add_argument("--yt-transport", choices=("rtmps", "rtmp"), default=os.environ.get("YT_TRANSPORT", "rtmps"))
+    ap.add_argument("--dry-run", action="store_true", help="print ffmpeg command and exit")
+    ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args(argv)
 
     # Stream key
@@ -97,35 +157,41 @@ def main(argv=None) -> int:
     except Exception as e:
         print(f"[gameday] ERROR: {e}", file=sys.stderr)
         return 2
-    yt_url = build_yt_url(stream_key)
-    masked_url = build_yt_url(mask_key(stream_key))
+    transport = args.yt_transport
+    host = args.yt_host
+    masked_url = build_yt_url(mask_key(stream_key), host, transport)
 
     seg_dir = Path("recordings/raw")
     ensure_dir(seg_dir)
 
+    print(f"[gameday] ingest={transport} host={host} key={mask_key(stream_key)}")
     print(f"[gameday] camera mode: h264-copy preferred @ {args.video_size}@{args.framerate}")
     print(f"[gameday] Launch -> {masked_url} | raw={seg_dir}")
-    if not (args.no_yt_hint or os.environ.get("GAMEDAY_SUPPRESS_YT_HINT")):
-        print("[gameday] NOTE: If YouTube shows 'Go Live', you likely started a *scheduled* event.")
-        print("[gameday]       Use a reusable/default stream key with Auto-start/Auto-stop enabled to go live automatically.")
-        print("[gameday]       (YouTube Studio → Go Live → Stream → Stream Settings)")
+    key_name = os.environ.get("YT_KEY_NAME", "Default stream key")
+    if args.verbose and key_name != "Default stream key" and not (args.no_yt_hint or os.environ.get("GAMEDAY_SUPPRESS_YT_HINT")):
+        print("[gameday] NOTE: Scheduled event keys may require pressing 'Go Live'. Prefer a reusable key with Auto-start/Auto-stop.")
     print(f"[gameday] input_format=h264(copy) | tee=yt+segments | key={mask_key(stream_key)}")
 
     if not args.skip_warmup:
         warmup(args.video_device, args.video_size, args.framerate)
 
-    # Try H.264 copy fast path
-    cmd = build_ffmpeg_copy(args.video_device, args.audio_device, args.video_size, args.framerate,
-                            yt_url, seg_dir, args.segment_length)
-    rc = run_and_log(cmd, stream_key)
-    # Only fall back if FFmpeg actually exited with a non-zero code. Ignore non-fatal log lines like
-    # “Failed to update header with correct duration/filesize” which occur for live outputs.
-    if rc != 0:
-        print(f"[gameday] copy path failed (rc={rc}); falling back to MJPEG → libx264")
-        cmd = build_ffmpeg_transcode(args.video_device, args.audio_device, args.video_size, args.framerate,
-                                     yt_url, seg_dir, args.segment_length)
-        return run_and_log(cmd, stream_key)
-    return 0
+    # Try H.264 copy fast path with retry logic
+    def _build_copy(url: str) -> list[str]:
+        return build_ffmpeg_copy(args.video_device, args.audio_device, args.video_size, args.framerate, url, seg_dir, args.segment_length)
+
+    rc, tls_fail = publish_with_retry(_build_copy, stream_key, host, transport, dry_run=args.dry_run)
+    if rc == 0:
+        return 0
+    if tls_fail:
+        return rc
+
+    print(f"[gameday] copy path failed (rc={rc}); falling back to MJPEG → libx264")
+
+    def _build_trans(url: str) -> list[str]:
+        return build_ffmpeg_transcode(args.video_device, args.audio_device, args.video_size, args.framerate, url, seg_dir, args.segment_length)
+
+    rc2, _ = publish_with_retry(_build_trans, stream_key, host, transport, dry_run=args.dry_run)
+    return rc2
 
 if __name__ == "__main__":
     sys.exit(main())
