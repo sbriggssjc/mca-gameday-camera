@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-YOUTUBE_RTMP_URL="${YOUTUBE_RTMP_URL:-rtmp://a.rtmp.youtube.com/live2/ks9t-460s-mq27-mm75-4mc8}"
+YOUTUBE_RTMP_URL="${YOUTUBE_RTMP_URL:-rtmp://a.rtmp.youtube.com/live2/YOUR_KEY_HERE}"
 VBR="${VIDEO_BITRATE:-3500k}"
 MAXRATE="${VIDEO_MAXRATE:-4000k}"
 BUFSIZE="${VIDEO_BUFSIZE:-6000k}"

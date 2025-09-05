@@ -1,40 +1,42 @@
 import os
+import re
 from typing import Optional
-
-
-def _fallback_load_env(path: str = ".env") -> None:
-    try:
-        with open(path, "r") as f:
-            for line in f:
-                s = line.strip()
-                if not s or s.startswith("#") or "=" not in s:
-                    continue
-                k, v = s.split("=", 1)
-                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
-    except FileNotFoundError:
-        pass
-
-
 try:
-    from dotenv import load_dotenv  # optional
-    load_dotenv()
-except Exception:
-    _fallback_load_env()
+    from dotenv import load_dotenv  # pip install python-dotenv
+except Exception:  # pragma: no cover
+    load_dotenv = None
 
+_KEY_ENV_CANDIDATES = ("YTLIVE_KEY", "STREAM_KEY", "YOUTUBE_STREAM_KEY")
+_KEY_RE = re.compile(r"^[A-Za-z0-9\-]{10,}$")
 
-def get_stream_key(cli_override: Optional[str] = None) -> str:
-    key = (
-        cli_override
-        or os.getenv("STREAM_KEY")
-        or os.getenv("YOUTUBE_STREAM_KEY")
-        or ""
-    ).strip()
-    if not key:
-        raise RuntimeError(
-            "STREAM_KEY not found. Set it as an env var or in a .env file in the repo root."
-        )
-    return key
-
+def _load_dotenv_if_present() -> None:
+    if load_dotenv:
+        # Load .env from repo root if present; ignore if missing
+        load_dotenv(dotenv_path=os.path.join(os.getcwd(), ".env"), override=False)
 
 def mask_key(key: str) -> str:
-    return key[:4] + "*" * max(0, len(key) - 4) if key else "<missing>"
+    if not key:
+        return "<none>"
+    if len(key) <= 6:
+        return "***"
+    return f"{key[:3]}***{key[-3:]}"
+
+def get_stream_key(override: Optional[str] = None) -> str:
+    """
+    Return a valid stream key.
+    Priority: explicit override -> env (.env included) -> error.
+    """
+    if override:
+        key = override.strip()
+        if not _KEY_RE.match(key):
+            raise ValueError("Provided stream key looks invalid.")
+        return key
+
+    _load_dotenv_if_present()
+    for name in _KEY_ENV_CANDIDATES:
+        val = os.environ.get(name, "").strip()
+        if val and _KEY_RE.match(val):
+            return val
+    raise RuntimeError(
+        "No valid stream key found. Set YTLIVE_KEY in environment or .env"
+    )

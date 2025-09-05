@@ -12,10 +12,10 @@ Create a `.env` file in the repository root or export the key in your environmen
 
 ```bash
 # Preferred: .env in repo root
-echo 'STREAM_KEY=ks9t-460s-mq27-mm75-4mc8' > .env
+echo 'STREAM_KEY=<your_key>' > .env
 
 # Or use env var
-export STREAM_KEY=ks9t-460s-mq27-mm75-4mc8
+export STREAM_KEY=<your_key>
 ```
 
 The application reads `STREAM_KEY` automatically and masks it in logs.
@@ -59,7 +59,7 @@ scripts/gameday.sh
 ### Configure defaults via `.env`
 
 ```
-STREAM_KEY=ks9t-460s-mq27-mm75-4mc8
+STREAM_KEY=<your_key>
 VIDEO_DEV=/dev/video0
 PULSE_DEV=hw:1,0            # or Pulse source name
 RES=1280x720
@@ -116,7 +116,7 @@ By default `gameday` saves a high-quality mezzanine recording under
 
 If 443/rtmps is flaky, try:
 
-rtmps://b.rtmps.youtube.com/live2/ks9t-460s-mq27-mm75-4mc8
+rtmps://b.rtmps.youtube.com/live2/<your_key>
 
 If port 1935 is open and you prefer RTMP:
 
@@ -125,7 +125,7 @@ If port 1935 is open and you prefer RTMP:
 Create a `.env` file in the repository root with::
 
 ``
-STREAM_KEY=ks9t-460s-mq27-mm75-4mc8
+STREAM_KEY=<your_key>
 ```
 
 `gameday` resolves the key in this order:
@@ -361,7 +361,7 @@ YouTube using `ffmpeg`. Set the `VIDEO_DEVICE` environment variable if you need
 to use a different camera. Place your YouTube stream key in a `.env` file:
 
 ```ini
-STREAM_KEY=ks9t-460s-mq27-mm75-4mc8
+STREAM_KEY=<your_key>
 ```
 
 You can also provide the key at runtime with `--stream-key`. Logs are written to the `livestream_logs` folder and the script will
@@ -469,7 +469,7 @@ scripts/gameday.sh
 ### Configure defaults via `.env`
 
 ```
-STREAM_KEY=ks9t-460s-mq27-mm75-4mc8
+STREAM_KEY=<your_key>
 VIDEO_DEV=/dev/video0
 PULSE_DEV=hw:1,0            # or Pulse source name
 RES=1280x720
@@ -511,11 +511,11 @@ export PULSE_DEV='alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_XXXXXXXX-00.mono-fal
 
 If 443/rtmps is flaky, try:
 
-rtmps://b.rtmps.youtube.com/live2/ks9t-460s-mq27-mm75-4mc8
+rtmps://b.rtmps.youtube.com/live2/<your_key>
 
 If port 1935 is open and you prefer RTMP:
 
-rtmp://a.rtmp.youtube.com/live2/ks9t-460s-mq27-mm75-4mc8
+rtmp://a.rtmp.youtube.com/live2/<your_key>
 
 Notes
 
@@ -729,7 +729,7 @@ YouTube using `ffmpeg`. Set the `VIDEO_DEVICE` environment variable if you need
 to use a different camera. Place your YouTube stream key in a `.env` file:
 
 ```ini
-STREAM_KEY=ks9t-460s-mq27-mm75-4mc8
+STREAM_KEY=<your_key>
 ```
 
 You can also provide the key at runtime with `--stream-key`. Logs are written to the `livestream_logs` folder and the script will
@@ -1109,7 +1109,7 @@ tmux attach -t gameday
 
 ```bash
 # Optional: override via env
-export YOUTUBE_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/ks9t-460s-mq27-mm75-4mc8'
+export YOUTUBE_RTMP_URL='rtmps://a.rtmps.youtube.com/live2/<your_key>'
 export VIDEO_DEV=/dev/video0
 export PULSE_DEV='alsa_input.usb-R__DE_R__DE_VideoMic_GO_II_17477F5D-00.mono-fallback'
 # If MJPEG is flaky:

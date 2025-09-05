@@ -1,567 +1,121 @@
 #!/usr/bin/env python3
-"""
-Launch ffmpeg with a shared encode for YouTube and local recording.
-"""
-
-from __future__ import annotations
-
-import argparse
 import os
-import shlex
-import subprocess
 import sys
-from collections import deque
+import shlex
+import argparse
+import subprocess
 from pathlib import Path
-from typing import List, Tuple
-
 from gameday_config import get_stream_key, mask_key
-import camera_modes
-import re
 
-
-def _parse_bitrate(value: str) -> int:
-    """Convert an ffmpeg-style bitrate string like ``3500k`` or ``6M`` to int bits/s."""
-
-    v = value.strip().lower()
-    if v.endswith("k"):
-        return int(float(v[:-1]) * 1000)
-    if v.endswith("m"):
-        return int(float(v[:-1]) * 1000_000)
-    return int(float(v))
-
-
-def preflight_network() -> None:
-    """Best-effort network preflight checks for streaming."""
-    ntp_sync = False
+def run(cmd: list[str]) -> int:
+    print("[gameday] ffmpeg command:")
+    print("[gameday] " + " ".join(shlex.quote(x) for x in cmd))
+    proc = subprocess.Popen(cmd)
     try:
-        res = subprocess.run(
-            ["timedatectl", "show", "-p", "NTPSynchronized"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        ntp_sync = res.stdout.strip().lower().endswith("=yes")
-    except FileNotFoundError:
-        pass
+        return proc.wait()
+    except KeyboardInterrupt:
+        proc.terminate()
+        return proc.wait()
 
-    ca_path = Path("/etc/ssl/certs/ca-certificates.crt")
-    ca_present = ca_path.exists()
+def warmup(video_dev: str, size: str, fps: int) -> None:
+    # Flush empty V4L2 buffers so we don't get 'Dequeued ... 0 bytes' spam on start
+    cmd = [
+        "ffmpeg", "-loglevel", "error",
+        "-f", "v4l2", "-input_format", "h264",
+        "-framerate", str(fps), "-video_size", size,
+        "-t", "0.7", "-i", video_dev,
+        "-an", "-f", "null", "-"
+    ]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def ensure_dir(p: Path) -> None:
+    p.mkdir(parents=True, exist_ok=True)
+
+def build_yt_url(stream_key: str) -> str:
+    return f"rtmps://a.rtmps.youtube.com/live2/{stream_key}?rtmp_live=1"
+
+def build_ffmpeg_copy(video_dev: str, audio_dev: str, size: str, fps: int,
+                      yt_url: str, seg_dir: Path, seg_len: int) -> list[str]:
+    # Camera-native H.264 copy → YT + local MKV segments
+    seg_tmpl = str(seg_dir / "%Y%m%d_%H%M%S.mkv")
+    return [
+        "ffmpeg", "-hide_banner", "-loglevel", "warning",
+        "-fflags", "+genpts+igndts+discardcorrupt", "-use_wallclock_as_timestamps", "1",
+        "-f", "v4l2", "-input_format", "h264", "-framerate", str(fps), "-video_size", size,
+        "-thread_queue_size", "4096", "-ts", "mono2abs", "-rtbufsize", "256M", "-i", video_dev,
+        "-f", "alsa", "-thread_queue_size", "1024", "-i", audio_dev,
+        "-map", "0:v", "-map", "1:a",
+        "-c:v", "copy", "-vsync", "passthrough",
+        "-af", "aresample=async=1:first_pts=0", "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
+        "-muxpreload", "0", "-muxdelay", "0", "-flvflags", "no_duration_filesize",
+        "-f", "tee",
+        f"[f=flv:onfail=ignore:use_fifo=1]{yt_url}|"
+        f"[f=segment:use_fifo=1:segment_format=matroska:segment_time={seg_len}:segment_atclocktime=1:strftime=1:reset_timestamps=1]{seg_tmpl}",
+    ]
+
+def build_ffmpeg_transcode(video_dev: str, audio_dev: str, size: str, fps: int,
+                           yt_url: str, seg_dir: Path, seg_len: int) -> list[str]:
+    # Fallback: MJPEG → libx264 encode → YT + local MKV segments
+    seg_tmpl = str(seg_dir / "%Y%m%d_%H%M%S.mkv")
+    vf = "[0:v]settb=AVTB,setpts=PTS-STARTPTS,scale=in_range=pc:out_range=tv,format=yuv420p[v];" \
+         "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]"
+    return [
+        "ffmpeg", "-hide_banner", "-loglevel", "warning",
+        "-fflags", "+genpts+igndts+discardcorrupt", "-use_wallclock_as_timestamps", "1",
+        "-f", "v4l2", "-input_format", "mjpeg", "-framerate", str(fps), "-video_size", size,
+        "-thread_queue_size", "1024", "-i", video_dev,
+        "-f", "alsa", "-thread_queue_size", "1024", "-i", audio_dev,
+        "-filter_complex", vf, "-map", "[v]", "-map", "[a]",
+        "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-pix_fmt", "yuv420p",
+        "-b:v", "3500000", "-maxrate", "3989999", "-bufsize", "5985000", "-g", "60",
+        "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
+        "-flvflags", "no_duration_filesize",
+        "-f", "tee",
+        f"[f=flv:onfail=ignore:use_fifo=1]{yt_url}|"
+        f"[f=segment:use_fifo=1:segment_format=matroska:segment_time={seg_len}:segment_atclocktime=1:strftime=1:reset_timestamps=1]{seg_tmpl}",
+    ]
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description="Gameday live streamer")
+    ap.add_argument("--video-device", default="/dev/video0")
+    ap.add_argument("--audio-device", default="plughw:2,0")
+    ap.add_argument("--video-size", default="1280x720")
+    ap.add_argument("--framerate", type=int, default=30)
+    ap.add_argument("--segment-length", type=int, default=900)
+    ap.add_argument("--stream-key", default=None, help="override stream key (normally use env/.env)")
+    ap.add_argument("--skip-warmup", action="store_true")
+    args = ap.parse_args(argv)
+
+    # Stream key
     try:
-        subprocess.run(["openssl", "version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        openssl_ok = True
-    except Exception:
-        openssl_ok = False
+        stream_key = get_stream_key(args.stream_key)
+    except Exception as e:
+        print(f"[gameday] ERROR: {e}", file=sys.stderr)
+        return 2
+    yt_url = build_yt_url(stream_key)
 
-    print(
-        f"[gameday] preflight: ntp_sync={str(ntp_sync).lower()} ca_bundle={'present' if ca_present else 'missing'}"
-    )
-    if not ntp_sync:
-        print("[gameday] WARN: system clock may be unsynchronized")
-    if not openssl_ok:
-        print("[gameday] WARN: openssl unavailable")
-    if not ca_present:
-        print(
-            "[gameday] WARN: CA certificate bundle missing (/etc/ssl/certs/ca-certificates.crt)"
-        )
+    seg_dir = Path("recordings/raw")
+    ensure_dir(seg_dir)
 
+    print(f"[gameday] camera mode: h264-copy preferred @ {args.video_size}@{args.framerate}")
+    print(f"[gameday] Launch -> {yt_url} | raw={seg_dir}")
+    print(f"[gameday] input_format=h264(copy) | tee=yt+segments | key={mask_key(stream_key)}")
 
-def choose_push_url(args: argparse.Namespace, stream_key: str) -> Tuple[str, str]:
-    """Select the streaming transport and return the full push URL."""
-    transport = (args.transport or os.getenv("STREAM_TRANSPORT", "rtmps")).lower()
-    if transport not in {"rtmps", "rtmp"}:
-        transport = "rtmps"
-    if transport == "rtmps":
-        url = (
-            f"rtmps://{args.yt_ingest}.rtmps.youtube.com/live2/{stream_key}?rtmp_live=1"
-        )
-    else:
-        url = f"rtmp://{args.yt_ingest}.rtmp.youtube.com/live2/{stream_key}"
-    return url, transport
+    if not args.skip_warmup:
+        warmup(args.video_device, args.video_size, args.framerate)
 
-
-def build_filter_graph() -> str:
-    """Return the shared A/V filter graph.
-
-    The graph produces exactly two labels: ``[v]`` for video and ``[a]`` for audio.
-    This avoids unused split outputs that previously triggered
-    ``Filter split:output0 has an unconnected output`` errors.
-    """
-
-    return (
-        "[0:v]settb=AVTB,setpts=PTS-STARTPTS,"
-        "scale=in_range=pc:out_range=tv,format=yuv420p[v];"
-        "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]"
-    )
-
-
-def run_ffmpeg(
-    args: argparse.Namespace,
-    encoder: str,
-    push_url: str | None,
-    start_mode: camera_modes.CamMode,
-    usb2: bool,
-) -> Tuple[int, List[str]]:
-    import select
-    import signal
-    import time
-
-    log: List[str] = []
-    active_mode = start_mode
-    warned_zero = False
-
-    backoffs = [2, 4, 8]
-    attempt = 0
-    masked = None
-    stream_key = None
-    if push_url:
-        parts = push_url.rsplit("/", 1)
-        if len(parts) == 2:
-            stream_key = parts[1].split("?", 1)[0]
-            masked = mask_key(stream_key)
-    current_url = push_url
-    tee_display = "yt+segments" if not args.no_yt else "segments"
-
-    while True:
-        local_args = argparse.Namespace(**vars(args))
-        local_args.cam_input_format = active_mode.pixfmt
-        local_args.fps = active_mode.fps
-        local_args.size = f"{active_mode.w}x{active_mode.h}"
-        cmd = build_cmd(local_args, encoder, current_url)
-        sanitized = [
-            c.replace(stream_key, masked) if stream_key else c for c in cmd
-        ]
-        print(
-            f"[gameday] input_format={active_mode.pixfmt} | hw_encoder={encoder} | tee={tee_display}"
-        )
-        print("[gameday] ffmpeg command:")
-        print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
-        proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True, bufsize=1)
-
-        last_frame = time.monotonic()
-        first_frame = None
-        frames_out = 0
-        zero_times: deque[float] = deque()
-        live_logged = False
-        restarting = False
-        zero_re = re.compile(r"corrupted data \(0 bytes\)", re.IGNORECASE)
-        frame_re = re.compile(r"frame=\s*(\d+)")
-
-        try:
-            assert proc.stderr is not None
-            while True:
-                now = time.monotonic()
-                ready, _, _ = select.select([proc.stderr], [], [], 0.25)
-                if ready:
-                    line = proc.stderr.readline()
-                    if not line:
-                        break
-                    if stream_key:
-                        line = line.replace(stream_key, masked)
-                    sys.stderr.write(line)
-                    log.append(line.rstrip("\n"))
-
-                    if (
-                        args.use_libv4l2
-                        and not warned_zero
-                        and "Dequeued v4l2 buffer contains corrupted data (0 bytes)" in line
-                    ):
-                        print(
-                            "[gameday] WARN: zero-byte V4L2 buffers while using libv4l2 (nonblocking). Try rerun without --use-libv4l2."
-                        )
-                        warned_zero = True
-
-                    if zero_re.search(line):
-                        zero_times.append(now)
-                        while zero_times and now - zero_times[0] > 3:
-                            zero_times.popleft()
-                        if len(zero_times) > 5:
-                            next_mode = camera_modes.next_fallback(active_mode, usb2)
-                            if next_mode:
-                                print(
-                                    f"[gameday] WARNING: zero-byte frames; switching {camera_modes.format_mode(active_mode)} -> {camera_modes.format_mode(next_mode)}"
-                                )
-                                try:
-                                    proc.send_signal(signal.SIGINT)
-                                    proc.wait(timeout=5)
-                                except subprocess.TimeoutExpired:
-                                    proc.kill()
-                                    proc.wait()
-                                active_mode = next_mode
-                                restarting = True
-                                break
-
-                    m = frame_re.search(line)
-                    if m:
-                        count = int(m.group(1))
-                        if count > frames_out:
-                            frames_out = count
-                            last_frame = now
-                            if first_frame is None and count > 0:
-                                first_frame = now
-                            if (
-                                not live_logged
-                                and first_frame is not None
-                                and count >= 90
-                                and now - first_frame >= 3
-                            ):
-                                print(
-                                    f"[gameday] LIVE: streaming and recording (encoder={encoder}, input={active_mode.pixfmt})"
-                                )
-                                live_logged = True
-
-                if not live_logged and now - last_frame > 20:
-                    try:
-                        proc.send_signal(signal.SIGINT)
-                        proc.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
-                        proc.wait()
-                    if attempt < len(backoffs):
-                        delay = backoffs[attempt]
-                        attempt += 1
-                        time.sleep(delay)
-                        restarting = True
-                        break
-                    else:
-                        print(
-                            "[gameday] ERROR: RTMP not accepting data after retries."
-                        )
-                        return 1, log
-
-        except KeyboardInterrupt:
-            print("\n[gameday] stopping…")
-            try:
-                proc.send_signal(signal.SIGINT)
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-
-        rc = proc.wait()
-        if restarting:
-            continue
-        if (
-            rc != 0
-            and current_url
-            and current_url.startswith("rtmps://")
-        ):
-            tls_words = [
-                "Error in the pull function",
-                "gnutls",
-                "TLS",
-                "certificate",
-                "handshake",
-                "SSL",
-            ]
-            reason = next(
-                (l for l in log if any(w in l for w in tls_words)),
-                None,
-            )
-            if reason:
-                print("[gameday] RTMPS failed (TLS). Falling back to RTMP…")
-                print(f"[gameday] {reason.strip()}")
-                current_url = (
-                    current_url.replace("rtmps://", "rtmp://")
-                    .replace(".rtmps.", ".rtmp.")
-                    .replace("?rtmp_live=1", "")
-                )
-                log = []
-                attempt = 0
-                continue
-        return rc, log
-
-
-def start_remux_watcher(out_dir: str, keep_ts: bool):
-    import threading
-    import time
-
-    def _worker():
-        p = Path(out_dir)
-        p.mkdir(parents=True, exist_ok=True)
-        while True:
-            try:
-                now = time.time()
-                for ts in sorted(p.glob("*.ts")):
-                    mp4 = ts.with_suffix(".mp4")
-                    if mp4.exists():
-                        continue
-                    if now - ts.stat().st_mtime < 60:
-                        continue
-                    cmd = [
-                        "ffmpeg",
-                        "-y",
-                        "-i",
-                        str(ts),
-                        "-c",
-                        "copy",
-                        "-bsf:a",
-                        "aac_adtstoasc",
-                        str(mp4),
-                    ]
-                    print(f"[gameday] remux -> {mp4.name}")
-                    r = subprocess.run(cmd)
-                    if r.returncode == 0 and not keep_ts:
-                        try:
-                            ts.unlink()
-                        except OSError:
-                            pass
-            except Exception as e:  # pragma: no cover - best effort logging
-                print(f"[gameday] remux watcher error: {e}")
-            time.sleep(10)
-
-    t = threading.Thread(target=_worker, daemon=True)
-    t.start()
-
-
-def build_cmd(
-    args: argparse.Namespace, encoder: str, push_url: str | None
-) -> List[str]:
-    """Construct the ffmpeg command line."""
-
-    seg_time = max(1, int(args.segment_seconds))
-
-    raw_out_dir = getattr(args, "raw_out_dir", args.mezz_dir)
-    os.makedirs(raw_out_dir, exist_ok=True)
-    raw_pattern = os.path.join(raw_out_dir, "%Y%m%d_%H%M%S.ts")
-
-    bitrate = _parse_bitrate(args.bitrate)
-
-    yt_url: str | None = push_url if (push_url and not args.no_yt) else None
-
-    tee_parts: List[str] = []
-    if yt_url:
-        tee_parts.append(f"[f=flv:onfail=ignore:use_fifo=1]{yt_url}")
-    tee_parts.append(
-        f"[f=segment:use_fifo=1:segment_format=mpegts:segment_time={seg_time}:strftime=1:reset_timestamps=1]{raw_pattern}"
-    )
-    tee_url = "|".join(tee_parts)
-    assert "<STREAM_KEY>" not in tee_url and "{STREAM_KEY}" not in tee_url, "STREAM_KEY placeholder detected in tee URL"
-
-    loglevel = "verbose" if args.debug else "warning"
-    cmd: List[str] = ["ffmpeg", "-loglevel", loglevel]
-    if args.debug:
-        cmd += ["-report"]
-
-    filter_complex = build_filter_graph()
-
-    cmd += [
-        "-fflags",
-        "+genpts+igndts+discardcorrupt",
-        "-avoid_negative_ts",
-        "make_zero",
-        "-use_wallclock_as_timestamps",
-        "1",
-        "-f",
-        "v4l2",
-        "-input_format",
-        args.cam_input_format,
-        "-framerate",
-        str(args.fps),
-        "-video_size",
-        args.size,
-    ]
-    if args.use_libv4l2:
-        cmd += ["-use_libv4l2", "1"]
-    cmd += [
-        "-thread_queue_size",
-        "1024",
-        "-i",
-        args.cam_dev,
-        "-f",
-        "alsa",
-        "-thread_queue_size",
-        "1024",
-        "-i",
-        args.alsa_dev,
-        "-filter_complex",
-        filter_complex,
-        "-map",
-        "[v]",
-        "-map",
-        "[a]",
-        "-c:v",
-        encoder,
-    ]
-    if encoder == "libx264":
-        cmd += ["-preset", "veryfast", "-tune", "zerolatency", "-pix_fmt", "yuv420p"]
-    cmd += [
-        "-b:v",
-        str(bitrate),
-        "-maxrate",
-        str(int(bitrate * 1.14)),
-        "-bufsize",
-        str(int(bitrate * 1.71)),
-        "-g",
-        str(args.fps * 2),
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-ar",
-        "48000",
-        "-ac",
-        "2",
-        "-flvflags",
-        "no_duration_filesize",
-        "-f",
-        "tee",
-        tee_url,
-    ]
-    return cmd
-
-
-def need_fallback(rc: int, log: List[str]) -> bool:
-    text = "\n".join(log)
-    if "Could not find a valid device" in text or "can't configure encoder" in text:
-        return True
-    if rc != 0 and not any("Output #0" in l for l in log):
-        return True
-    return False
-
-
-def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser()
-    p.add_argument("--size", default="1280x720")
-    p.add_argument("--fps", type=int, default=30)
-    p.add_argument("--cam-max-fps", type=int, default=30)
-    p.add_argument("--bitrate", default="3500k")
-    p.add_argument("--alsa-dev", default="plughw:2,0")
-    p.add_argument("--segment", action="store_true", help="also save low-bitrate stream archive")
-    p.add_argument("--segment-seconds", type=int, default=900)
-    p.add_argument("--out-dir", default="recordings/archive")
-    p.add_argument(
-        "--stream-key",
-        help="Optional. If omitted, STREAM_KEY is read from environment or .env.",
-    )
-    p.add_argument(
-        "--print-key",
-        action="store_true",
-        help="Print the masked stream key and exit",
-    )
-    p.add_argument("--cam-dev", default="/dev/video0")
-    p.add_argument(
-        "--cam-input-format",
-        choices=["auto", "mjpeg", "yuyv422"],
-        default="auto",
-    )
-    p.add_argument(
-        "--mezzanine",
-        choices=["auto", "copy", "crf", "off"],
-        default="auto",
-        help="high-quality master recording mode",
-    )
-    p.add_argument("--mezz-dir", default="recordings/raw")
-    p.add_argument("--mezz-segment-seconds", type=int, default=900)
-    p.add_argument("--mezz-crf", type=int, default=18)
-    p.add_argument("--mezz-preset", default="medium")
-    p.add_argument("--mezz-audio-bitrate", default="192k")
-    p.add_argument("--remux-mp4", action="store_true")
-    p.add_argument("--remux-keep-ts", action="store_true")
-    p.add_argument("--no-yt", action="store_true")
-    p.add_argument("--yt-optional", action="store_true")
-    p.add_argument("--yt-ingest", choices=["a", "b"], default="a")
-    p.add_argument("--transport", choices=["rtmps", "rtmp"], default=None)
-    p.add_argument("--debug", action="store_true")
-    p.add_argument("--dry-run", action="store_true")
-    p.add_argument("--use-libv4l2", action="store_true", default=False)
-    return p.parse_args(argv)
-
-
-def main() -> int:
-    args = parse_args()
-
-    preflight_network()
-
-
-    stream_key = None
-    masked_key = ""
-    if not args.no_yt:
-        try:
-            stream_key = get_stream_key(args.stream_key)
-        except RuntimeError as e:
-            print(f"[gameday] ERROR: {e}", file=sys.stderr)
-            return 2
-        if not re.fullmatch(r"[A-Za-z0-9-]{10,64}", stream_key):
-            print("[gameday] ERROR: STREAM_KEY format looks invalid.", file=sys.stderr)
-            return 2
-        masked_key = mask_key(stream_key)
-        if args.print_key:
-            print(masked_key)
-            return 0
-
-    modes = camera_modes.probe_camera_modes(args.cam_dev)
-    usb2 = camera_modes.is_usb2(args.cam_dev)
-    requested_size = args.size if args.cam_input_format != "auto" else None
-    requested_fps = args.fps if args.cam_input_format != "auto" else None
-    cam_mode, cam_warnings = camera_modes.select_mode(
-        modes,
-        args.cam_input_format,
-        requested_size,
-        requested_fps,
-        args.cam_max_fps,
-        usb2,
-    )
-    args.cam_input_format = cam_mode.pixfmt
-    args.size = f"{cam_mode.w}x{cam_mode.h}"
-    args.fps = cam_mode.fps
-    args._cam_mode = cam_mode
-    args._usb2 = usb2
-    for w in cam_warnings:
-        print(f"[gameday] WARNING: {w}")
-    print(
-        f"[gameday] camera mode: {cam_mode.pixfmt} {cam_mode.w}x{cam_mode.h}@{cam_mode.fps} (libv4l2={args.use_libv4l2})"
-    )
-
-    if args.remux_mp4:
-        start_remux_watcher(args.mezz_dir, args.remux_keep_ts)
-
-    push_url = None
-    transport = "rtmps"
-    yt_display = "off"
-    if not args.no_yt and stream_key:
-        push_url, transport = choose_push_url(args, stream_key)
-        yt_display = push_url.replace(stream_key, masked_key)
-    raw_display = args.mezz_dir
-    print(f"[gameday] Launch -> {yt_display} | raw={raw_display}")
-
-    encoder = "h264_v4l2m2m"
-
-    if args.dry_run:
-        display_args = argparse.Namespace(**vars(args))
-        tee_display = "yt+segments" if not args.no_yt else "segments"
-        print(
-            f"[gameday] input_format={display_args.cam_input_format} | hw_encoder={encoder} | tee={tee_display}"
-        )
-        cmd = build_cmd(display_args, encoder, push_url)
-        sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
-        print("[gameday] ffmpeg command:")
-        print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
+    # Try H.264 copy fast path
+    cmd = build_ffmpeg_copy(args.video_device, args.audio_device, args.video_size, args.framerate,
+                            yt_url, seg_dir, args.segment_length)
+    rc = run(cmd)
+    if rc == 0:
         return 0
 
-    rc, log = run_ffmpeg(args, encoder, push_url, args._cam_mode, args._usb2)
+    print("[gameday] copy path failed; falling back to MJPEG → libx264")
+    cmd = build_ffmpeg_transcode(args.video_device, args.audio_device, args.video_size, args.framerate,
+                                 yt_url, seg_dir, args.segment_length)
+    rc2 = run(cmd)
+    return rc2
 
-    if need_fallback(rc, log):
-        print("[gameday] hw encoder failed; retrying with libx264")
-        encoder = "libx264"
-        if args.dry_run:
-            display_args = argparse.Namespace(**vars(args))
-            tee_display = "yt+segments" if not args.no_yt else "segments"
-            print(
-                f"[gameday] input_format={display_args.cam_input_format} | hw_encoder={encoder} | tee={tee_display}"
-            )
-            cmd = build_cmd(display_args, encoder, push_url)
-            sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
-            print("[gameday] ffmpeg command:")
-            print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
-            return 0
-        rc, log = run_ffmpeg(args, encoder, push_url, args._cam_mode, args._usb2)
-
-
-    if rc != 0 and args.yt_optional and not args.no_yt:
-        print("[gameday] WARNING: YouTube leg failed; local recording may be incomplete", file=sys.stderr)
-        rc = 0
-
-    return rc
-
-
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     sys.exit(main())
