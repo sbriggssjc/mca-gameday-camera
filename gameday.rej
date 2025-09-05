@@ -1,0 +1,16 @@
+--- gameday
++++ gameday
+@@ -210,10 +210,10 @@
+   -f v4l2 -input_format h264 -framerate 30 -video_size 1280x720 \
+   -thread_queue_size 4096 -ts mono2abs -rtbufsize 256M -i "$CAM_DEV" \
+   -f alsa -thread_queue_size 1024 -i "$AUDIO_DEV" \
+-  -map 0:v -map 1:a -c:v copy -vsync passthrough \
+-  -af aresample=async=1:first_pts=0 -c:a aac -b:a 128k -ar 48000 -ac 2 \
++  -map 0:v -map 1:a -c:v copy -vsync passthrough -copyts -start_at_zero \
++  -af aresample=async=1:first_pts=0 -c:a aac -b:a 128k -ar 48000 -ac 2 \
+   -muxpreload 0 -muxdelay 0 -flvflags no_duration_filesize \
+   -f tee \
+   "[f=flv:onfail=ignore:use_fifo=1]rtmps://$INGEST_HOST/live2/${YTLIVE_KEY}?rtmp_live=1|\
+-  [f=segment:onfail=ignore:use_fifo=1:segment_format=matroska:segment_time=900:segment_atclocktime=1:strftime=1:reset_timestamps=1]recordings/raw/%Y%m%d_%H%M%S.mkv"
++  [f=segment:onfail=ignore:use_fifo=1:segment_format=matroska:segment_time=900:segment_atclocktime=1:strftime=1:reset_timestamps=1]recordings/raw/%Y%m%d_%H%M%S.mkv"
+ 
