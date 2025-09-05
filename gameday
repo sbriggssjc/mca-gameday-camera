@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from gameday_config import get_stream_key, mask_key
 
-def run(cmd: list[str]) -> int:
+def run_and_log(cmd: list[str]) -> int:
     print("[gameday] ffmpeg command:")
     print("[gameday] " + " ".join(shlex.quote(x) for x in cmd))
     proc = subprocess.Popen(cmd)
@@ -36,13 +36,13 @@ def build_yt_url(stream_key: str) -> str:
 
 def build_ffmpeg_copy(video_dev: str, audio_dev: str, size: str, fps: int,
                       yt_url: str, seg_dir: Path, seg_len: int) -> list[str]:
-    # Camera-native H.264 copy → YT (FLV) + local MPEG-TS segments 
-    seg_tmpl = str(seg_dir / "%Y%m%d_%H%M%S.ts")
+    # Camera-native H.264 copy → YT (FLV) + local MKV segments
+    seg_tmpl = str(seg_dir / "%Y%m%d_%H%M%S.mkv")
     # Log the key parameters for clarity in stdout
-    print("[gameday] segments=mpegts (no mpegts_flags) | vsync=passthrough | copy=h264")
+    print("[gameday] segments=matroska | vsync=passthrough | copy=h264")
     return [
         "ffmpeg", "-hide_banner", "-loglevel", "warning",
-        "-fflags", "+genpts+discardcorrupt", "-use_wallclock_as_timestamps", "1",
+        "-fflags", "+genpts+igndts+discardcorrupt", "-use_wallclock_as_timestamps", "1",
         "-f", "v4l2", "-input_format", "h264", "-framerate", str(fps), "-video_size", size,
         "-thread_queue_size", "4096", "-ts", "mono2abs", "-rtbufsize", "256M", "-i", video_dev,
         "-f", "alsa", "-thread_queue_size", "1024", "-i", audio_dev,
@@ -52,7 +52,7 @@ def build_ffmpeg_copy(video_dev: str, audio_dev: str, size: str, fps: int,
         "-muxpreload", "0", "-muxdelay", "0", "-flvflags", "no_duration_filesize",
         "-f", "tee",
         f"[f=flv:onfail=ignore:use_fifo=1]{yt_url}|"
-        f"[f=segment:onfail=ignore:use_fifo=1:segment_format=mpegts:segment_time={seg_len}:segment_atclocktime=1:strftime=1:reset_timestamps=1]{seg_tmpl}",
+        f"[f=segment:onfail=ignore:use_fifo=1:segment_format=matroska:segment_time={seg_len}:segment_atclocktime=1:strftime=1:reset_timestamps=1]{seg_tmpl}",
     ]
 
 def build_ffmpeg_transcode(video_dev: str, audio_dev: str, size: str, fps: int,
@@ -65,6 +65,7 @@ def build_ffmpeg_transcode(video_dev: str, audio_dev: str, size: str, fps: int,
         "ffmpeg", "-hide_banner", "-loglevel", "warning",
         "-fflags", "+genpts+discardcorrupt", "-use_wallclock_as_timestamps", "1",
         "-f", "v4l2", "-input_format", "mjpeg", "-framerate", str(fps), "-video_size", size,
+        "-analyzeduration", "2M", "-probesize", "2M",
         "-thread_queue_size", "1024", "-i", video_dev,
         "-f", "alsa", "-thread_queue_size", "1024", "-i", audio_dev,
         "-filter_complex", vf, "-map", "[v]", "-map", "[a]",
@@ -109,14 +110,14 @@ def main(argv=None) -> int:
     # Try H.264 copy fast path
     cmd = build_ffmpeg_copy(args.video_device, args.audio_device, args.video_size, args.framerate,
                             yt_url, seg_dir, args.segment_length)
-    rc = run(cmd)
+    rc = run_and_log(cmd)
     # Only fall back if FFmpeg actually exited with a non-zero code. Ignore non-fatal log lines like
     # “Failed to update header with correct duration/filesize” which occur for live outputs.
     if rc != 0:
         print(f"[gameday] copy path failed (rc={rc}); falling back to MJPEG → libx264")
         cmd = build_ffmpeg_transcode(args.video_device, args.audio_device, args.video_size, args.framerate,
                                      yt_url, seg_dir, args.segment_length)
-        return run(cmd)
+        return run_and_log(cmd)
     return 0
 
 if __name__ == "__main__":
