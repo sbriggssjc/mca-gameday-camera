@@ -36,8 +36,10 @@ def build_yt_url(stream_key: str) -> str:
 
 def build_ffmpeg_copy(video_dev: str, audio_dev: str, size: str, fps: int,
                       yt_url: str, seg_dir: Path, seg_len: int) -> list[str]:
-    # Camera-native H.264 copy → YT (FLV) + local MPEG-TS segments (resend headers)
+    # Camera-native H.264 copy → YT (FLV) + local MPEG-TS segments 
     seg_tmpl = str(seg_dir / "%Y%m%d_%H%M%S.ts")
+    # Log the key parameters for clarity in stdout
+    print("[gameday] segments=mpegts (no mpegts_flags) | vsync=passthrough | copy=h264")
     return [
         "ffmpeg", "-hide_banner", "-loglevel", "warning",
         "-fflags", "+genpts+discardcorrupt", "-use_wallclock_as_timestamps", "1",
@@ -50,7 +52,7 @@ def build_ffmpeg_copy(video_dev: str, audio_dev: str, size: str, fps: int,
         "-muxpreload", "0", "-muxdelay", "0", "-flvflags", "no_duration_filesize",
         "-f", "tee",
         f"[f=flv:onfail=ignore:use_fifo=1]{yt_url}|"
-        f"[f=segment:onfail=ignore:use_fifo=1:segment_format=mpegts:mpegts_flags=+resend_headers:segment_time={seg_len}:segment_atclocktime=1:strftime=1:reset_timestamps=1]{seg_tmpl}",
+        f"[f=segment:onfail=ignore:use_fifo=1:segment_format=mpegts:segment_time={seg_len}:segment_atclocktime=1:strftime=1:reset_timestamps=1]{seg_tmpl}",
     ]
 
 def build_ffmpeg_transcode(video_dev: str, audio_dev: str, size: str, fps: int,
