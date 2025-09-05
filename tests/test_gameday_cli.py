@@ -8,6 +8,7 @@ _loader.exec_module(gameday)
 
 parse_args = gameday.parse_args
 build_cmd = gameday.build_cmd
+choose_push_url = gameday.choose_push_url
 
 
 def _default_args():
@@ -28,7 +29,7 @@ def test_builder_video_input_and_libv4l2():
     args.size = "1280x720"
     args.cam_dev = "/dev/video0"
     args.alsa_dev = "plughw:2,0"
-    cmd = build_cmd(args, "h264_v4l2m2m", None, "unused")
+    cmd = build_cmd(args, "h264_v4l2m2m", None)
     assert "-f" in cmd
     assert cmd[cmd.index("-f") + 1] == "v4l2"
     assert "-input_format" in cmd
@@ -41,6 +42,23 @@ def test_builder_video_input_and_libv4l2():
     assert "-use_libv4l2" not in cmd
 
     args.use_libv4l2 = True
-    cmd = build_cmd(args, "h264_v4l2m2m", None, "unused")
+    cmd = build_cmd(args, "h264_v4l2m2m", None)
     uidx = cmd.index("-use_libv4l2")
     assert cmd[uidx + 1] == "1"
+
+
+def test_choose_push_url_env_and_cli(monkeypatch):
+    args = parse_args(["--yt-ingest", "b"])
+    url, scheme = choose_push_url(args, "KEY")
+    assert scheme == "rtmps"
+    assert url.startswith("rtmps://b.rtmps.youtube.com/live2/KEY")
+
+    monkeypatch.setenv("STREAM_TRANSPORT", "rtmp")
+    args = parse_args(["--yt-ingest", "a"])
+    url, scheme = choose_push_url(args, "KEY")
+    assert scheme == "rtmp"
+    assert url == "rtmp://a.rtmp.youtube.com/live2/KEY"
+
+    args = parse_args(["--yt-ingest", "a", "--transport", "rtmps"])
+    url, scheme = choose_push_url(args, "KEY")
+    assert scheme == "rtmps"

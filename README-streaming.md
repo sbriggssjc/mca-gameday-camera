@@ -78,3 +78,9 @@ Reattach with:
 git remote add origin <git-url>
 ```
 
+## Connectivity & Time
+
+RTMPS requires a correct system clock and CA certificates. If TLS handshakes
+fail, set `STREAM_TRANSPORT=rtmp` or pass `--transport rtmp` to fall back to
+plain RTMP. Local segment recording continues even if the network leg fails.
+

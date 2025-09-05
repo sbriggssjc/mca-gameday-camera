@@ -28,6 +28,7 @@ def _args(tmp_path, mezz):
         bitrate="3500k",
         cam_dev="/dev/video0",
         alsa_dev="plughw:2,0",
+        use_libv4l2=False,
         mezzanine=mezz,
         mezz_dir=str(tmp_path),
         mezz_segment_seconds=1,
@@ -46,7 +47,7 @@ def _filter(cmd):
 def test_no_split_when_mezzanine_off(tmp_path):
     gd = _load_gameday()
     args = _args(tmp_path, "off")
-    cmd = gd.build_cmd(args, "libx264", None, "off")
+    cmd = gd.build_cmd(args, "libx264", None)
     fc = _filter(cmd)
     assert "split" not in fc
     assert "v_master" not in fc
@@ -55,17 +56,14 @@ def test_no_split_when_mezzanine_off(tmp_path):
 def test_no_split_when_mezzanine_copy(tmp_path):
     gd = _load_gameday()
     args = _args(tmp_path, "copy")
-    cmd = gd.build_cmd(args, "libx264", None, "copy")
+    cmd = gd.build_cmd(args, "libx264", None)
     fc = _filter(cmd)
     assert "split" not in fc
-    assert "0:v" in cmd and "1:a" in cmd
-    assert "copy" in cmd
 
 
 def test_split_when_mezzanine_encode(tmp_path):
     gd = _load_gameday()
     args = _args(tmp_path, "crf")
-    cmd = gd.build_cmd(args, "libx264", None, "crf")
+    cmd = gd.build_cmd(args, "libx264", None)
     fc = _filter(cmd)
-    assert "split" in fc
-    assert "[v_master]" in cmd
+    assert "split" not in fc

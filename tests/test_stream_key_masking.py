@@ -32,6 +32,7 @@ def test_command_builder_masks_key(capsys, tmp_path):
         bitrate="3500k",
         cam_dev="/dev/video0",
         alsa_dev="plughw:2,0",
+        use_libv4l2=False,
         mezzanine="off",
         mezz_dir=str(tmp_path),
         mezz_segment_seconds=1,
@@ -42,7 +43,8 @@ def test_command_builder_masks_key(capsys, tmp_path):
         remux_keep_ts=False,
     )
     key = get_stream_key()
-    cmd = gd.build_cmd(args, "libx264", key, "off")
+    url = f"rtmps://a.rtmps.youtube.com/live2/{key}?rtmp_live=1"
+    cmd = gd.build_cmd(args, "libx264", url)
     assert any(f"/live2/{key}" in part for part in cmd)
     masked = mask_key(key)
     preview = " ".join(c.replace(key, masked) for c in cmd)
