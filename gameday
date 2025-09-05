@@ -36,8 +36,8 @@ def build_yt_url(stream_key: str) -> str:
 
 def build_ffmpeg_copy(video_dev: str, audio_dev: str, size: str, fps: int,
                       yt_url: str, seg_dir: Path, seg_len: int) -> list[str]:
-    # Camera-native H.264 copy → YT + local MKV segments
-    seg_tmpl = str(seg_dir / "%Y%m%d_%H%M%S.mkv")
+    # Camera-native H.264 copy → YT (FLV) + local MPEG-TS segments with Annex-B
+    seg_tmpl = str(seg_dir / "%Y%m%d_%H%M%S.ts")
     return [
         "ffmpeg", "-hide_banner", "-loglevel", "warning",
         "-fflags", "+genpts+discardcorrupt", "-use_wallclock_as_timestamps", "1",
@@ -50,19 +50,13 @@ def build_ffmpeg_copy(video_dev: str, audio_dev: str, size: str, fps: int,
         "-muxpreload", "0", "-muxdelay", "0", "-flvflags", "no_duration_filesize",
         "-f", "tee",
         f"[f=flv:onfail=ignore:use_fifo=1]{yt_url}|"
-        f"[f=segment:onfail=ignore:use_fifo=1:segment_format=matroska:segment_time={seg_len}:segment_atclocktime=1:strftime=1:reset_timestamps=1]{seg_tmpl}",
-        # (optional) try to help matroska timing on some builds:
-        # If supported by your ffmpeg, you can pass format options like:
-        #   :segment_format_options=video_track_timescale=90000
-        # If unsupported, ffmpeg will ignore it harmlessly.
-        # Example (uncomment if your ffmpeg supports it):
-        # f"[f=segment:onfail=ignore:use_fifo=1:segment_format=matroska:segment_format_options=video_track_timescale=90000:segment_time={seg_len}:segment_atclocktime=1:strftime=1:reset_timestamps=1]{seg_tmpl}",
+        f"[f=segment:onfail=ignore:use_fifo=1:segment_format=mpegts:bsfs=v=h264_mp4toannexb:segment_time={seg_len}:segment_atclocktime=1:strftime=1:reset_timestamps=1]{seg_tmpl}",
     ]
 
 def build_ffmpeg_transcode(video_dev: str, audio_dev: str, size: str, fps: int,
                            yt_url: str, seg_dir: Path, seg_len: int) -> list[str]:
     # Fallback: MJPEG → libx264 encode → YT + local MKV segments
-    seg_tmpl = str(seg_dir / "%Y%m%d_%H%M%S.mkv")
+    seg_tmpl = str(seg_dir / "%Y%m%d_%H%M%S.mkv")  # keep MKV when we transcode
     vf = "[0:v]settb=AVTB,setpts=PTS-STARTPTS,scale=in_range=pc:out_range=tv,format=yuv420p[v];" \
          "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]"
     return [
@@ -114,6 +108,8 @@ def main(argv=None) -> int:
     cmd = build_ffmpeg_copy(args.video_device, args.audio_device, args.video_size, args.framerate,
                             yt_url, seg_dir, args.segment_length)
     rc = run(cmd)
+    # Only fallback on a non-zero exit code. Ignore non-fatal log lines like
+    # “Failed to update header with correct duration/filesize” which occur for live outputs.
     if rc == 0:
         return 0
 
