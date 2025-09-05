@@ -25,6 +25,20 @@ The application reads `STREAM_KEY` automatically and masks it in logs.
 * **STREAM_KEY not found** – ensure the variable is set in your environment or `.env`.
 * **STREAM_KEY format looks invalid** – verify the key matches the alphanumeric-with-dashes format provided by YouTube.
 
+## YouTube auto-start/stop
+
+`./gameday` will automatically go live if your stream key has
+Auto-start/Auto-stop enabled. If YouTube still shows a **Go Live** button,
+you're likely using a scheduled event instead of a reusable/default key. Use
+the Stream tab and enable Auto-start/Auto-stop under:
+
+```
+YouTube Studio → Go Live → Stream → Stream Settings
+```
+
+The launcher prints this reminder once per run. Suppress it with
+`--no-yt-hint` or by setting `GAMEDAY_SUPPRESS_YT_HINT=1`.
+
 ## Connectivity & Time
 
 RTMPS streaming requires a correct system clock and installed CA certificates.

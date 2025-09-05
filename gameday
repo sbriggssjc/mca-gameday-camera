@@ -7,9 +7,10 @@ import subprocess
 from pathlib import Path
 from gameday_config import get_stream_key, mask_key
 
-def run_and_log(cmd: list[str]) -> int:
+def run_and_log(cmd: list[str], stream_key: str) -> int:
     print("[gameday] ffmpeg command:")
-    print("[gameday] " + " ".join(shlex.quote(x) for x in cmd))
+    masked_cmd = [c.replace(stream_key, mask_key(stream_key)) for c in cmd]
+    print("[gameday] " + " ".join(shlex.quote(x) for x in masked_cmd))
     proc = subprocess.Popen(cmd)
     try:
         return proc.wait()
@@ -57,8 +58,8 @@ def build_ffmpeg_copy(video_dev: str, audio_dev: str, size: str, fps: int,
 
 def build_ffmpeg_transcode(video_dev: str, audio_dev: str, size: str, fps: int,
                            yt_url: str, seg_dir: Path, seg_len: int) -> list[str]:
-    # Fallback: MJPEG → libx264 encode → YT + local MKV segments
-    seg_tmpl = str(seg_dir / "%Y%m%d_%H%M%S.mkv")  # keep MKV when we transcode
+    # Fallback: MJPEG → libx264 encode → YT + local TS segments
+    seg_tmpl = str(seg_dir / "%Y%m%d_%H%M%S.ts")
     vf = "[0:v]settb=AVTB,setpts=PTS-STARTPTS,scale=in_range=pc:out_range=tv,format=yuv420p[v];" \
          "[1:a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a]"
     return [
@@ -75,7 +76,7 @@ def build_ffmpeg_transcode(video_dev: str, audio_dev: str, size: str, fps: int,
         "-flvflags", "no_duration_filesize",
         "-f", "tee",
         f"[f=flv:onfail=ignore:use_fifo=1]{yt_url}|"
-        f"[f=segment:onfail=ignore:use_fifo=1:segment_format=matroska:segment_time={seg_len}:segment_atclocktime=1:strftime=1:reset_timestamps=1]{seg_tmpl}",
+        f"[f=segment:onfail=ignore:use_fifo=1:segment_format=mpegts:segment_time={seg_len}:segment_atclocktime=1:strftime=1:reset_timestamps=1]{seg_tmpl}",
     ]
 
 def main(argv=None) -> int:
@@ -87,6 +88,7 @@ def main(argv=None) -> int:
     ap.add_argument("--segment-length", type=int, default=900)
     ap.add_argument("--stream-key", default=None, help="override stream key (normally use env/.env)")
     ap.add_argument("--skip-warmup", action="store_true")
+    ap.add_argument("--no-yt-hint", action="store_true", help="suppress YouTube auto-start hint")
     args = ap.parse_args(argv)
 
     # Stream key
@@ -96,12 +98,17 @@ def main(argv=None) -> int:
         print(f"[gameday] ERROR: {e}", file=sys.stderr)
         return 2
     yt_url = build_yt_url(stream_key)
+    masked_url = build_yt_url(mask_key(stream_key))
 
     seg_dir = Path("recordings/raw")
     ensure_dir(seg_dir)
 
     print(f"[gameday] camera mode: h264-copy preferred @ {args.video_size}@{args.framerate}")
-    print(f"[gameday] Launch -> {yt_url} | raw={seg_dir}")
+    print(f"[gameday] Launch -> {masked_url} | raw={seg_dir}")
+    if not (args.no_yt_hint or os.environ.get("GAMEDAY_SUPPRESS_YT_HINT")):
+        print("[gameday] NOTE: If YouTube shows 'Go Live', you likely started a *scheduled* event.")
+        print("[gameday]       Use a reusable/default stream key with Auto-start/Auto-stop enabled to go live automatically.")
+        print("[gameday]       (YouTube Studio → Go Live → Stream → Stream Settings)")
     print(f"[gameday] input_format=h264(copy) | tee=yt+segments | key={mask_key(stream_key)}")
 
     if not args.skip_warmup:
@@ -110,14 +117,14 @@ def main(argv=None) -> int:
     # Try H.264 copy fast path
     cmd = build_ffmpeg_copy(args.video_device, args.audio_device, args.video_size, args.framerate,
                             yt_url, seg_dir, args.segment_length)
-    rc = run_and_log(cmd)
+    rc = run_and_log(cmd, stream_key)
     # Only fall back if FFmpeg actually exited with a non-zero code. Ignore non-fatal log lines like
     # “Failed to update header with correct duration/filesize” which occur for live outputs.
     if rc != 0:
         print(f"[gameday] copy path failed (rc={rc}); falling back to MJPEG → libx264")
         cmd = build_ffmpeg_transcode(args.video_device, args.audio_device, args.video_size, args.framerate,
                                      yt_url, seg_dir, args.segment_length)
-        return run_and_log(cmd)
+        return run_and_log(cmd, stream_key)
     return 0
 
 if __name__ == "__main__":
