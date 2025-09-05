@@ -1,7 +1,7 @@
 # YouTube RTMP(S) Quick Checks
 
 - Make sure your key has **no** angle brackets or spaces.
-- Prefer `rtmps://a.rtmps.youtube.com/live2/ks9t-460s-mq27-mm75-4mc8` (port 443). If flaky, try `rtmps://b.rtmps.youtube.com/live2/ks9t-460s-mq27-mm75-4mc8`.
+- Prefer `rtmps://a.rtmps.youtube.com/live2/<your_key>` (port 443). If flaky, try `rtmps://b.rtmps.youtube.com/live2/<your_key>`.
 - Verify ffmpeg supports rtmp/rtmps/tls:
 
 
@@ -54,7 +54,7 @@ ffmpeg -fflags +genpts+igndts+discardcorrupt -avoid_negative_ts make_zero \
   -map "[v]" -map "[a]" -c:v libx264 -preset veryfast -tune zerolatency \
   -b:v 3500k -maxrate 4000k -bufsize 6000k -g 60 -c:a aac -b:a 128k \
   -ar 48000 -ac 2 -f tee \
-  "[f=flv:onfail=ignore]rtmps://a.rtmps.youtube.com/live2/ks9t-460s-mq27-mm75-4mc8" \
+  "[f=flv:onfail=ignore]rtmps://a.rtmps.youtube.com/live2/<your_key>" \
   -map 0:v -map 1:a -c:v copy -c:a copy \
   -f segment -segment_time 900 -reset_timestamps 1 -strftime 1 recordings/raw/%Y%m%d_%H%M%S.mkv
 ```
