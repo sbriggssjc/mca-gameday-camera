@@ -30,6 +30,55 @@ def _parse_bitrate(value: str) -> int:
     return int(float(v))
 
 
+def preflight_network() -> None:
+    """Best-effort network preflight checks for streaming."""
+    ntp_sync = False
+    try:
+        res = subprocess.run(
+            ["timedatectl", "show", "-p", "NTPSynchronized"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        ntp_sync = res.stdout.strip().lower().endswith("=yes")
+    except FileNotFoundError:
+        pass
+
+    ca_path = Path("/etc/ssl/certs/ca-certificates.crt")
+    ca_present = ca_path.exists()
+    try:
+        subprocess.run(["openssl", "version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        openssl_ok = True
+    except Exception:
+        openssl_ok = False
+
+    print(
+        f"[gameday] preflight: ntp_sync={str(ntp_sync).lower()} ca_bundle={'present' if ca_present else 'missing'}"
+    )
+    if not ntp_sync:
+        print("[gameday] WARN: system clock may be unsynchronized")
+    if not openssl_ok:
+        print("[gameday] WARN: openssl unavailable")
+    if not ca_present:
+        print(
+            "[gameday] WARN: CA certificate bundle missing (/etc/ssl/certs/ca-certificates.crt)"
+        )
+
+
+def choose_push_url(args: argparse.Namespace, stream_key: str) -> Tuple[str, str]:
+    """Select the streaming transport and return the full push URL."""
+    transport = (args.transport or os.getenv("STREAM_TRANSPORT", "rtmps")).lower()
+    if transport not in {"rtmps", "rtmp"}:
+        transport = "rtmps"
+    if transport == "rtmps":
+        url = (
+            f"rtmps://{args.yt_ingest}.rtmps.youtube.com/live2/{stream_key}?rtmp_live=1"
+        )
+    else:
+        url = f"rtmp://{args.yt_ingest}.rtmp.youtube.com/live2/{stream_key}"
+    return url, transport
+
+
 def build_filter_graph() -> str:
     """Return the shared A/V filter graph.
 
@@ -48,7 +97,7 @@ def build_filter_graph() -> str:
 def run_ffmpeg(
     args: argparse.Namespace,
     encoder: str,
-    stream_key: str | None,
+    push_url: str | None,
     start_mode: camera_modes.CamMode,
     usb2: bool,
 ) -> Tuple[int, List[str]]:
@@ -62,7 +111,14 @@ def run_ffmpeg(
 
     backoffs = [2, 4, 8]
     attempt = 0
-    masked = mask_key(stream_key) if stream_key else None
+    masked = None
+    stream_key = None
+    if push_url:
+        parts = push_url.rsplit("/", 1)
+        if len(parts) == 2:
+            stream_key = parts[1].split("?", 1)[0]
+            masked = mask_key(stream_key)
+    current_url = push_url
     tee_display = "yt+segments" if not args.no_yt else "segments"
 
     while True:
@@ -70,8 +126,10 @@ def run_ffmpeg(
         local_args.cam_input_format = active_mode.pixfmt
         local_args.fps = active_mode.fps
         local_args.size = f"{active_mode.w}x{active_mode.h}"
-        cmd = build_cmd(local_args, encoder, stream_key, "unused")
-        sanitized = [c.replace(stream_key, masked) if stream_key else c for c in cmd]
+        cmd = build_cmd(local_args, encoder, current_url)
+        sanitized = [
+            c.replace(stream_key, masked) if stream_key else c for c in cmd
+        ]
         print(
             f"[gameday] input_format={active_mode.pixfmt} | hw_encoder={encoder} | tee={tee_display}"
         )
@@ -181,6 +239,34 @@ def run_ffmpeg(
         rc = proc.wait()
         if restarting:
             continue
+        if (
+            rc != 0
+            and current_url
+            and current_url.startswith("rtmps://")
+        ):
+            tls_words = [
+                "Error in the pull function",
+                "gnutls",
+                "TLS",
+                "certificate",
+                "handshake",
+                "SSL",
+            ]
+            reason = next(
+                (l for l in log if any(w in l for w in tls_words)),
+                None,
+            )
+            if reason:
+                print("[gameday] RTMPS failed (TLS). Falling back to RTMP…")
+                print(f"[gameday] {reason.strip()}")
+                current_url = (
+                    current_url.replace("rtmps://", "rtmp://")
+                    .replace(".rtmps.", ".rtmp.")
+                    .replace("?rtmp_live=1", "")
+                )
+                log = []
+                attempt = 0
+                continue
         return rc, log
 
 
@@ -227,7 +313,7 @@ def start_remux_watcher(out_dir: str, keep_ts: bool):
 
 
 def build_cmd(
-    args: argparse.Namespace, encoder: str, stream_key: str | None, mezz_mode: str
+    args: argparse.Namespace, encoder: str, push_url: str | None
 ) -> List[str]:
     """Construct the ffmpeg command line."""
 
@@ -239,10 +325,7 @@ def build_cmd(
 
     bitrate = _parse_bitrate(args.bitrate)
 
-    yt_url: str | None = None
-    if not args.no_yt:
-        yt_base = f"rtmps://{args.yt_ingest}.rtmps.youtube.com/live2"
-        yt_url = f"{yt_base}/{stream_key}?rtmp_live=1"
+    yt_url: str | None = push_url if (push_url and not args.no_yt) else None
 
     tee_parts: List[str] = []
     if yt_url:
@@ -376,6 +459,7 @@ def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     p.add_argument("--no-yt", action="store_true")
     p.add_argument("--yt-optional", action="store_true")
     p.add_argument("--yt-ingest", choices=["a", "b"], default="a")
+    p.add_argument("--transport", choices=["rtmps", "rtmp"], default=None)
     p.add_argument("--debug", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--use-libv4l2", action="store_true", default=False)
@@ -384,6 +468,8 @@ def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+
+    preflight_network()
 
 
     stream_key = None
@@ -428,9 +514,12 @@ def main() -> int:
     if args.remux_mp4:
         start_remux_watcher(args.mezz_dir, args.remux_keep_ts)
 
+    push_url = None
+    transport = "rtmps"
     yt_display = "off"
     if not args.no_yt and stream_key:
-        yt_display = f"rtmps://{args.yt_ingest}.rtmps.youtube.com/live2/{masked_key}"
+        push_url, transport = choose_push_url(args, stream_key)
+        yt_display = push_url.replace(stream_key, masked_key)
     raw_display = args.mezz_dir
     print(f"[gameday] Launch -> {yt_display} | raw={raw_display}")
 
@@ -442,13 +531,13 @@ def main() -> int:
         print(
             f"[gameday] input_format={display_args.cam_input_format} | hw_encoder={encoder} | tee={tee_display}"
         )
-        cmd = build_cmd(display_args, encoder, stream_key, "unused")
+        cmd = build_cmd(display_args, encoder, push_url)
         sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
         print("[gameday] ffmpeg command:")
         print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
         return 0
 
-    rc, log = run_ffmpeg(args, encoder, stream_key, args._cam_mode, args._usb2)
+    rc, log = run_ffmpeg(args, encoder, push_url, args._cam_mode, args._usb2)
 
     if need_fallback(rc, log):
         print("[gameday] hw encoder failed; retrying with libx264")
@@ -459,12 +548,12 @@ def main() -> int:
             print(
                 f"[gameday] input_format={display_args.cam_input_format} | hw_encoder={encoder} | tee={tee_display}"
             )
-            cmd = build_cmd(display_args, encoder, stream_key, "unused")
+            cmd = build_cmd(display_args, encoder, push_url)
             sanitized = [c.replace(stream_key, masked_key) if stream_key else c for c in cmd]
             print("[gameday] ffmpeg command:")
             print("[gameday]", " ".join(shlex.quote(x) for x in sanitized))
             return 0
-        rc, log = run_ffmpeg(args, encoder, stream_key, args._cam_mode, args._usb2)
+        rc, log = run_ffmpeg(args, encoder, push_url, args._cam_mode, args._usb2)
 
 
     if rc != 0 and args.yt_optional and not args.no_yt:

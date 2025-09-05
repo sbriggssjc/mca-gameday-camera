@@ -25,6 +25,13 @@ The application reads `STREAM_KEY` automatically and masks it in logs.
 * **STREAM_KEY not found** – ensure the variable is set in your environment or `.env`.
 * **STREAM_KEY format looks invalid** – verify the key matches the alphanumeric-with-dashes format provided by YouTube.
 
+## Connectivity & Time
+
+RTMPS streaming requires a correct system clock and installed CA certificates.
+If handshakes fail, set `STREAM_TRANSPORT=rtmp` or pass `--transport rtmp` to
+fall back to plain RTMP. Local segment recording continues even if streaming
+fails.
+
 ## Development setup
 
 On Jetson devices running JetPack 6.x, run the setup script to install
