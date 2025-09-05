@@ -23,8 +23,8 @@ def warmup(video_dev: str, size: str, fps: int) -> None:
         "ffmpeg", "-loglevel", "error",
         "-f", "v4l2", "-input_format", "h264",
         "-framerate", str(fps), "-video_size", size,
-        "-t", "1.2", "-i", video_dev,
-        "-an", "-f", "null", "-"
+        "-t", "1.0", "-i", video_dev,
+        "-an", "-f", "null", "-", "-y"
     ]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -36,7 +36,7 @@ def build_yt_url(stream_key: str) -> str:
 
 def build_ffmpeg_copy(video_dev: str, audio_dev: str, size: str, fps: int,
                       yt_url: str, seg_dir: Path, seg_len: int) -> list[str]:
-    # Camera-native H.264 copy → YT (FLV) + local MPEG-TS segments with Annex-B
+    # Camera-native H.264 copy → YT (FLV) + local MPEG-TS segments (resend headers)
     seg_tmpl = str(seg_dir / "%Y%m%d_%H%M%S.ts")
     return [
         "ffmpeg", "-hide_banner", "-loglevel", "warning",
@@ -50,7 +50,7 @@ def build_ffmpeg_copy(video_dev: str, audio_dev: str, size: str, fps: int,
         "-muxpreload", "0", "-muxdelay", "0", "-flvflags", "no_duration_filesize",
         "-f", "tee",
         f"[f=flv:onfail=ignore:use_fifo=1]{yt_url}|"
-        f"[f=segment:onfail=ignore:use_fifo=1:segment_format=mpegts:bsfs=v=h264_mp4toannexb:segment_time={seg_len}:segment_atclocktime=1:strftime=1:reset_timestamps=1]{seg_tmpl}",
+        f"[f=segment:onfail=ignore:use_fifo=1:segment_format=mpegts:mpegts_flags=+resend_headers:segment_time={seg_len}:segment_atclocktime=1:strftime=1:reset_timestamps=1]{seg_tmpl}",
     ]
 
 def build_ffmpeg_transcode(video_dev: str, audio_dev: str, size: str, fps: int,
@@ -108,16 +108,14 @@ def main(argv=None) -> int:
     cmd = build_ffmpeg_copy(args.video_device, args.audio_device, args.video_size, args.framerate,
                             yt_url, seg_dir, args.segment_length)
     rc = run(cmd)
-    # Only fallback on a non-zero exit code. Ignore non-fatal log lines like
+    # Only fall back if FFmpeg actually exited with a non-zero code. Ignore non-fatal log lines like
     # “Failed to update header with correct duration/filesize” which occur for live outputs.
-    if rc == 0:
-        return 0
-
-    print("[gameday] copy path failed; falling back to MJPEG → libx264")
-    cmd = build_ffmpeg_transcode(args.video_device, args.audio_device, args.video_size, args.framerate,
-                                 yt_url, seg_dir, args.segment_length)
-    rc2 = run(cmd)
-    return rc2
+    if rc != 0:
+        print(f"[gameday] copy path failed (rc={rc}); falling back to MJPEG → libx264")
+        cmd = build_ffmpeg_transcode(args.video_device, args.audio_device, args.video_size, args.framerate,
+                                     yt_url, seg_dir, args.segment_length)
+        return run(cmd)
+    return 0
 
 if __name__ == "__main__":
     sys.exit(main())
