@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Find the real ffmpeg (the 2nd match in PATH). Fallback to /usr/bin/ffmpeg.
+REAL="$(command -v -a ffmpeg | sed -n '2p' || true)"
+REAL="${REAL:-/usr/bin/ffmpeg}"
+
+args=("$@")
+
+has() { local x; for x in "${args[@]}"; do [[ "$x" == "$1" ]] && return 0; done; return 1; }
+
+# detect -input_format h264
+is_h264_input=false
+for ((i=0;i<${#args[@]}-1;i++)); do
+  if [[ "${args[i]}" == "-input_format" && "${args[i+1]}" == "h264" ]]; then
+    is_h264_input=true; break
+  fi
+done
+
+# detect -c:v copy
+is_copy=false
+for ((i=0;i<${#args[@]}-1;i++)); do
+  if [[ "${args[i]}" == "-c:v" && "${args[i+1]}" == "copy" ]]; then
+    is_copy=true; break
+  fi
+done
+
+# Insert -copyts -start_at_zero right before the first "-f tee" if:
+#  - input is h264
+#  - we're copying video
+#  - and we haven't already got -copyts
+if $is_h264_input && $is_copy && ! has "-copyts"; then
+  insert=${#args[@]}
+  for ((i=0;i<${#args[@]}-1;i++)); do
+    if [[ "${args[i]}" == "-f" && "${args[i+1]}" == "tee" ]]; then insert=$i; break; fi
+  done
+
+  new=()
+  for ((i=0;i<insert;i++)); do new+=("${args[i]}"); done
+  new+=("-copyts" "-start_at_zero")
+  for ((i=insert;i<${#args[@]};i++)); do new+=("${args[i]}"); done
+
+  exec "$REAL" "${new[@]}"
+else
+  exec "$REAL" "${args[@]}"
+fi
