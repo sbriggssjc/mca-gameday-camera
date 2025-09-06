@@ -3,17 +3,21 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 # Find the real ffmpeg (skip this shim). Fallback to /usr/bin/ffmpeg.
-real="$(command -v -a ffmpeg | sed -n '2p' || true)"
+real=""
+while IFS= read -r path; do
+  [[ -z "$real" && "$path" != "$0" ]] && real="$path"
+done < <(type -ap ffmpeg 2>/dev/null || true)
 real="${real:-/usr/bin/ffmpeg}"
 
 args=( "$@" )
 
-has() {
-  for a in "${args[@]}"; do [[ "$a" == "$1" ]] && return 0; done
+has_arg() {
+  local x
+  for x in "${args[@]}"; do [[ "$x" == "$1" ]] && return 0; done
   return 1
 }
 
-# detect -input_format h264
+# Detect -input_format h264
 is_h264=false
 for ((i=0;i<${#args[@]}-1;i++)); do
   if [[ "${args[i]}" == "-input_format" && "${args[i+1]}" == "h264" ]]; then
@@ -21,7 +25,7 @@ for ((i=0;i<${#args[@]}-1;i++)); do
   fi
 done
 
-# detect -c:v copy
+# Detect -c:v copy
 is_copy=false
 for ((i=0;i<${#args[@]}-1;i++)); do
   if [[ "${args[i]}" == "-c:v" && "${args[i+1]}" == "copy" ]]; then
@@ -29,19 +33,22 @@ for ((i=0;i<${#args[@]}-1;i++)); do
   fi
 done
 
-# Insert -copyts -start_at_zero just before the first "-f tee"
-# only when input is h264 and we're copying video, and -copyts isn't already present
-if $is_h264 && $is_copy && ! has "-copyts"; then
-  insert=${#args[@]}
-  for ((i=0;i<${#args[@]}-1;i++)); do
-    if [[ "${args[i]}" == "-f" && "${args[i+1]}" == "tee" ]]; then
-      insert=$i; break
+# Inject flags only for h264+copy, and only if not already present
+if $is_h264 && $is_copy && ! has_arg "-copyts"; then
+  new=()
+  inserted=false
+  for ((i=0;i<${#args[@]};i++)); do
+    # Insert just *before* the first "-f tee"
+    if ! $inserted && [[ "${args[i]}" == "-f" && "${args[i+1]:-}" == "tee" ]]; then
+      new+=( "-copyts" "-start_at_zero" )
+      inserted=true
     fi
+    new+=( "${args[i]}" )
   done
-  args=( "${args[@]:0:insert}" "-copyts" "-start_at_zero" "${args[@]:insert}" )
+  args=( "${new[@]}" )
 fi
 
-# Optional debug
+# Optional debug: show the final exec line
 if [[ "${FFMPEG_SHIM_DEBUG:-}" == "1" ]]; then
   printf 'shim: exec %q' "$real" >&2
   for a in "${args[@]}"; do printf ' %q' "$a" >&2; done
