@@ -1,65 +1,97 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# enhance_batch.sh <in_dir> <out_dir> [crf] [bitrate] [--ai] [--scale 2|3|4] [--engine realesrgan|ffmpeg] [--stabilize]
-in_dir="${1:?in_dir}"; out_dir="${2:?out_dir}"
-crf="${3:-23}"
-bitrate="${4:-10M}"
+
+# Usage: enhance_batch.sh INDIR OUTDIR [ZOOM] [BITRATE] [--keep-trf]
+INDIR="${1:-}"
+OUTDIR="${2:-}"
+ZOOM="${3:-0.95}"
+BITRATE="${4:-10M}"
 shift $(( $#>=4 ? 4 : $# )) || true
-
-ai=0
-scale=2
-engine="realesrgan"
-do_stab=0
-
+KEEP_TRF=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --ai) ai=1; shift ;;
-    --scale) scale="${2:?}"; shift 2 ;;
-    --engine) engine="${2:?}"; shift 2 ;;
-    --stabilize) do_stab=1; shift ;;
+    --keep-trf) KEEP_TRF=1; shift ;;
     *) echo "[enhance_batch] Unknown arg: $1" >&2; exit 2 ;;
   esac
 done
 
-mkdir -p "$out_dir"
+if [[ -z "$INDIR" || -z "$OUTDIR" ]]; then
+  echo "Usage: $0 INDIR OUTDIR [ZOOM] [BITRATE] [--keep-trf]" >&2
+  exit 1
+fi
 
-shopt -s nullglob
-mapfile -t files < <(find "$in_dir" -maxdepth 1 -type f \( -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.mov' \) | sort)
+mkdir -p "$OUTDIR"
 
-if ((${#files[@]}==0)); then
-  echo "[enhance_batch] No videos in $in_dir"
+FILTERS_OUT=$(ffmpeg -hide_banner -filters 2>/dev/null || true)
+HAS_VIDSTAB=0
+if grep -q vidstabdetect <<<"$FILTERS_OUT" && grep -q vidstabtransform <<<"$FILTERS_OUT"; then
+  HAS_VIDSTAB=1
+fi
+
+HAS_HW=0
+if ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_v4l2m2m; then
+  HAS_HW=1
+fi
+
+mapfile -t FILES < <(find "$INDIR" -maxdepth 1 -type f \( -iname '*.mp4' -o -iname '*.mkv' \) | sort)
+if ((${#FILES[@]}==0)); then
+  echo "[enhance_batch] No videos in $INDIR"
   exit 0
 fi
 
-# Ensure helper scripts are executable
-chmod +x "$(dirname "$0")"/ai_upscale.sh "$(dirname "$0")"/stabilize.sh
+for IN in "${FILES[@]}"; do
+  BN="$(basename "$IN")"
+  BASE="${BN%.*}"
+  OUT="$OUTDIR/${BASE}_enh1080p.mp4"
+  TRF="$OUTDIR/${BASE}.trf"
 
-for f in "${files[@]}"; do
-  bn="$(basename "$f")"
-  base="${bn%.*}"
-  tgt="$out_dir/${base}_enh.mp4"
-  tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
-
-  src="$f"
-
-  if (( do_stab )); then
-    stab="$tmp/${base}_stab.mp4"
-    "$(dirname "$0")/stabilize.sh" "$src" "$stab"
-    src="$stab"
+  S1=$(stat -c %s "$IN")
+  sleep 3
+  S2=$(stat -c %s "$IN")
+  if [[ "$S1" != "$S2" ]]; then
+    echo "[enhance_batch] Skip $BN (size unstable)"
+    continue
   fi
 
-  if (( ai )); then
-    # AI upscaling
-    up="$tmp/${base}_ai.mp4"
-    "$(dirname "$0")/ai_upscale.sh" "$src" "$up" --scale "$scale" --engine "$engine" --crf 18
-    src="$up"
+  if ! ffprobe -v error -select_streams v:0 -show_entries stream=codec_type -of csv=p=0 "$IN" | grep -q '^video$'; then
+    echo "[enhance_batch] Skip $BN (no video stream)"
+    continue
   fi
 
-  # Final encode stage (bitrate target if provided), keep dimensions produced by previous stage
-  ffmpeg -hide_banner -y -i "$src" \
-    -c:v libx264 -preset veryfast -crf "$crf" -b:v "$bitrate" -pix_fmt yuv420p \
-    -c:a aac -b:a 160k "$tgt"
+  STAB=""
+  if [[ $HAS_VIDSTAB -eq 1 ]]; then
+    ffmpeg -hide_banner -y -fflags +genpts -use_wallclock_as_timestamps 1 -i "$IN" \
+      -map 0:v:0 -an -vf "fps=30,format=yuv420p,vidstabdetect=shakiness=5:accuracy=15:result=$TRF" \
+      -vsync 1 -f null - || true
+    if [[ -s "$TRF" ]]; then
+      STAB="vidstabtransform=input=$TRF:smoothing=30:zoom=0,"
+    fi
+  fi
 
-  echo "[enhance_batch] Wrote: $tgt"
+  CROP=""
+  if awk "BEGIN{exit !($ZOOM>=0.5 && $ZOOM<1.0)}"; then
+    CROP="crop=iw*$ZOOM:ih*$ZOOM:(iw-iw*$ZOOM)/2:(ih-ih*$ZOOM)/2,"
+  fi
+
+  FILTER="${STAB}zscale=rangein=limited:range=limited,hqdn3d=0:0:3:3,unsharp=lx=7:ly=7:la=0.9,deband,eq=contrast=1.08:saturation=1.08:gamma=1.02,${CROP}scale=1920:1080:flags=lanczos"
+
+  CMD=(ffmpeg -hide_banner -y -i "$IN" -vf "$FILTER" -c:a copy)
+  if [[ $HAS_HW -eq 1 ]]; then
+    CMD+=(-c:v h264_v4l2m2m -b:v "$BITRATE" -maxrate "$BITRATE" -bufsize "$BITRATE")
+  else
+    CMD+=(-c:v libx264 -preset veryfast -crf 18)
+  fi
+  CMD+=("$OUT")
+
+  if ! "${CMD[@]}"; then
+    echo "[enhance_batch] HW encode failed for $BN, retrying with libx264"
+    ffmpeg -hide_banner -y -i "$IN" -vf "$FILTER" -c:a copy \
+      -c:v libx264 -preset veryfast -crf 18 "$OUT"
+  fi
+
+  if [[ $KEEP_TRF -ne 1 ]]; then
+    rm -f "$TRF"
+  fi
+
+  echo "[enhance_batch] Wrote $OUT"
 done

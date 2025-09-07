@@ -62,17 +62,27 @@ def enhance_clip(
         if _probe_vidstab():
             trf_path = f"{out_path}.trf"
             _ffmpeg(
+                "-fflags",
+                "+genpts",
+                "-use_wallclock_as_timestamps",
+                "1",
                 "-i",
                 in_path,
+                "-map",
+                "0:v:0",
+                "-an",
                 "-vf",
-                f"vidstabdetect=result={trf_path}",
+                f"fps=30,format=yuv420p,vidstabdetect=shakiness=5:accuracy=15:result={trf_path}",
+                "-vsync",
+                "1",
                 "-f",
                 "null",
                 "-",
             )
-            filters.append(
-                f"vidstabtransform=input={trf_path}:zoom=0:smoothing=30"
-            )
+            if os.path.exists(trf_path) and os.path.getsize(trf_path) > 0:
+                filters.append(
+                    f"vidstabtransform=input={trf_path}:smoothing=30:zoom=0"
+                )
         else:
             logger.warning("vid.stab filters not available; skipping stabilization")
 
@@ -89,10 +99,10 @@ def enhance_clip(
         filters.append(
             f"crop=iw*{zoom}:ih*{zoom}:(iw-iw*{zoom})/2:(ih-ih*{zoom})/2"
         )
-    filters.extend(["scale=1920:1080:flags=lanczos", "sharpen=0:0.6"])
+    filters.append("scale=1920:1080:flags=lanczos")
     vf = ",".join(filters)
 
-    _ffmpeg(
+    cmd = [
         "-i",
         in_path,
         "-vf",
@@ -104,23 +114,29 @@ def enhance_clip(
         "-maxrate",
         bitrate,
         "-bufsize",
-        f"2{bitrate}",
-        "-pix_fmt",
-        "yuv420p",
-        "-r",
-        "30",
-        "-g",
-        "60",
+        bitrate,
         "-c:a",
-        "aac",
-        "-b:a",
-        "160k",
-        "-ar",
-        "48000",
-        "-movflags",
-        "+faststart",
+        "copy",
         out_path,
-    )
+    ]
+    proc = _ffmpeg(*cmd)
+    if proc.returncode != 0:
+        cmd = [
+            "-i",
+            in_path,
+            "-vf",
+            vf,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "18",
+            "-c:a",
+            "copy",
+            out_path,
+        ]
+        _ffmpeg(*cmd)
 
     if trf_path:
         try:
@@ -240,6 +256,7 @@ def run_pipeline(
     enhance_zoom: float = 0.95,
     enhance_stabilize: bool = False,
     enhance_bitrate: str = "10M",
+    enhance_meta_zoom: bool = False,
     auto_zoom: bool = False,
     zoom_max: float = 1.8,
     zoom_min: float = 1.1,
@@ -637,15 +654,26 @@ def run_pipeline(
             r["clip_path"] = mp4
 
             if enhance:
+                zoom_val = enhance_zoom
+                if enhance_meta_zoom:
+                    pf = (r.get("play_family") or "").lower()
+                    if pf == "run":
+                        zoom_val = 0.90
+                    elif pf in {"pass", "punt", "kick"}:
+                        zoom_val = 0.98
+                    else:
+                        zoom_val = 0.95
                 enh_mp4 = os.path.join(pdir, f"{pid}_enh1080p.mp4")
                 enhance_clip(
                     mp4,
                     enh_mp4,
-                    zoom=enhance_zoom,
+                    zoom=zoom_val,
                     stabilize=enhance_stabilize,
                     bitrate=enhance_bitrate,
                 )
-                logging.info(f"[enhance] {pid} -> {os.path.basename(enh_mp4)}")
+                logging.info(
+                    f"[enhance] {pid} zoom={zoom_val:.2f} -> {os.path.basename(enh_mp4)}"
+                )
 
             if auto_zoom:
                 from .autozoom import enhance_clip as autozoom_clip
@@ -961,6 +989,11 @@ def main(argv=None) -> None:
         default="10M",
         help="target bitrate for enhanced clips",
     )
+    p.add_argument(
+        "--enhance-meta-zoom",
+        action="store_true",
+        help="set zoom from clip metadata if available",
+    )
     p.add_argument("--auto-zoom", action="store_true", help="auto crop/zoom clips")
     p.add_argument("--zoom-max", type=float, default=1.8, help="max zoom factor")
     p.add_argument("--zoom-min", type=float, default=1.1, help="min zoom factor")
@@ -1023,6 +1056,7 @@ def main(argv=None) -> None:
         enhance_zoom=args.enhance_zoom,
         enhance_stabilize=args.enhance_stabilize,
         enhance_bitrate=args.enhance_bitrate,
+        enhance_meta_zoom=args.enhance_meta_zoom,
         auto_zoom=args.auto_zoom,
         zoom_max=args.zoom_max,
         zoom_min=args.zoom_min,
