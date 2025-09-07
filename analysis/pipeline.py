@@ -23,10 +23,110 @@ except ImportError:  # pragma: no cover - fallback for script execution
 classify_plays = None  # type: ignore
 logger = logging.getLogger(__name__)
 
+# cache for vid.stab availability; probed lazily
+_HAS_VIDSTAB: bool | None = None
+
+
+def _probe_vidstab() -> bool:
+    """Return True if ffmpeg has vid.stab filters available."""
+    global _HAS_VIDSTAB
+    if _HAS_VIDSTAB is None:
+        proc = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-filters"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        data = proc.stdout + proc.stderr
+        _HAS_VIDSTAB = "vidstabdetect" in data and "vidstabtransform" in data
+    return _HAS_VIDSTAB
+
 
 def _ffmpeg(*args: str) -> subprocess.CompletedProcess:
     cmd = ["ffmpeg", "-y", *args]
     return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def enhance_clip(
+    in_path: str,
+    out_path: str,
+    zoom: float = 0.95,
+    stabilize: bool = False,
+    bitrate: str = "10M",
+) -> None:
+    """Enhance a clip using the configured filter chain."""
+
+    filters: list[str] = []
+    trf_path: str | None = None
+    if stabilize:
+        if _probe_vidstab():
+            trf_path = f"{out_path}.trf"
+            _ffmpeg(
+                "-i",
+                in_path,
+                "-vf",
+                f"vidstabdetect=result={trf_path}",
+                "-f",
+                "null",
+                "-",
+            )
+            filters.append(
+                f"vidstabtransform=input={trf_path}:zoom=0:smoothing=30"
+            )
+        else:
+            logger.warning("vid.stab filters not available; skipping stabilization")
+
+    filters.extend(
+        [
+            "zscale=rangein=limited:range=limited",
+            "hqdn3d=0:0:3:3",
+            "unsharp=lx=7:ly=7:la=0.9",
+            "deband",
+            "eq=contrast=1.08:saturation=1.08:gamma=1.02",
+        ]
+    )
+    if 0.5 <= zoom < 1.0:
+        filters.append(
+            f"crop=iw*{zoom}:ih*{zoom}:(iw-iw*{zoom})/2:(ih-ih*{zoom})/2"
+        )
+    filters.extend(["scale=1920:1080:flags=lanczos", "sharpen=0:0.6"])
+    vf = ",".join(filters)
+
+    _ffmpeg(
+        "-i",
+        in_path,
+        "-vf",
+        vf,
+        "-c:v",
+        "h264_v4l2m2m",
+        "-b:v",
+        bitrate,
+        "-maxrate",
+        bitrate,
+        "-bufsize",
+        f"2{bitrate}",
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        "30",
+        "-g",
+        "60",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "160k",
+        "-ar",
+        "48000",
+        "-movflags",
+        "+faststart",
+        out_path,
+    )
+
+    if trf_path:
+        try:
+            os.unlink(trf_path)
+        except OSError:
+            pass
 
 
 def _safe_name(s: str) -> str:
@@ -136,6 +236,10 @@ def run_pipeline(
     generate_clips: bool = False,
     debug_weak: bool = False,
     require_classifier: bool = True,
+    enhance: bool = False,
+    enhance_zoom: float = 0.95,
+    enhance_stabilize: bool = False,
+    enhance_bitrate: str = "10M",
 ) -> str:
     video = os.path.abspath(video)
     out_dir = os.path.abspath(out_dir)
@@ -526,6 +630,17 @@ def run_pipeline(
                 )
             r["clip_path"] = mp4
 
+            if enhance:
+                enh_mp4 = os.path.join(pdir, f"{pid}_enh1080p.mp4")
+                enhance_clip(
+                    mp4,
+                    enh_mp4,
+                    zoom=enhance_zoom,
+                    stabilize=enhance_stabilize,
+                    bitrate=enhance_bitrate,
+                )
+                logging.info(f"[enhance] {pid} -> {os.path.basename(enh_mp4)}")
+
             # Add a symlink with the predicted play name for easier review
             canon = r.get("clf_top1_canon") or r.get("play_family") or ""
             safe = _safe_name(canon).replace(" ", "_")
@@ -809,6 +924,21 @@ def main(argv=None) -> None:
     )
     p.add_argument("--debug-weak", action="store_true")
 
+    p.add_argument("--enhance", action="store_true", help="enhance exported clips")
+    p.add_argument(
+        "--enhance-zoom", type=float, default=0.95, help="zoom factor for enhancement"
+    )
+    p.add_argument(
+        "--enhance-stabilize",
+        action="store_true",
+        help="apply stabilization if vid.stab filters are available",
+    )
+    p.add_argument(
+        "--enhance-bitrate",
+        default="10M",
+        help="target bitrate for enhanced clips",
+    )
+
     group = p.add_mutually_exclusive_group()
     group.add_argument(
         "--require-classifier",
@@ -846,6 +976,10 @@ def main(argv=None) -> None:
         generate_clips=args.generate_clips,
         debug_weak=args.debug_weak,
         require_classifier=args.require_classifier,
+        enhance=args.enhance,
+        enhance_zoom=args.enhance_zoom,
+        enhance_stabilize=args.enhance_stabilize,
+        enhance_bitrate=args.enhance_bitrate,
     )
 
 
