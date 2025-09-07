@@ -1,87 +1,65 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# enhance_batch.sh <in_dir> <out_dir> [crf] [bitrate] [--ai] [--scale 2|3|4] [--engine realesrgan|ffmpeg] [--stabilize]
+in_dir="${1:?in_dir}"; out_dir="${2:?out_dir}"
+crf="${3:-23}"
+bitrate="${4:-10M}"
+shift $(( $#>=4 ? 4 : $# )) || true
 
-# Batch video enhancement script
-# Usage: enhance_batch.sh [--auto-zoom] INDIR OUTDIR ZOOM BITRATE
-# Defaults: INDIR=output/coach_cut_<date>/clips
-#          OUTDIR=output/coach_cut_<date>/enhanced_stab
-#          ZOOM=0.95 BITRATE=10M
+ai=0
+scale=2
+engine="realesrgan"
+do_stab=0
 
-AUTO_ZOOM=0
-ARGS=()
-for arg in "$@"; do
-    case "$arg" in
-        --auto-zoom)
-            AUTO_ZOOM=1
-            ;;
-        *)
-            ARGS+=("$arg")
-            ;;
-    esac
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --ai) ai=1; shift ;;
+    --scale) scale="${2:?}"; shift 2 ;;
+    --engine) engine="${2:?}"; shift 2 ;;
+    --stabilize) do_stab=1; shift ;;
+    *) echo "[enhance_batch] Unknown arg: $1" >&2; exit 2 ;;
+  esac
 done
-set -- "${ARGS[@]}"
 
-TODAY=$(date +%Y%m%d)
-INDIR=${1:-"output/coach_cut_${TODAY}/clips"}
-OUTDIR=${2:-"output/coach_cut_${TODAY}/enhanced_stab"}
-ZOOM=${3:-0.95}
-BITRATE=${4:-10M}
-
-if [ ! -d "$INDIR" ]; then
-    echo "INDIR does not exist: $INDIR" >&2
-    exit 1
-fi
+mkdir -p "$out_dir"
 
 shopt -s nullglob
-FILES=("$INDIR"/*.mp4 "$INDIR"/*.mkv)
-if [ ${#FILES[@]} -eq 0 ]; then
-    echo "No .mp4 or .mkv files found in $INDIR" >&2
-    exit 1
-fi
-mkdir -p "$OUTDIR"
+mapfile -t files < <(find "$in_dir" -maxdepth 1 -type f \( -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.mov' \) | sort)
 
-# Detect vid.stab availability
-if ffmpeg -hide_banner -filters 2>/dev/null | grep -q 'vidstabdetect' && \
-   ffmpeg -hide_banner -filters 2>/dev/null | grep -q 'vidstabtransform'; then
-    HAS_VIDSTAB=1
-else
-    HAS_VIDSTAB=0
+if ((${#files[@]}==0)); then
+  echo "[enhance_batch] No videos in $in_dir"
+  exit 0
 fi
 
-COUNT=0
-for SRC in "${FILES[@]}"; do
-    BASE=$(basename "${SRC%.*}")
-    TRF="$OUTDIR/${BASE}.trf"
-    VF=""
-    if [ "$HAS_VIDSTAB" -eq 1 ]; then
-        ffmpeg -hide_banner -y -i "$SRC" -vf "vidstabdetect=result=$TRF" -f null - >/dev/null 2>&1 || true
-        VF="vidstabtransform=input=$TRF:zoom=0:smoothing=30,"
-    fi
-    VF+="zscale=rangein=limited:range=limited,hqdn3d=0:0:3:3,unsharp=lx=7:ly=7:la=0.9,deband,eq=contrast=1.08:saturation=1.08:gamma=1.02"
-    if awk "BEGIN{exit !($ZOOM>=0.5 && $ZOOM<1.0)}"; then
-        VF+=",crop=iw*${ZOOM}:ih*${ZOOM}:(iw-iw*${ZOOM})/2:(ih-ih*${ZOOM})/2"
-    fi
-    VF+=",scale=1920:1080:flags=lanczos,sharpen=0:0.6"
+# Ensure helper scripts are executable
+chmod +x "$(dirname "$0")"/ai_upscale.sh "$(dirname "$0")"/stabilize.sh
 
-    OUT="$OUTDIR/${BASE}_enh1080p.mp4"
-    ffmpeg -hide_banner -y -i "$SRC" -vf "$VF" \
-        -c:v h264_v4l2m2m -b:v "$BITRATE" -maxrate "$BITRATE" -bufsize "2$BITRATE" \
-        -pix_fmt yuv420p -r 30 -g 60 \
-        -c:a aac -b:a 160k -ar 48000 \
-        -movflags +faststart "$OUT"
-    if [ "$HAS_VIDSTAB" -eq 1 ]; then rm -f "$TRF"; fi
-    echo "enhanced $(basename "$SRC") -> $OUT"
-    if [ "$AUTO_ZOOM" -eq 1 ]; then
-        OUT_ZOOM="$OUTDIR/${BASE}_zoom.mp4"
-        python - "$OUT" "$OUT_ZOOM" <<'PY'
-import sys
-from analysis.autozoom import enhance_clip
-enhance_clip(sys.argv[1], sys.argv[2])
-PY
-        echo "auto-zoom $(basename "$SRC") -> $OUT_ZOOM"
-    fi
-    COUNT=$((COUNT+1))
+for f in "${files[@]}"; do
+  bn="$(basename "$f")"
+  base="${bn%.*}"
+  tgt="$out_dir/${base}_enh.mp4"
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
 
+  src="$f"
+
+  if (( do_stab )); then
+    stab="$tmp/${base}_stab.mp4"
+    "$(dirname "$0")/stabilize.sh" "$src" "$stab"
+    src="$stab"
+  fi
+
+  if (( ai )); then
+    # AI upscaling
+    up="$tmp/${base}_ai.mp4"
+    "$(dirname "$0")/ai_upscale.sh" "$src" "$up" --scale "$scale" --engine "$engine" --crf 18
+    src="$up"
+  fi
+
+  # Final encode stage (bitrate target if provided), keep dimensions produced by previous stage
+  ffmpeg -hide_banner -y -i "$src" \
+    -c:v libx264 -preset veryfast -crf "$crf" -b:v "$bitrate" -pix_fmt yuv420p \
+    -c:a aac -b:a 160k "$tgt"
+
+  echo "[enhance_batch] Wrote: $tgt"
 done
-
-echo "Processed $COUNT files -> $OUTDIR"
