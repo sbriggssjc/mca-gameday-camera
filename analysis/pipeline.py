@@ -240,6 +240,12 @@ def run_pipeline(
     enhance_zoom: float = 0.95,
     enhance_stabilize: bool = False,
     enhance_bitrate: str = "10M",
+    auto_zoom: bool = False,
+    zoom_max: float = 1.8,
+    zoom_min: float = 1.1,
+    zoom_margin: float = 0.15,
+    zoom_smooth: float = 0.85,
+    field_mask: str | None = "auto",
 ) -> str:
     video = os.path.abspath(video)
     out_dir = os.path.abspath(out_dir)
@@ -641,6 +647,23 @@ def run_pipeline(
                 )
                 logging.info(f"[enhance] {pid} -> {os.path.basename(enh_mp4)}")
 
+            if auto_zoom:
+                from .autozoom import enhance_clip as autozoom_clip
+
+                zoom_dir = os.path.join(run_dir, "enhanced_zoom")
+                os.makedirs(zoom_dir, exist_ok=True)
+                zoom_mp4 = os.path.join(zoom_dir, f"{pid}_zoom.mp4")
+                autozoom_clip(
+                    mp4,
+                    zoom_mp4,
+                    zoom_max=zoom_max,
+                    zoom_min=zoom_min,
+                    zoom_margin=zoom_margin,
+                    zoom_smooth=zoom_smooth,
+                    field_mask=field_mask,
+                )
+                logging.info(f"[autozoom] {pid} -> {os.path.basename(zoom_mp4)}")
+
             # Add a symlink with the predicted play name for easier review
             canon = r.get("clf_top1_canon") or r.get("play_family") or ""
             safe = _safe_name(canon).replace(" ", "_")
@@ -938,6 +961,26 @@ def main(argv=None) -> None:
         default="10M",
         help="target bitrate for enhanced clips",
     )
+    p.add_argument("--auto-zoom", action="store_true", help="auto crop/zoom clips")
+    p.add_argument("--zoom-max", type=float, default=1.8, help="max zoom factor")
+    p.add_argument("--zoom-min", type=float, default=1.1, help="min zoom factor")
+    p.add_argument(
+        "--zoom-margin",
+        type=float,
+        default=0.15,
+        help="padding around detected action (0-0.4)",
+    )
+    p.add_argument(
+        "--zoom-smooth",
+        type=float,
+        default=0.85,
+        help="EMA smoothing factor for ROI",
+    )
+    p.add_argument(
+        "--field-mask",
+        default="auto",
+        help="field mask: auto|none|/path/to/mask.png",
+    )
 
     group = p.add_mutually_exclusive_group()
     group.add_argument(
@@ -980,6 +1023,12 @@ def main(argv=None) -> None:
         enhance_zoom=args.enhance_zoom,
         enhance_stabilize=args.enhance_stabilize,
         enhance_bitrate=args.enhance_bitrate,
+        auto_zoom=args.auto_zoom,
+        zoom_max=args.zoom_max,
+        zoom_min=args.zoom_min,
+        zoom_margin=args.zoom_margin,
+        zoom_smooth=args.zoom_smooth,
+        field_mask=args.field_mask,
     )
 
 

@@ -2,10 +2,24 @@
 set -euo pipefail
 
 # Batch video enhancement script
-# Usage: enhance_batch.sh INDIR OUTDIR ZOOM BITRATE
+# Usage: enhance_batch.sh [--auto-zoom] INDIR OUTDIR ZOOM BITRATE
 # Defaults: INDIR=output/coach_cut_<date>/clips
 #          OUTDIR=output/coach_cut_<date>/enhanced_stab
 #          ZOOM=0.95 BITRATE=10M
+
+AUTO_ZOOM=0
+ARGS=()
+for arg in "$@"; do
+    case "$arg" in
+        --auto-zoom)
+            AUTO_ZOOM=1
+            ;;
+        *)
+            ARGS+=("$arg")
+            ;;
+    esac
+done
+set -- "${ARGS[@]}"
 
 TODAY=$(date +%Y%m%d)
 INDIR=${1:-"output/coach_cut_${TODAY}/clips"}
@@ -57,6 +71,15 @@ for SRC in "${FILES[@]}"; do
         -movflags +faststart "$OUT"
     if [ "$HAS_VIDSTAB" -eq 1 ]; then rm -f "$TRF"; fi
     echo "enhanced $(basename "$SRC") -> $OUT"
+    if [ "$AUTO_ZOOM" -eq 1 ]; then
+        OUT_ZOOM="$OUTDIR/${BASE}_zoom.mp4"
+        python - "$OUT" "$OUT_ZOOM" <<'PY'
+import sys
+from analysis.autozoom import enhance_clip
+enhance_clip(sys.argv[1], sys.argv[2])
+PY
+        echo "auto-zoom $(basename "$SRC") -> $OUT_ZOOM"
+    fi
     COUNT=$((COUNT+1))
 
 done
