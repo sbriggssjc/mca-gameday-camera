@@ -125,6 +125,9 @@ class FrameToFFmpeg:
         """Write a single BGR frame to ffmpeg, dropping on backpressure."""
 
         h, w = frame.shape[:2]
+        if self._proc and self._proc.poll() is not None:
+            # Restart if the subprocess died
+            self.close()
         if self._proc is None or (w, h) != self._resolution:
             if self._proc:
                 self.close()
@@ -134,8 +137,8 @@ class FrameToFFmpeg:
             if self._proc and self._proc.stdin:
                 self._proc.stdin.write(frame.tobytes())
         except (BrokenPipeError, BlockingIOError):
-            # Drop the frame if ffmpeg cannot keep up
-            pass
+            # Drop frame and reset so that the next call recreates the subprocess
+            self.close()
 
     # ------------------------------------------------------------------
     def close(self) -> None:

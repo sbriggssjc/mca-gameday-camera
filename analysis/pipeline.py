@@ -269,7 +269,9 @@ def run_live(
     tracker = BallTracker()
     calibrator = FieldCalibrator(calib) if calib else None
     H = calibrator.h if calibrator else None
-    cropper = YardCropper(H, yards_window=float(crop_yards) * 2)
+    default_yards = float(crop_yards) * 2
+    tactical_yards = max(default_yards, 80.0)
+    cropper = YardCropper(H, yards_window=default_yards)
 
     width, height = resolution
     streamer = None
@@ -288,6 +290,9 @@ def run_live(
     last_crop = (0, 0, width, height)
     fps_times: deque[float] = deque(maxlen=30)
     last_ts = 0.0
+    prev_state = TrackState.LOST
+    lost_since: float | None = None
+    last_ball_field: tuple[float, float] | None = None
     try:
         while True:
             frame, ts = cap.read()
@@ -307,9 +312,9 @@ def run_live(
             state = TrackState.LOST
             crop = last_crop
             res = None
+            ball_field = None
             if follow_ball:
                 res = tracker.update(frame)
-                ball_field = None
                 if res:
                     bx, by, bw, bh, conf, state = res
                     cx = bx + bw / 2.0
@@ -318,14 +323,35 @@ def run_live(
                         ball_field = img_to_field((cx, cy), H)
                     if conf < 0.3:
                         ball_field = None
-                    crop = cropper.compute(frame.shape, ball_field)
-                    last_crop = crop
+                    if ball_field is not None:
+                        last_ball_field = ball_field
+                ball_field_use = ball_field if state is not TrackState.LOST else last_ball_field
+                if state is TrackState.LOST:
+                    if lost_since is None:
+                        lost_since = ts
+                    elapsed = ts - lost_since
+                    if elapsed > 6.0:
+                        crop = (0, 0, width, height)
+                    else:
+                        cropper.yards_window = tactical_yards if elapsed > 2.0 else default_yards
+                        crop = cropper.compute(frame.shape, ball_field_use)
                 else:
-                    crop = cropper.compute(frame.shape, None)
-                    last_crop = crop
+                    lost_since = None
+                    cropper.yards_window = default_yards
+                    crop = cropper.compute(frame.shape, ball_field_use)
+                last_crop = crop
             else:
                 crop = cropper.compute(frame.shape, None)
                 state = TrackState.TRACKING
+                lost_since = None
+
+            if state != prev_state:
+                timestamp = time.strftime("%H:%M:%S", time.localtime(ts))
+                if state is TrackState.TRACKING and prev_state is not TrackState.TRACKING:
+                    logger.info("LOST -> RECOVERED at %s", timestamp)
+                else:
+                    logger.info("%s -> %s at %s", prev_state.value, state.value, timestamp)
+                prev_state = state
 
             x, y, w, h = crop
             frame = frame[y : y + h, x : x + w]
@@ -343,7 +369,7 @@ def run_live(
                     )
                 cv2.putText(
                     frame,
-                    f"{fps_est:.1f} FPS {state}",
+                    state.value,
                     (10, 20),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.5,
