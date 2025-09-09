@@ -6,6 +6,21 @@ Large video recordings (`.mp4`) are saved in the `video/` folder but individual 
 
 This project uses a single playbook at `playbooks/mca_5th_playbook.json`.
 
+## First-time setup
+
+Run the field calibration once to generate a homography file:
+
+```bash
+python -m tools.calibrate_field
+```
+
+Click the four field corners to save `configs/field_homography.json`,
+then start the system with:
+
+```bash
+./scripts/gameday
+```
+
 ## Stream Key Setup
 
 Create a `.env` file in the repository root or export the key in your environment.
