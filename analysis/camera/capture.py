@@ -114,7 +114,8 @@ class FrameCapture:
     Parameters
     ----------
     device:
-        Path to a V4L2 device, device index, or video file.
+        Path to a V4L2 device, device index, video file or a GStreamer
+        pipeline prefixed with ``"gst:"``.
     resolution:
         Desired ``(width, height)`` tuple.  Defaults to 4K.
     fps:
@@ -159,8 +160,9 @@ class FrameCapture:
         self.cap: Optional[cv2.VideoCapture] = None
         first_frame = self._open_capture()
         ts = time.time()
-        if first_frame is not None:
-            self.buffer.append((ts, first_frame))
+        if first_frame is None:
+            raise RuntimeError("Failed to read initial frame")
+        self.buffer.append((ts, first_frame))
 
         self._stop = False
         self._thread = threading.Thread(target=self._reader, daemon=True)
@@ -175,12 +177,42 @@ class FrameCapture:
         )
 
     def _open_capture(self) -> Optional["cv2.Mat"]:
+
+        # Explicit GStreamer pipeline input
+        if isinstance(self.device, str) and self.device.startswith("gst:"):
+            pipeline = self.device[4:]
+            self.cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+            if not self.cap or not self.cap.isOpened():
+                raise RuntimeError(f"Cannot open video source: {self.device}")
+            ok, frame = self.cap.read()
+            if not ok or frame is None:
+                raise RuntimeError(
+                    "GStreamer pipeline opened but first frame read failed"
+                )
+            self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or self.resolution[0]
+            self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or self.resolution[1]
+            self.fps = float(self.cap.get(cv2.CAP_PROP_FPS)) or float(
+                self.requested_fps
+            )
+            fourcc_int = int(self.cap.get(cv2.CAP_PROP_FOURCC))
+            if fourcc_int:
+                self.fourcc = "".join(
+                    [chr((fourcc_int >> 8 * i) & 0xFF) for i in range(4)]
+                )
+            else:
+                self.fourcc = "GST"
+            return frame
+
+        # Regular V4L2/video file input
+        flags = cv2.CAP_V4L2 if self._is_v4l2() else 0
+
         if self.backend == "gst":
             return self._open_gst_capture()
 
         flags = 0
         if self.backend == "v4l2" or (self.backend == "auto" and self._is_v4l2()):
             flags = cv2.CAP_V4L2
+
         self.cap = cv2.VideoCapture(self.device, flags)
         if not self.cap or not self.cap.isOpened():
             raise RuntimeError(f"Cannot open video source: {self.device}")
@@ -194,6 +226,44 @@ class FrameCapture:
         if ok:
             return frame
 
+
+        # Auto-fallback to GStreamer pipelines when V4L2 read fails
+        if self._is_v4l2():
+            self.cap.release()
+            w, h = self.resolution
+            fps = self.requested_fps
+            pipelines = [
+                (
+                    "MJPEG",
+                    (
+                        f"v4l2src device={self.device} ! "
+                        f"image/jpeg,framerate={fps}/1,width={w},height={h} ! "
+                        "jpegdec ! videoconvert ! video/x-raw,format=BGR ! "
+                        "appsink sync=false max-buffers=2 drop=true"
+                    ),
+                ),
+                (
+                    "H264",
+                    (
+                        f"v4l2src device={self.device} ! "
+                        f"video/x-h264,stream-format=avc,framerate={fps}/1,width={w},height={h} ! "
+                        "h264parse ! avdec_h264 ! videoconvert ! video/x-raw,format=BGR ! "
+                        "appsink sync=false max-buffers=2 drop=true"
+                    ),
+                ),
+            ]
+            for label, pipeline in pipelines:
+                logging.info("Falling back to GStreamer %s pipeline", label)
+                cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+                if not cap or not cap.isOpened():
+                    continue
+                ok, frame = cap.read()
+                if ok and frame is not None:
+                    self.cap = cap
+                    self.width, self.height, self.fps = w, h, float(fps)
+                    self.fourcc = label
+                    logging.info("Using GStreamer %s pipeline", label)
+
         if self.backend in ("auto", "v4l2") and self._is_v4l2():
             tried: List[str] = []
             for w, h, fps, fourcc in self._fallback_profiles():
@@ -204,11 +274,9 @@ class FrameCapture:
                     self.resolution = (w, h)
                     self.requested_fps = fps
                     self.requested_fourcc = fourcc
+
                     return frame
-            raise RuntimeError(
-                "Camera opened but first frame read failed—check resolution/format. Tried: "
-                + ", ".join(tried)
-            )
+                cap.release()
 
         raise RuntimeError(
             "Camera opened but first frame read failed—check resolution/format."
@@ -306,21 +374,6 @@ class FrameCapture:
         if not ok or frame is None:
             return False, None
         return True, frame
-
-    def _fallback_profiles(self) -> List[tuple[int, int, int, str]]:
-        profiles = [
-            (3840, 2160, 30, "MJPG"),
-            (3840, 2160, 24, "MJPG"),
-            (2560, 1440, 30, "MJPG"),
-            (1920, 1080, 60, "MJPG"),
-            (1920, 1080, 30, "MJPG"),
-            (3840, 2160, 30, "YUYV"),
-            (3840, 2160, 24, "YUYV"),
-            (2560, 1440, 30, "YUYV"),
-            (1920, 1080, 60, "YUYV"),
-            (1920, 1080, 30, "YUYV"),
-        ]
-        return profiles
 
     def _reader(self) -> None:
         fail_count = 0
