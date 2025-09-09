@@ -326,6 +326,8 @@ def run_live(
             out_file=record_out,
             rtmp_url=rtmp_url if stream else None,
             rtmp_key=rtmp_key,
+            width=width,
+            height=height,
             resolution=(out_width, out_height),
             fps=fps,
             encoder=encoder,
