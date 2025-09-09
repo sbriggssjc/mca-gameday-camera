@@ -9,11 +9,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import os
 import cv2
 import numpy as np
 
 from analysis.camera.capture import FrameCapture
 from analysis.vision import field_calibration
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +118,21 @@ def main() -> None:
         cv2.destroyAllWindows()
 
     print(f"Saved calibration to {args.output} (avg error {avg_err:.6f} px)")
+    _draw_guides(frame, calibrator)
+    if not os.environ.get("DISPLAY"):
+        log.warning("DISPLAY not set; OpenCV GUI may be unavailable")
+    try:
+        cv2.namedWindow("calibration", cv2.WINDOW_NORMAL)
+    except cv2.error as e:
+        raise RuntimeError(
+            "OpenCV GUI not available. Try headless mode "
+            "(`python -m tools.calibrate_field --headless`) or run via xvfb "
+            "(`xvfb-run -a python -m tools.calibrate_field`)."
+        ) from e
+    cv2.imshow("calibration", frame)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    print(f"Saved calibration to {args.output}")
 
 
 if __name__ == "__main__":
