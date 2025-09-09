@@ -115,7 +115,9 @@ class FrameCapture:
     ----------
     device:
         Path to a V4L2 device, device index, video file or a GStreamer
-        pipeline prefixed with ``"gst:"``.
+        pipeline.  Pipelines are detected automatically when the source
+        string contains ``"! appsink"`` or ``"v4l2src"`` (optionally
+        prefixed with ``"gst:"``).
     resolution:
         Desired ``(width, height)`` tuple.  Defaults to 4K.
     fps:
@@ -128,7 +130,8 @@ class FrameCapture:
         OpenCV capture backend.  ``"auto"`` selects ``CAP_V4L2`` for
         ``/dev/video*`` sources, ``"v4l2"`` forces V4L2 and ``"gst"`` uses
         GStreamer.  When using the GStreamer backend a source string may be
-        prefixed with ``"gst:"`` to supply an explicit pipeline description.
+        prefixed with ``"gst:"`` or contain an explicit pipeline with
+        ``"! appsink"`` or ``"v4l2src"``.
     """
 
     def __init__(
@@ -144,11 +147,16 @@ class FrameCapture:
         self.backend = backend
         if (
             isinstance(device, str)
-            and device.startswith("gst:")
             and backend == "auto"
+            and (
+                device.startswith("gst:")
+                or "! appsink" in device
+                or "v4l2src" in device
+            )
         ):
-            # Automatically switch to GST backend when an explicit pipeline
-            # string is provided via "gst:<pipeline>".
+            # Automatically switch to GST backend when an explicit pipeline is
+            # provided either via "gst:<pipeline>" or an implicit pipeline
+            # containing "! appsink"/"v4l2src".
             self.backend = "gst"
         self.resolution = resolution
         self.requested_fps = fps
@@ -178,27 +186,30 @@ class FrameCapture:
 
     def _open_capture(self) -> Optional["cv2.Mat"]:
 
-        # Explicit GStreamer pipeline input
-        if isinstance(self.device, str) and self.device.startswith("gst:"):
-            pipeline = self.device[4:]
-            self.cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
-            if not self.cap or not self.cap.isOpened():
-                raise RuntimeError(f"Cannot open video source: {self.device}")
-            ok, frame = self.cap.read()
+        # Auto-detect GStreamer pipeline strings
+        if isinstance(self.device, str) and (
+            self.device.startswith("gst:")
+            or "! appsink" in self.device
+            or "v4l2src" in self.device
+        ):
+            pipeline = self.device[4:] if self.device.startswith("gst:") else self.device
+            cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+            if not cap or not cap.isOpened():
+                raise RuntimeError("Failed to open GStreamer pipeline")
+            ok, frame = cap.read()
             if not ok or frame is None:
+                truncated = pipeline if len(pipeline) <= 200 else pipeline[:200] + "..."
                 raise RuntimeError(
-                    "GStreamer pipeline opened but first frame read failed"
+                    "GStreamer pipeline opened but first frame read failed: "
+                    f"{truncated}\nHint: install gstreamer1.0-* plugins"
                 )
-            self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or self.resolution[0]
-            self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or self.resolution[1]
-            self.fps = float(self.cap.get(cv2.CAP_PROP_FPS)) or float(
-                self.requested_fps
-            )
-            fourcc_int = int(self.cap.get(cv2.CAP_PROP_FOURCC))
+            self.cap = cap
+            self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or self.resolution[0]
+            self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or self.resolution[1]
+            self.fps = float(cap.get(cv2.CAP_PROP_FPS)) or float(self.requested_fps)
+            fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
             if fourcc_int:
-                self.fourcc = "".join(
-                    [chr((fourcc_int >> 8 * i) & 0xFF) for i in range(4)]
-                )
+                self.fourcc = "".join([chr((fourcc_int >> 8 * i) & 0xFF) for i in range(4)])
             else:
                 self.fourcc = "GST"
             return frame
