@@ -1,3 +1,11 @@
+"""Video analysis pipeline utilities.
+
+Boolean CLI options accept either presence/absence flags (for example,
+``--follow-ball``/``--no-follow-ball``) or explicit ``--*-val`` true/false values.
+If both a flag and a ``--*-val`` are provided, the last occurrence wins
+(`argparse` default behavior).
+"""
+
 from __future__ import annotations
 
 import os, sys, json, pathlib, argparse, csv, subprocess, logging, re, types, io
@@ -25,6 +33,19 @@ logger = logging.getLogger(__name__)
 
 # cache for vid.stab availability; probed lazily
 _HAS_VIDSTAB: bool | None = None
+
+
+def str2bool(v: object) -> bool | None:
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return None
+    s = str(v).lower()
+    if s in ("1", "true", "t", "yes", "y", "on"):
+        return True
+    if s in ("0", "false", "f", "no", "n", "off"):
+        return False
+    raise argparse.ArgumentTypeError("expected boolean")
 
 
 def _probe_vidstab() -> bool:
@@ -391,10 +412,41 @@ def _build_live_parser() -> argparse.ArgumentParser:
     p.add_argument("--source", required=True)
     p.add_argument("--resolution", default="3840x2160")
     p.add_argument("--fps", type=int, default=30)
-    p.add_argument("--follow-ball", dest="follow_ball", action="store_true")
+    follow_group = p.add_mutually_exclusive_group()
+    follow_group.add_argument(
+        "--follow-ball",
+        dest="follow_ball",
+        nargs="?",
+        const=True,
+        type=str2bool,
+        help="Enable follow-ball",
+    )
+    follow_group.add_argument(
+        "--no-follow-ball", dest="follow_ball", action="store_false", help="Disable follow-ball"
+    )
+    p.add_argument(
+        "--follow-ball-val",
+        dest="follow_ball",
+        type=str2bool,
+        help="Explicit true/false (optional)",
+    )
     p.add_argument("--crop-yards", type=int, default=20)
     p.add_argument("--calib")
-    p.add_argument("--stream", action="store_true")
+    stream_group = p.add_mutually_exclusive_group()
+    stream_group.add_argument(
+        "--stream",
+        dest="stream",
+        nargs="?",
+        const=True,
+        type=str2bool,
+        help="Enable stream",
+    )
+    stream_group.add_argument(
+        "--no-stream", dest="stream", action="store_false", help="Disable stream"
+    )
+    p.add_argument(
+        "--stream-val", dest="stream", type=str2bool, help="Explicit true/false (optional)"
+    )
     p.add_argument("--rtmp-url")
     p.add_argument("--rtmp-key")
     p.add_argument("--record-out")
@@ -403,7 +455,28 @@ def _build_live_parser() -> argparse.ArgumentParser:
     p.add_argument("--keyint", type=int, default=60)
     p.add_argument("--preroll", type=float, default=1.5)
     p.add_argument("--postroll", type=float, default=2.0)
-    p.add_argument("--debug-overlay", action="store_true")
+    debug_group = p.add_mutually_exclusive_group()
+    debug_group.add_argument(
+        "--debug-overlay",
+        dest="debug_overlay",
+        nargs="?",
+        const=True,
+        type=str2bool,
+        help="Enable debug-overlay",
+    )
+    debug_group.add_argument(
+        "--no-debug-overlay",
+        dest="debug_overlay",
+        action="store_false",
+        help="Disable debug-overlay",
+    )
+    p.add_argument(
+        "--debug-overlay-val",
+        dest="debug_overlay",
+        type=str2bool,
+        help="Explicit true/false (optional)",
+    )
+    p.set_defaults(follow_ball=False, stream=False, debug_overlay=False)
     return p
 
 
