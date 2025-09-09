@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import json
 import os
+import logging
 from typing import Sequence, Tuple, List, Optional
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 Point = Tuple[float, float]
 
@@ -128,6 +131,16 @@ def calibrate_from_clicks(
                 cv2.imshow("calibrate", frame)
 
         clone = frame.copy()
+        if not os.environ.get("DISPLAY"):
+            log.warning("DISPLAY not set; OpenCV GUI may be unavailable")
+        try:
+            cv2.namedWindow("calibrate", cv2.WINDOW_NORMAL)
+        except cv2.error as e:
+            raise RuntimeError(
+                "OpenCV GUI not available. Try headless mode "
+                "(`python -m tools.calibrate_field --headless`) or run via xvfb "
+                "(`xvfb-run -a python -m tools.calibrate_field`)."
+            ) from e
         cv2.imshow("calibrate", clone)
         cv2.setMouseCallback("calibrate", on_click)
         while len(pts) < 4:
