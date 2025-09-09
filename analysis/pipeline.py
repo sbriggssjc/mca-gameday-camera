@@ -269,6 +269,7 @@ def run_live(
     preroll: float = 1.5,
     postroll: float = 2.0,
     debug_overlay: bool = False,
+    cap_backend: str = "auto",
 ) -> None:
     """Run the live follow-ball pipeline."""
 
@@ -285,7 +286,13 @@ def run_live(
     from .stream.streamer import Streamer
 
     buf_size = int(fps * max(preroll + postroll, 1.0))
-    cap = FrameCapture(source, resolution=resolution, fps=fps, buffer_size=buf_size)
+    cap = FrameCapture(
+        source,
+        resolution=resolution,
+        fps=fps,
+        buffer_size=buf_size,
+        backend=cap_backend,
+    )
     tracker = BallTracker()
     calibrator = FieldCalibrator(calib) if calib else None
     H = calibrator.h if calibrator else None
@@ -408,9 +415,19 @@ def run_live(
 
 def _build_live_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Live follow-ball pipeline")
-    p.add_argument("--source", required=True)
+    p.add_argument(
+        "--source",
+        required=True,
+        help='Video source or device. Prefix with "gst:" to supply a GStreamer pipeline',
+    )
     p.add_argument("--resolution", default="3840x2160")
     p.add_argument("--fps", type=int, default=30)
+    p.add_argument(
+        "--cap-backend",
+        choices=["auto", "v4l2", "gst"],
+        default="auto",
+        help="OpenCV capture backend",
+    )
     follow_group = p.add_mutually_exclusive_group()
     follow_group.add_argument(
         "--follow-ball", dest="follow_ball", action="store_true", help="Enable follow-ball"
@@ -1183,6 +1200,7 @@ def main(argv=None) -> None:
             preroll=args.preroll,
             postroll=args.postroll,
             debug_overlay=args.debug_overlay,
+            cap_backend=args.cap_backend,
         )
         return
 
