@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""Convenience wrapper around ``analysis.pipeline`` live mode."""
+
+import argparse
+from analysis import pipeline
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description="Run live gameday pipeline")
+    p.add_argument("--source", default="/dev/video0")
+    p.add_argument("--crop-yards", type=int, default=20)
+    p.add_argument("--follow-ball", action="store_true")
+    p.add_argument("--stream", action="store_true")
+    p.add_argument("--calib", default="configs/field_homography.json")
+    p.add_argument("--record-out")
+    args = p.parse_args()
+
+    pipeline.main(
+        [
+            "--source",
+            args.source,
+            "--resolution",
+            "3840x2160",
+            "--fps",
+            "30",
+            "--crop-yards",
+            str(args.crop_yards),
+            "--calib",
+            args.calib,
+            "--encoder",
+            "h264_v4l2m2m",
+            "--bitrate",
+            "12000k",
+            "--keyint",
+            "60",
+        ]
+        + (["--follow-ball"] if args.follow_ball else [])
+        + (["--stream"] if args.stream else [])
+        + (["--record-out", args.record_out] if args.record_out else [])
+    )
+
+
+if __name__ == "__main__":
+    main()

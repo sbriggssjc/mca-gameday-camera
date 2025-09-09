@@ -228,8 +228,95 @@ def _load_model_labels(
         from .classifiers import _load_labels
 
         # Fall back to plain text label file
-        labels = _load_labels(str(p))
+    labels = _load_labels(str(p))
     return set(labels)
+
+
+def run_live(
+    source: str,
+    resolution: tuple[int, int] = (3840, 2160),
+    fps: int = 30,
+    follow_ball: bool = True,
+    crop_yards: int = 20,
+    calib: str | None = None,
+    stream: bool = False,
+    rtmp_url: str | None = None,
+    rtmp_key: str | None = None,
+    record_out: str | None = None,
+    encoder: str = "h264_v4l2m2m",
+    bitrate: str = "12000k",
+    keyint: int = 60,
+    preroll: float = 1.5,
+    postroll: float = 2.0,
+) -> None:
+    """Run the live follow-ball pipeline."""
+
+    from .camera.capture import Capture
+    from .tracking.ball_tracker import BallTracker
+    from .vision.field_calibration import FieldCalibrator
+    from .vision.yard_cropper import YardCropper
+    from .stream.streamer import Streamer
+
+    cap = Capture(source, resolution=resolution, fps=fps, buffer_seconds=preroll)
+    tracker = BallTracker()
+    calibrator = FieldCalibrator(calib) if calib else None
+    cropper = YardCropper(calibrator, crop_yards=crop_yards)
+
+    width, height = resolution
+    streamer = None
+    if stream or record_out:
+        streamer = Streamer(
+            out_file=record_out,
+            rtmp_url=rtmp_url if stream else None,
+            rtmp_key=rtmp_key,
+            resolution=(width, height),
+            fps=fps,
+            encoder=encoder,
+            bitrate=bitrate,
+            keyint=keyint,
+        )
+
+    last_crop = (0, 0, width, height)
+    try:
+        while True:
+            ok, frame, ts = cap.read()
+            if not ok:
+                break
+            if follow_ball:
+                bx, by, conf = tracker.update(frame)
+                if conf < 0.3:
+                    crop = last_crop
+                else:
+                    crop = cropper.compute(frame.shape, (bx, by))
+                    last_crop = crop
+                x, y, w, h = crop
+                frame = frame[y : y + h, x : x + w]
+            if streamer:
+                streamer.write(frame)
+    finally:
+        if streamer:
+            streamer.close()
+        cap.release()
+
+
+def _build_live_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="Live follow-ball pipeline")
+    p.add_argument("--source", required=True)
+    p.add_argument("--resolution", default="3840x2160")
+    p.add_argument("--fps", type=int, default=30)
+    p.add_argument("--follow-ball", dest="follow_ball", action="store_true")
+    p.add_argument("--crop-yards", type=int, default=20)
+    p.add_argument("--calib")
+    p.add_argument("--stream", action="store_true")
+    p.add_argument("--rtmp-url")
+    p.add_argument("--rtmp-key")
+    p.add_argument("--record-out")
+    p.add_argument("--encoder", default="h264_v4l2m2m")
+    p.add_argument("--bitrate", default="12000k")
+    p.add_argument("--keyint", type=int, default=60)
+    p.add_argument("--preroll", type=float, default=1.5)
+    p.add_argument("--postroll", type=float, default=2.0)
+    return p
 
 
 def run_pipeline(
@@ -928,6 +1015,31 @@ def run_pipeline(
 
 
 def main(argv=None) -> None:
+    if argv is None:
+        argv = sys.argv[1:]
+    if "--source" in argv:
+        lp = _build_live_parser()
+        args = lp.parse_args(argv)
+        width, height = [int(v) for v in args.resolution.lower().split("x")]
+        run_live(
+            source=args.source,
+            resolution=(width, height),
+            fps=args.fps,
+            follow_ball=args.follow_ball,
+            crop_yards=args.crop_yards,
+            calib=args.calib,
+            stream=args.stream,
+            rtmp_url=args.rtmp_url,
+            rtmp_key=args.rtmp_key,
+            record_out=args.record_out,
+            encoder=args.encoder,
+            bitrate=args.bitrate,
+            keyint=args.keyint,
+            preroll=args.preroll,
+            postroll=args.postroll,
+        )
+        return
+
     p = argparse.ArgumentParser()
     p.add_argument("--video", required=True)
     p.add_argument("--team", required=True)

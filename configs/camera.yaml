@@ -1,0 +1,6 @@
+# Default camera configuration for 4K capture
+device: /dev/video0
+resolution: [3840, 2160]
+fps: 30
+color: bgr
+exposure: auto
