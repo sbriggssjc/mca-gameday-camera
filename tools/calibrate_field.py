@@ -92,14 +92,14 @@ def main() -> None:
             points = field_calibration.parse_points_str(args.points)
         except ValueError as exc:
             raise SystemExit(f"Invalid --points value: {exc}")
-        calibrator = field_calibration.calibrate_from_clicks(
+        result = field_calibration.calibrate_from_clicks(
             frame=None, headless=True, points=points, save_to=args.save_to
         )
-        with open(args.save_to, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        image_points = [tuple(map(float, p)) for p in data["image_points"]]
-        avg_err = _reprojection_error(calibrator, image_points)
-        print(f"Saved calibration to {args.save_to} (avg error {avg_err:.6f} px)")
+        calibrator = field_calibration.FieldCalibrator(h=result["H"])
+        avg_err = result.get("rms", 0.0)
+        print(
+            f"Saved calibration to {args.save_to} (avg error {avg_err:.6f} px)"
+        )
         return
 
     # ------------------------------------------------------------------
@@ -133,13 +133,11 @@ def main() -> None:
             "OpenCV GUI not available. Try headless mode or run via xvfb-run."
         ) from e
 
-    calibrator = field_calibration.calibrate_from_clicks(
+    result = field_calibration.calibrate_from_clicks(
         frame, headless=False, points=None, save_to=args.save_to
     )
-    with open(args.save_to, "r", encoding="utf-8") as fh:
-        data = json.load(fh)
-    image_points = [tuple(map(float, p)) for p in data["image_points"]]
-    avg_err = _reprojection_error(calibrator, image_points)
+    calibrator = field_calibration.FieldCalibrator(h=result["H"])
+    avg_err = result.get("rms", 0.0)
 
     _draw_guides(frame, calibrator)
     cv2.imshow("calibration", frame)
