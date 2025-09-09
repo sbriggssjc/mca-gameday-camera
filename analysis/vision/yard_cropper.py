@@ -46,12 +46,18 @@ class YardCropper:
     smooth: float = 0.9
     max_move: float = 0.06
     timeout: int = 30
+    snap_yards_window: float = 40.0
+    snap_smooth: float = 0.5
+    snap_max_move: float = 0.2
+    snap_frames: int = 30
 
     def __post_init__(self) -> None:  # type: ignore[override]
         self.h_inv: Optional[np.ndarray] = None if self.H is None else np.linalg.inv(self.H)
         self.last: Optional[Tuple[float, float, float, float]] = None
         self.missing = 0
         self.field_width = 53.3
+        self.field_length = 120.0
+        self.snap_countdown = 0
 
     # ------------------------------------------------------------------
     def _default_view(self, frame_shape: Tuple[int, int, int]) -> Tuple[float, float, float, float]:
@@ -64,18 +70,28 @@ class YardCropper:
 
     # ------------------------------------------------------------------
     def _compute_target(
-        self, ball_xy: Optional[Tuple[float, float]], frame_shape: Tuple[int, int, int]
+        self,
+        ball_xy: Optional[Tuple[float, float]],
+        frame_shape: Tuple[int, int, int],
+        yards_window: float,
     ) -> Optional[Tuple[float, float, float, float]]:
         if ball_xy is None or self.h_inv is None:
             return None
 
         x, y = ball_xy
-        half_w = self.yards_window / 2.0
+        half_w = yards_window / 2.0
         x_min = x - half_w
         x_max = x + half_w
-        height_yards = self.yards_window / self.aspect
+        height_yards = yards_window / self.aspect
         y_min = y - height_yards / 2.0
         y_max = y + height_yards / 2.0
+
+        if x_min < 0:
+            x_max = min(self.field_length, x_max - x_min)
+            x_min = 0.0
+        if x_max > self.field_length:
+            x_min = max(0.0, x_min - (x_max - self.field_length))
+            x_max = self.field_length
 
         if y_min < 0:
             y_max = min(self.field_width, y_max - y_min)
@@ -102,11 +118,21 @@ class YardCropper:
 
     # ------------------------------------------------------------------
     def compute(
-        self, frame_shape: Tuple[int, int, int], ball_xy: Optional[Tuple[float, float]]
+        self,
+        frame_shape: Tuple[int, int, int],
+        ball_xy: Optional[Tuple[float, float]],
+        snap_hint: bool = False,
     ) -> Tuple[int, int, int, int]:
         """Return ``(x, y, w, h)`` crop rectangle for the frame."""
 
-        target = self._compute_target(ball_xy, frame_shape)
+        if snap_hint:
+            self.snap_countdown = self.snap_frames
+            self.last = None
+
+        current_window = (
+            self.snap_yards_window if self.snap_countdown > 0 else self.yards_window
+        )
+        target = self._compute_target(ball_xy, frame_shape, current_window)
         if target is None:
             self.missing += 1
             if self.last is None or self.missing > self.timeout:
@@ -116,19 +142,22 @@ class YardCropper:
         else:
             self.missing = 0
 
+        use_smooth = self.snap_smooth if self.snap_countdown > 0 else self.smooth
+        use_max_move = self.snap_max_move if self.snap_countdown > 0 else self.max_move
+
         if self.last is None:
             smoothed = target
         else:
             lx, ly, lw, lh = self.last
             tx, ty, tw, th = target
             smoothed = (
-                lx * self.smooth + tx * (1 - self.smooth),
-                ly * self.smooth + ty * (1 - self.smooth),
-                lw * self.smooth + tw * (1 - self.smooth),
-                lh * self.smooth + th * (1 - self.smooth),
+                lx * use_smooth + tx * (1 - use_smooth),
+                ly * use_smooth + ty * (1 - use_smooth),
+                lw * use_smooth + tw * (1 - use_smooth),
+                lh * use_smooth + th * (1 - use_smooth),
             )
 
-            max_move_px = frame_shape[1] * self.max_move
+            max_move_px = frame_shape[1] * use_max_move
             cx_last = lx + lw / 2.0
             cy_last = ly + lh / 2.0
             cx_new = smoothed[0] + smoothed[2] / 2.0
@@ -152,5 +181,7 @@ class YardCropper:
         y = max(0.0, min(y, h_img - h))
         rect = (int(x), int(y), int(w), int(h))
         self.last = rect
+        if self.snap_countdown > 0:
+            self.snap_countdown -= 1
         return rect
 
