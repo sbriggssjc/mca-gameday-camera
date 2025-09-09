@@ -2,5 +2,6 @@
 device: /dev/video0
 resolution: [3840, 2160]
 fps: 30
-color: bgr
+fourcc: MJPG
 exposure: auto
+white_balance: auto
