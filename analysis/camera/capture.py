@@ -123,6 +123,11 @@ class FrameCapture:
         Requested pixel format.  Either ``"MJPG"`` or ``"YUYV"``.
     buffer_size:
         Number of frames to keep in the internal deque.
+    backend:
+        OpenCV capture backend.  ``"auto"`` selects ``CAP_V4L2`` for
+        ``/dev/video*`` sources, ``"v4l2"`` forces V4L2 and ``"gst"`` uses
+        GStreamer.  When using the GStreamer backend a source string may be
+        prefixed with ``"gst:"`` to supply an explicit pipeline description.
     """
 
     def __init__(
@@ -132,8 +137,18 @@ class FrameCapture:
         fps: int = 30,
         fourcc: str = "MJPG",
         buffer_size: int = 8,
+        backend: str = "auto",
     ) -> None:
         self.device = device
+        self.backend = backend
+        if (
+            isinstance(device, str)
+            and device.startswith("gst:")
+            and backend == "auto"
+        ):
+            # Automatically switch to GST backend when an explicit pipeline
+            # string is provided via "gst:<pipeline>".
+            self.backend = "gst"
         self.resolution = resolution
         self.requested_fps = fps
         self.requested_fourcc = fourcc
@@ -160,18 +175,26 @@ class FrameCapture:
         )
 
     def _open_capture(self) -> Optional["cv2.Mat"]:
-        flags = cv2.CAP_V4L2 if self._is_v4l2() else 0
+        if self.backend == "gst":
+            return self._open_gst_capture()
+
+        flags = 0
+        if self.backend == "v4l2" or (self.backend == "auto" and self._is_v4l2()):
+            flags = cv2.CAP_V4L2
         self.cap = cv2.VideoCapture(self.device, flags)
         if not self.cap or not self.cap.isOpened():
             raise RuntimeError(f"Cannot open video source: {self.device}")
 
         ok, frame = self._configure_and_read(
-            self.resolution[0], self.resolution[1], self.requested_fps, self.requested_fourcc
+            self.resolution[0],
+            self.resolution[1],
+            self.requested_fps,
+            self.requested_fourcc,
         )
         if ok:
             return frame
 
-        if self._is_v4l2():
+        if self.backend in ("auto", "v4l2") and self._is_v4l2():
             tried: List[str] = []
             for w, h, fps, fourcc in self._fallback_profiles():
                 tried.append(f"{w}x{h}@{fps} {fourcc}")
@@ -190,6 +213,70 @@ class FrameCapture:
         raise RuntimeError(
             "Camera opened but first frame read failed—check resolution/format."
         )
+
+    def _open_gst_capture(self) -> Optional["cv2.Mat"]:
+        device = self.device
+        if isinstance(device, str) and device.startswith("gst:"):
+            pipeline = device[4:]
+            cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+            if not cap or not cap.isOpened():
+                raise RuntimeError(f"Cannot open GStreamer pipeline: {pipeline}")
+            self.cap = cap
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                raise RuntimeError("GStreamer pipeline opened but first frame read failed")
+            self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            self.fps = float(cap.get(cv2.CAP_PROP_FPS))
+            self.fourcc = "GST"
+            return frame
+
+        if isinstance(device, str) and device.startswith("/dev/"):
+            w, h = self.resolution
+            fps = self.requested_fps
+            mjpg = (
+                f"v4l2src device={device} ! image/jpeg,framerate={fps}/1,width={w},height={h} "
+                "! jpegdec ! videoconvert ! appsink"
+            )
+            h264 = (
+                f"v4l2src device={device} ! video/x-h264,framerate={fps}/1,width={w},height={h} "
+                "! h264parse ! avdec_h264 ! videoconvert ! appsink"
+            )
+            for pipe, fourcc in ((mjpg, "MJPG"), (h264, "H264")):
+                cap = cv2.VideoCapture(pipe, cv2.CAP_GSTREAMER)
+                if not cap or not cap.isOpened():
+                    continue
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    cap.release()
+                    continue
+                self.cap = cap
+                self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                self.fps = float(cap.get(cv2.CAP_PROP_FPS))
+                self.fourcc = fourcc
+                logging.info(
+                    "Negotiated %dx%d@%.2f %s via GStreamer",
+                    self.width,
+                    self.height,
+                    self.fps,
+                    self.fourcc,
+                )
+                return frame
+            raise RuntimeError(f"Cannot open video source: {device}")
+
+        cap = cv2.VideoCapture(device, cv2.CAP_GSTREAMER)
+        if not cap or not cap.isOpened():
+            raise RuntimeError(f"Cannot open video source: {device}")
+        self.cap = cap
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            raise RuntimeError("GStreamer pipeline opened but first frame read failed")
+        self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.fps = float(cap.get(cv2.CAP_PROP_FPS))
+        self.fourcc = "GST"
+        return frame
 
     def _configure_and_read(
         self, w: int, h: int, fps: int, fourcc: str
