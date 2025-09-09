@@ -1,59 +1,156 @@
-"""Compute a cropped view centred on the ball.
+"""Crop a view centred on the ball using field homography information.
 
-Given the estimated ball position in pixel coordinates, ``YardCropper``
-produces a crop rectangle that spans ``±N`` yards horizontally around the
-ball (default 20).  When calibration data is available the yard-to-pixel
-conversion is based on the homography; otherwise a simple fraction of the
-frame width is used.  Basic temporal smoothing is applied to avoid
-jarring jumps.
+``YardCropper`` operates in field coordinates (yards) and converts the
+desired window back into image pixel coordinates via the inverse
+homography.  A small amount of temporal smoothing is applied and per
+frame movement is limited to avoid jitter.
 """
+
 from __future__ import annotations
 
-from typing import Tuple
+from dataclasses import dataclass
+from typing import Optional, Tuple
 
-from .field_calibration import FieldCalibrator
+import numpy as np
+
+from .field_calibration import field_to_img
 
 
+@dataclass
 class YardCropper:
-    def __init__(
-        self,
-        calibrator: FieldCalibrator | None,
-        crop_yards: int = 20,
-        smooth: float = 0.8,
-    ) -> None:
-        self.calibrator = calibrator
-        self.crop_yards = crop_yards
-        self.smooth = smooth
-        self.last: Tuple[int, int, int, int] | None = None
+    """Compute a crop rectangle around the ball.
 
-    def _yards_to_pixels(self, yards: float, ref_pt: Tuple[int, int]) -> int:
-        if self.calibrator and self.calibrator.h is not None:
-            fx = self.calibrator.pixel_to_field(ref_pt)
-            if fx is not None:
-                left = self.calibrator.field_to_pixel((fx[0] - yards, fx[1]))
-                right = self.calibrator.field_to_pixel((fx[0] + yards, fx[1]))
-                if left and right:
-                    return int(abs(right[0] - left[0]))
-        # Fallback – assume 10 yards ~ 1/6th of the frame width
-        return int(ref_pt[0] * (yards / 30.0))
+    Parameters
+    ----------
+    H:
+        Homography mapping image pixels to field coordinates.  ``None``
+        disables the calibration behaviour and the full frame is
+        returned.
+    yards_window:
+        Total horizontal span of the crop in yards (default ``40``).
+    aspect:
+        Desired aspect ratio of the crop (default ``16/9``).
+    smooth:
+        Exponential moving average factor for temporal smoothing.
+    max_move:
+        Maximum allowed per frame movement expressed as a fraction of the
+        frame width.
+    timeout:
+        Number of consecutive frames without a ball position before
+        defaulting to a wide "coach" view.
+    """
 
-    def compute(self, frame_shape: Tuple[int, int, int], ball_pt: Tuple[int, int]) -> Tuple[int, int, int, int]:
+    H: Optional[np.ndarray]
+    yards_window: float = 40.0
+    aspect: float = 16 / 9
+    smooth: float = 0.9
+    max_move: float = 0.06
+    timeout: int = 30
+
+    def __post_init__(self) -> None:  # type: ignore[override]
+        self.h_inv: Optional[np.ndarray] = None if self.H is None else np.linalg.inv(self.H)
+        self.last: Optional[Tuple[float, float, float, float]] = None
+        self.missing = 0
+        self.field_width = 53.3
+
+    # ------------------------------------------------------------------
+    def _default_view(self, frame_shape: Tuple[int, int, int]) -> Tuple[float, float, float, float]:
+        h, w = frame_shape[:2]
+        if w >= 3840 and h >= 2160:
+            x = (w - 3840) // 2
+            y = (h - 2160) // 2
+            return float(x), float(y), 3840.0, 2160.0
+        return 0.0, 0.0, float(w), float(h)
+
+    # ------------------------------------------------------------------
+    def _compute_target(
+        self, ball_xy: Optional[Tuple[float, float]], frame_shape: Tuple[int, int, int]
+    ) -> Optional[Tuple[float, float, float, float]]:
+        if ball_xy is None or self.h_inv is None:
+            return None
+
+        x, y = ball_xy
+        half_w = self.yards_window / 2.0
+        x_min = x - half_w
+        x_max = x + half_w
+        height_yards = self.yards_window / self.aspect
+        y_min = y - height_yards / 2.0
+        y_max = y + height_yards / 2.0
+
+        if y_min < 0:
+            y_max = min(self.field_width, y_max - y_min)
+            y_min = 0.0
+        if y_max > self.field_width:
+            y_min = max(0.0, y_min - (y_max - self.field_width))
+            y_max = self.field_width
+
+        field_corners = [
+            (x_min, y_min),
+            (x_max, y_min),
+            (x_max, y_max),
+            (x_min, y_max),
+        ]
+        img_pts = [field_to_img(pt, self.h_inv) for pt in field_corners]
+        xs = [p[0] for p in img_pts]
+        ys = [p[1] for p in img_pts]
+        h_img, w_img = frame_shape[:2]
+        x0 = max(0.0, min(xs))
+        x1 = min(float(w_img), max(xs))
+        y0 = max(0.0, min(ys))
+        y1 = min(float(h_img), max(ys))
+        return x0, y0, x1 - x0, y1 - y0
+
+    # ------------------------------------------------------------------
+    def compute(
+        self, frame_shape: Tuple[int, int, int], ball_xy: Optional[Tuple[float, float]]
+    ) -> Tuple[int, int, int, int]:
         """Return ``(x, y, w, h)`` crop rectangle for the frame."""
 
-        h, w = frame_shape[:2]
-        cx, cy = ball_pt
-        width = self._yards_to_pixels(self.crop_yards * 2, (cx, cy))
-        width = max(1, min(width, w))
-        x = max(0, min(cx - width // 2, w - width))
-        crop = (x, 0, width, h)
-        if self.last is not None:
+        target = self._compute_target(ball_xy, frame_shape)
+        if target is None:
+            self.missing += 1
+            if self.last is None or self.missing > self.timeout:
+                target = self._default_view(frame_shape)
+            else:
+                target = self.last
+        else:
+            self.missing = 0
+
+        if self.last is None:
+            smoothed = target
+        else:
             lx, ly, lw, lh = self.last
-            alpha = self.smooth
-            crop = (
-                int(alpha * lx + (1 - alpha) * crop[0]),
-                0,
-                int(alpha * lw + (1 - alpha) * crop[2]),
-                h,
+            tx, ty, tw, th = target
+            smoothed = (
+                lx * self.smooth + tx * (1 - self.smooth),
+                ly * self.smooth + ty * (1 - self.smooth),
+                lw * self.smooth + tw * (1 - self.smooth),
+                lh * self.smooth + th * (1 - self.smooth),
             )
-        self.last = crop
-        return crop
+
+            max_move_px = frame_shape[1] * self.max_move
+            cx_last = lx + lw / 2.0
+            cy_last = ly + lh / 2.0
+            cx_new = smoothed[0] + smoothed[2] / 2.0
+            cy_new = smoothed[1] + smoothed[3] / 2.0
+            dx = cx_new - cx_last
+            dy = cy_new - cy_last
+            if abs(dx) > max_move_px:
+                cx_new = cx_last + np.sign(dx) * max_move_px
+            if abs(dy) > max_move_px:
+                cy_new = cy_last + np.sign(dy) * max_move_px
+            smoothed = (
+                cx_new - smoothed[2] / 2.0,
+                cy_new - smoothed[3] / 2.0,
+                smoothed[2],
+                smoothed[3],
+            )
+
+        x, y, w, h = smoothed
+        h_img, w_img = frame_shape[:2]
+        x = max(0.0, min(x, w_img - w))
+        y = max(0.0, min(y, h_img - h))
+        rect = (int(x), int(y), int(w), int(h))
+        self.last = rect
+        return rect
+
