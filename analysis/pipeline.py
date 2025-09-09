@@ -248,19 +248,28 @@ def run_live(
     keyint: int = 60,
     preroll: float = 1.5,
     postroll: float = 2.0,
+    debug_overlay: bool = False,
 ) -> None:
     """Run the live follow-ball pipeline."""
 
-    from .camera.capture import Capture
+    import time
+    from collections import deque
+
+    import cv2
+
+    from .camera.capture import FrameCapture
     from .tracking.ball_tracker import BallTracker
-    from .vision.field_calibration import FieldCalibrator
+    from .tracking.ball_tracker import TrackState
+    from .vision.field_calibration import FieldCalibrator, img_to_field
     from .vision.yard_cropper import YardCropper
     from .stream.streamer import Streamer
 
-    cap = Capture(source, resolution=resolution, fps=fps, buffer_seconds=preroll)
+    buf_size = int(fps * max(preroll + postroll, 1.0))
+    cap = FrameCapture(source, resolution=resolution, fps=fps, buffer_size=buf_size)
     tracker = BallTracker()
     calibrator = FieldCalibrator(calib) if calib else None
-    cropper = YardCropper(calibrator, crop_yards=crop_yards)
+    H = calibrator.h if calibrator else None
+    cropper = YardCropper(H, yards_window=float(crop_yards) * 2)
 
     width, height = resolution
     streamer = None
@@ -277,20 +286,72 @@ def run_live(
         )
 
     last_crop = (0, 0, width, height)
+    fps_times: deque[float] = deque(maxlen=30)
+    last_ts = 0.0
     try:
         while True:
-            ok, frame, ts = cap.read()
-            if not ok:
-                break
+            frame, ts = cap.read()
+            if frame is None:
+                time.sleep(0.01)
+                continue
+            if ts == last_ts:
+                time.sleep(0.001)
+                continue
+            last_ts = ts
+            fps_times.append(ts)
+            if len(fps_times) > 1:
+                fps_est = len(fps_times) / (fps_times[-1] - fps_times[0])
+            else:
+                fps_est = fps
+
+            state = TrackState.LOST
+            crop = last_crop
+            res = None
             if follow_ball:
-                bx, by, conf = tracker.update(frame)
-                if conf < 0.3:
-                    crop = last_crop
-                else:
-                    crop = cropper.compute(frame.shape, (bx, by))
+                res = tracker.update(frame)
+                ball_field = None
+                if res:
+                    bx, by, bw, bh, conf, state = res
+                    cx = bx + bw / 2.0
+                    cy = by + bh / 2.0
+                    if H is not None:
+                        ball_field = img_to_field((cx, cy), H)
+                    if conf < 0.3:
+                        ball_field = None
+                    crop = cropper.compute(frame.shape, ball_field)
                     last_crop = crop
-                x, y, w, h = crop
-                frame = frame[y : y + h, x : x + w]
+                else:
+                    crop = cropper.compute(frame.shape, None)
+                    last_crop = crop
+            else:
+                crop = cropper.compute(frame.shape, None)
+                state = TrackState.TRACKING
+
+            x, y, w, h = crop
+            frame = frame[y : y + h, x : x + w]
+
+            if debug_overlay:
+                if res:
+                    bx_c = int(bx - x)
+                    by_c = int(by - y)
+                    cv2.rectangle(
+                        frame,
+                        (bx_c, by_c),
+                        (bx_c + bw, by_c + bh),
+                        (0, 255, 0),
+                        1,
+                    )
+                cv2.putText(
+                    frame,
+                    f"{fps_est:.1f} FPS {state}",
+                    (10, 20),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (0, 255, 0),
+                    1,
+                    cv2.LINE_AA,
+                )
+
             if streamer:
                 streamer.write(frame)
     finally:
@@ -316,6 +377,7 @@ def _build_live_parser() -> argparse.ArgumentParser:
     p.add_argument("--keyint", type=int, default=60)
     p.add_argument("--preroll", type=float, default=1.5)
     p.add_argument("--postroll", type=float, default=2.0)
+    p.add_argument("--debug-overlay", action="store_true")
     return p
 
 
@@ -1037,6 +1099,7 @@ def main(argv=None) -> None:
             keyint=args.keyint,
             preroll=args.preroll,
             postroll=args.postroll,
+            debug_overlay=args.debug_overlay,
         )
         return
 
