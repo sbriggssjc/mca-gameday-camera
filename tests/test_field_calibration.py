@@ -8,7 +8,7 @@ from pathlib import Path
 import imageio.v3 as iio
 import numpy as np
 
-from analysis.vision.field_calibration import calibrate_from_clicks
+from analysis.vision.field_calibration import FieldCalibrator, calibrate_from_clicks
 
 
 def test_calibration_round_trip(tmp_path: Path) -> None:
@@ -18,7 +18,9 @@ def test_calibration_round_trip(tmp_path: Path) -> None:
     h, w = frame.shape[:2]
     clicks = [(0.0, 0.0), (w - 1.0, 0.0), (w - 1.0, h - 1.0), (0.0, h - 1.0)]
     save_path = tmp_path / "field_homography.json"
-    calibrator = calibrate_from_clicks(frame, points=clicks, save_to=str(save_path))
+    result = calibrate_from_clicks(frame, points=clicks, save_to=str(save_path))
+
+    calibrator = FieldCalibrator(h=result["H"])
 
     assert save_path.exists()
     with open(save_path, "r", encoding="utf-8") as fh:
