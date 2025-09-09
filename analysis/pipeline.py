@@ -252,6 +252,22 @@ def _load_model_labels(
     return set(labels)
 
 
+def fit_to_size(frame, out_w, out_h, keep_aspect=True):
+    import cv2, numpy as np
+    h, w = frame.shape[:2]
+    if not keep_aspect:
+        return cv2.resize(frame, (out_w, out_h), interpolation=cv2.INTER_AREA)
+    # letterbox/pillarbox
+    scale = min(out_w / w, out_h / h)
+    new_w, new_h = int(w * scale) // 2 * 2, int(h * scale) // 2 * 2  # even dims
+    resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    canvas = np.zeros((out_h, out_w, 3), dtype=resized.dtype)
+    y0 = (out_h - new_h) // 2
+    x0 = (out_w - new_w) // 2
+    canvas[y0:y0+new_h, x0:x0+new_w] = resized
+    return canvas
+
+
 def run_live(
     source: str,
     resolution: tuple[int, int] = (3840, 2160),
@@ -266,6 +282,9 @@ def run_live(
     encoder: str = "h264_v4l2m2m",
     bitrate: str = "12000k",
     keyint: int = 60,
+    out_width: int = 1920,
+    out_height: int = 1080,
+    keep_aspect: bool = True,
     preroll: float = 1.5,
     postroll: float = 2.0,
     debug_overlay: bool = False,
@@ -300,7 +319,7 @@ def run_live(
     tactical_yards = max(default_yards, 80.0)
     cropper = YardCropper(H, yards_window=default_yards)
 
-    width, height = resolution
+    in_w, in_h = resolution
     streamer = None
     if stream or record_out:
         streamer = Streamer(
@@ -309,13 +328,14 @@ def run_live(
             rtmp_key=rtmp_key,
             width=width,
             height=height,
+            resolution=(out_width, out_height),
             fps=fps,
             encoder=encoder,
             bitrate=bitrate,
             keyint=keyint,
         )
 
-    last_crop = (0, 0, width, height)
+    last_crop = (0, 0, in_w, in_h)
     fps_times: deque[float] = deque(maxlen=30)
     last_ts = 0.0
     prev_state = TrackState.LOST
@@ -359,7 +379,7 @@ def run_live(
                         lost_since = ts
                     elapsed = ts - lost_since
                     if elapsed > 6.0:
-                        crop = (0, 0, width, height)
+                        crop = (0, 0, in_w, in_h)
                     else:
                         cropper.yards_window = tactical_yards if elapsed > 2.0 else default_yards
                         crop = cropper.compute(frame.shape, ball_field_use)
@@ -407,6 +427,9 @@ def run_live(
                 )
 
             if streamer:
+                frame = fit_to_size(
+                    frame, out_width, out_height, keep_aspect=keep_aspect
+                )
                 streamer.write(frame)
     finally:
         if streamer:
@@ -460,6 +483,27 @@ def _build_live_parser() -> argparse.ArgumentParser:
     p.add_argument("--encoder", default="h264_v4l2m2m")
     p.add_argument("--bitrate", default="12000k")
     p.add_argument("--keyint", type=int, default=60)
+    p.add_argument("--out-width", type=int, default=1920)
+    p.add_argument("--out-height", type=int, default=1080)
+    aspect_group = p.add_mutually_exclusive_group()
+    aspect_group.add_argument(
+        "--keep-aspect",
+        dest="keep_aspect",
+        action="store_true",
+        help="letterbox/pillarbox instead of stretching",
+    )
+    aspect_group.add_argument(
+        "--no-keep-aspect",
+        dest="keep_aspect",
+        action="store_false",
+        help="stretch to fit output size",
+    )
+    aspect_group.add_argument(
+        "--keep-aspect-val",
+        dest="keep_aspect",
+        type=str2bool,
+        help="Explicit true/false (optional)",
+    )
     p.add_argument("--preroll", type=float, default=1.5)
     p.add_argument("--postroll", type=float, default=2.0)
     debug_group = p.add_mutually_exclusive_group()
@@ -478,7 +522,7 @@ def _build_live_parser() -> argparse.ArgumentParser:
         type=str2bool,
         help="Explicit true/false (optional)",
     )
-    p.set_defaults(follow_ball=False, stream=False, debug_overlay=False)
+    p.set_defaults(follow_ball=False, stream=False, debug_overlay=False, keep_aspect=True)
     return p
 
 
@@ -1198,6 +1242,9 @@ def main(argv=None) -> None:
             encoder=args.encoder,
             bitrate=args.bitrate,
             keyint=args.keyint,
+            out_width=args.out_width,
+            out_height=args.out_height,
+            keep_aspect=args.keep_aspect,
             preroll=args.preroll,
             postroll=args.postroll,
             debug_overlay=args.debug_overlay,
