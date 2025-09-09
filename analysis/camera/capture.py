@@ -142,7 +142,10 @@ class FrameCapture:
         self.stats = CameraStats()
 
         self.cap: Optional[cv2.VideoCapture] = None
-        self._open_capture()
+        first_frame = self._open_capture()
+        ts = time.time()
+        if first_frame is not None:
+            self.buffer.append((ts, first_frame))
 
         self._stop = False
         self._thread = threading.Thread(target=self._reader, daemon=True)
@@ -156,58 +159,115 @@ class FrameCapture:
             isinstance(self.device, str) and self.device.startswith("/dev/video")
         )
 
-    def _open_capture(self) -> None:
+    def _open_capture(self) -> Optional["cv2.Mat"]:
         flags = cv2.CAP_V4L2 if self._is_v4l2() else 0
         self.cap = cv2.VideoCapture(self.device, flags)
         if not self.cap or not self.cap.isOpened():
-            logging.error("Unable to open capture device %s", self.device)
-            raise FileNotFoundError(f"Capture device {self.device} not found")
+            raise RuntimeError(f"Cannot open video source: {self.device}")
 
-        # Configure device if using V4L2
-        if flags:
-            w, h = self.resolution
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
-            self.cap.set(cv2.CAP_PROP_FPS, self.requested_fps)
-            self.cap.set(
-                cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*self.requested_fourcc)
+        ok, frame = self._configure_and_read(
+            self.resolution[0], self.resolution[1], self.requested_fps, self.requested_fourcc
+        )
+        if ok:
+            return frame
+
+        if self._is_v4l2():
+            tried: List[str] = []
+            for w, h, fps, fourcc in self._fallback_profiles():
+                tried.append(f"{w}x{h}@{fps} {fourcc}")
+                ok, frame = self._configure_and_read(w, h, fps, fourcc)
+                if ok:
+                    logging.info("Falling back to %s", tried[-1])
+                    self.resolution = (w, h)
+                    self.requested_fps = fps
+                    self.requested_fourcc = fourcc
+                    return frame
+            raise RuntimeError(
+                "Camera opened but first frame read failed—check resolution/format. Tried: "
+                + ", ".join(tried)
             )
 
-        # Negotiated values
+        raise RuntimeError(
+            "Camera opened but first frame read failed—check resolution/format."
+        )
+
+    def _configure_and_read(
+        self, w: int, h: int, fps: int, fourcc: str
+    ) -> tuple[bool, Optional["cv2.Mat"]]:
+        assert self.cap is not None
+        # Apply settings: FOURCC, then size, then FPS
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*fourcc))
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+        self.cap.set(cv2.CAP_PROP_FPS, fps)
+
+        # Read negotiated values
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.fps = float(self.cap.get(cv2.CAP_PROP_FPS))
         fourcc_int = int(self.cap.get(cv2.CAP_PROP_FOURCC))
         self.fourcc = "".join([chr((fourcc_int >> 8 * i) & 0xFF) for i in range(4)])
+        logging.info(
+            "Negotiated %dx%d@%.2f %s",
+            self.width,
+            self.height,
+            self.fps,
+            self.fourcc.strip(),
+        )
 
-        if (self.width, self.height) != self.resolution:
-            logging.warning(
-                "Negotiated resolution %sx%s differs from request %s",
-                self.width,
-                self.height,
-                self.resolution,
-            )
-        if round(self.fps) != self.requested_fps:
-            logging.warning(
-                "Negotiated FPS %.2f differs from request %s", self.fps, self.requested_fps
-            )
-        if self.fourcc.strip() != self.requested_fourcc:
-            logging.warning(
-                "Negotiated FOURCC %s differs from request %s",
-                self.fourcc,
-                self.requested_fourcc,
-            )
+        ok, frame = self.cap.read()
+        if not ok or frame is None:
+            return False, None
+        return True, frame
+
+    def _fallback_profiles(self) -> List[tuple[int, int, int, str]]:
+        profiles = [
+            (3840, 2160, 30, "MJPG"),
+            (3840, 2160, 24, "MJPG"),
+            (2560, 1440, 30, "MJPG"),
+            (1920, 1080, 60, "MJPG"),
+            (1920, 1080, 30, "MJPG"),
+            (3840, 2160, 30, "YUYV"),
+            (3840, 2160, 24, "YUYV"),
+            (2560, 1440, 30, "YUYV"),
+            (1920, 1080, 60, "YUYV"),
+            (1920, 1080, 30, "YUYV"),
+        ]
+        return profiles
 
     def _reader(self) -> None:
+        fail_count = 0
+        last_warn = 0.0
         while not self._stop:
             assert self.cap is not None
             ok, frame = self.cap.read()
             ts = time.time()
             if not ok or frame is None:
-                logging.warning("Camera stall detected; attempting reconnect")
+                fail_count += 1
                 self.stats.dropped += 1
-                self._auto_retry()
-                continue
+                if fail_count >= 5:
+                    now = time.time()
+                    if now - last_warn > 5.0:
+                        logging.warning("Camera read failed %d times; retrying", fail_count)
+                        last_warn = now
+                    recovered = False
+                    for _ in range(5):
+                        self.cap.grab()
+                        ok, frame = self.cap.read()
+                        if ok and frame is not None:
+                            recovered = True
+                            break
+                    if not recovered:
+                        self._auto_retry()
+                        fail_count = 0
+                        continue
+                    fail_count = 0
+                    ts = time.time()
+                else:
+                    time.sleep(0.01)
+                    continue
+            else:
+                fail_count = 0
 
             if len(self.buffer) == self.buffer.maxlen:
                 self.stats.dropped += 1
@@ -227,9 +287,12 @@ class FrameCapture:
             pass
         time.sleep(1.0)
         try:
-            self._open_capture()
+            frame = self._open_capture()
+            if frame is not None:
+                self.buffer.clear()
+                self.buffer.append((time.time(), frame))
             logging.info("Reconnected camera %s", self.device)
-        except FileNotFoundError:
+        except RuntimeError:
             logging.error("Failed to reconnect camera %s", self.device)
 
     # ------------------------------------------------------------------
@@ -245,13 +308,20 @@ class FrameCapture:
         except IndexError:
             return None, 0.0
 
-    def warmup(self, seconds: float = 1.0) -> None:
-        """Read and discard frames for a short period."""
+    def warmup(self, seconds: float = 1.0) -> bool:
+        """Attempt to read frames for up to ``seconds`` seconds.
+
+        Returns ``True`` if at least one frame was successfully read.
+        """
 
         end = time.time() + seconds
+        success = False
         while time.time() < end and self.is_open():
-            self.cap.read()
+            ok, frame = self.cap.read()
+            if ok and frame is not None:
+                success = True
             time.sleep(0.01)
+        return success
 
     def release(self) -> None:
         self._stop = True
@@ -276,5 +346,5 @@ if __name__ == "__main__":
             cam.fps,
             cam.fourcc,
         )
-    except FileNotFoundError:
+    except RuntimeError:
         logging.error("Device %s not found", dev)
