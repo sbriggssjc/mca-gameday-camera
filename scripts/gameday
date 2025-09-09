@@ -1,44 +1,45 @@
-#!/usr/bin/env python3
-"""Convenience wrapper around ``analysis.pipeline`` live mode."""
+#!/usr/bin/env bash
+set -euo pipefail
 
-import argparse
-from analysis import pipeline
+CAMERA_CFG="configs/camera.yaml"
+STREAM_CFG="configs/stream.yaml"
 
+DEVICE=$(yq -r '.device' "$CAMERA_CFG")
+RESOLUTION=$(yq -r '.resolution | join("x")' "$CAMERA_CFG")
+FPS=$(yq -r '.fps' "$CAMERA_CFG")
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="Run live gameday pipeline")
-    p.add_argument("--source", default="/dev/video0")
-    p.add_argument("--crop-yards", type=int, default=20)
-    p.add_argument("--follow-ball", action="store_true")
-    p.add_argument("--stream", action="store_true")
-    p.add_argument("--calib", default="configs/field_homography.json")
-    p.add_argument("--record-out")
-    args = p.parse_args()
+if [[ -f /etc/nv_tegra_release ]]; then
+  FOURCC=$(yq -r '.fourcc // ""' "$CAMERA_CFG" | tr '[:upper:]' '[:lower:]')
+  OPENCV_FFMPEG_CAPTURE_OPTIONS="video_size=${RESOLUTION}:framerate=${FPS}"
+  if [[ -n "$FOURCC" ]]; then
+    OPENCV_FFMPEG_CAPTURE_OPTIONS="${OPENCV_FFMPEG_CAPTURE_OPTIONS}:input_format=${FOURCC}"
+  fi
+  export OPENCV_FFMPEG_CAPTURE_OPTIONS
+fi
 
-    pipeline.main(
-        [
-            "--source",
-            args.source,
-            "--resolution",
-            "3840x2160",
-            "--fps",
-            "30",
-            "--crop-yards",
-            str(args.crop_yards),
-            "--calib",
-            args.calib,
-            "--encoder",
-            "h264_v4l2m2m",
-            "--bitrate",
-            "12000k",
-            "--keyint",
-            "60",
-        ]
-        + (["--follow-ball"] if args.follow_ball else [])
-        + (["--stream"] if args.stream else [])
-        + (["--record-out", args.record_out] if args.record_out else [])
-    )
+OUT="output/coach_cut_$(date +%Y%m%d_%H%M)"
+mkdir -p "$OUT"
 
+CMD=(
+  python -m analysis.pipeline
+  --source "$DEVICE"
+  --resolution "$RESOLUTION"
+  --fps "$FPS"
+  --follow-ball true
+  --crop-yards 20
+  --calib configs/field_homography.json
+  --stream true
+  --rtmp-url "$(yq -r '.rtmp_url' "$STREAM_CFG")"
+  --rtmp-key "$(yq -r '.rtmp_key' "$STREAM_CFG")"
+  --record-out "$OUT/processed_full.mp4"
+  --encoder h264_v4l2m2m
+  --bitrate "$(yq -r '.bitrate' "$STREAM_CFG")"
+  --keyint "$(yq -r '.keyint' "$STREAM_CFG")"
+  --preroll 1.5 --postroll 2.0
+)
 
-if __name__ == "__main__":
-    main()
+if [[ "${DEBUG:-0}" == "1" ]]; then
+  CMD+=(--debug-overlay true)
+fi
+
+exec "${CMD[@]}" "$@"
