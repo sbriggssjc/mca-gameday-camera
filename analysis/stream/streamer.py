@@ -2,18 +2,21 @@
 from __future__ import annotations
 
 import fcntl
+import logging
 import os
 import subprocess
-from typing import Optional, Tuple
+from typing import Optional
+
+
+logger = logging.getLogger(__name__)
 
 
 class FrameToFFmpeg:
     """Send BGR frames to ``ffmpeg`` for recording or streaming.
 
-    The process is fed by a ``stdin`` pipe using the ``rawvideo`` muxer.  The
-    encoder is ``h264_v4l2m2m`` which is available on Jetson platforms.  Frames
-    may change resolution dynamically; if so, the underlying ``ffmpeg`` process
-    is restarted with the new width/height.
+    Frames are pushed to ``ffmpeg`` via ``stdin`` using the ``rawvideo`` muxer.
+    The encoder defaults to ``h264_v4l2m2m`` but will automatically fall back
+    to ``libx264`` if the hardware encoder is unavailable or misconfigured.
     """
 
     def __init__(
@@ -22,11 +25,12 @@ class FrameToFFmpeg:
         out_file: Optional[str] = None,
         rtmp_url: Optional[str] = None,
         rtmp_key: Optional[str] = None,
+        width: int,
+        height: int,
         fps: int = 30,
+        encoder: str = "h264_v4l2m2m",
         bitrate: str = "8000k",
         keyint: int = 60,
-        encoder: str = "h264_v4l2m2m",
-        resolution: Optional[Tuple[int, int]] = None,
     ) -> None:
         if not out_file and not rtmp_url:
             raise ValueError("either out_file or rtmp_url must be provided")
@@ -37,14 +41,17 @@ class FrameToFFmpeg:
             self.rtmp_url = f"{rtmp_url.rstrip('/')}/{rtmp_key}"
         else:
             self.rtmp_url = None
+
+        self.width = width
+        self.height = height
         self.fps = fps
+        self.encoder = encoder
         self.bitrate = bitrate
         self.keyint = keyint
-        self.encoder = encoder
+
         self._proc: Optional[subprocess.Popen[bytes]] = None
-        self._resolution: Optional[Tuple[int, int]] = None
-        if resolution:
-            self._open(*resolution)
+        self._first_write = False
+        self._open()
 
     # ------------------------------------------------------------------
     def _buf_rate(self) -> str:
@@ -60,8 +67,8 @@ class FrameToFFmpeg:
         return self.bitrate
 
     # ------------------------------------------------------------------
-    def _open(self, width: int, height: int) -> None:
-        """Spawn the ffmpeg subprocess for the given resolution."""
+    def _open(self) -> None:
+        """Spawn the ffmpeg subprocess."""
 
         cmd = [
             "ffmpeg",
@@ -73,50 +80,40 @@ class FrameToFFmpeg:
             "-pix_fmt",
             "bgr24",
             "-s",
-            f"{width}x{height}",
+            f"{self.width}x{self.height}",
             "-r",
             str(self.fps),
             "-i",
             "-",
+            "-an",
             "-c:v",
             self.encoder,
+            "-pix_fmt",
+            "yuv420p",
             "-b:v",
             self.bitrate,
+            "-maxrate",
+            self.bitrate,
+            "-bufsize",
+            self._buf_rate(),
             "-g",
             str(self.keyint),
         ]
 
         if self.out_file:
-            cmd += [
-                "-pix_fmt",
-                "yuv420p",
-                "-movflags",
-                "+faststart",
-                self.out_file,
-            ]
+            cmd += ["-movflags", "+faststart", self.out_file]
         else:
-            rate = self._buf_rate()
-            cmd += [
-                "-tune",
-                "zerolatency",
-                "-preset",
-                "fast",
-                "-maxrate",
-                rate,
-                "-bufsize",
-                rate,
-                "-f",
-                "flv",
-                self.rtmp_url,
-            ]
+            cmd += ["-tune", "zerolatency", "-preset", "fast", "-f", "flv", self.rtmp_url]
 
-        self._proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
-        self._resolution = (width, height)
+        self._proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        self._first_write = True
 
-        # Make stdin non-blocking so that backpressure drops frames instead of
-        # stalling the pipeline.
         if self._proc.stdin is not None:
             fd = self._proc.stdin.fileno()
+            flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+            fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        if self._proc.stderr is not None:
+            fd = self._proc.stderr.fileno()
             flags = fcntl.fcntl(fd, fcntl.F_GETFL)
             fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
@@ -125,20 +122,46 @@ class FrameToFFmpeg:
         """Write a single BGR frame to ffmpeg, dropping on backpressure."""
 
         h, w = frame.shape[:2]
-        if self._proc and self._proc.poll() is not None:
-            # Restart if the subprocess died
+        if (w, h) != (self.width, self.height):
+            # Detect size changes; restart with the new resolution.
             self.close()
-        if self._proc is None or (w, h) != self._resolution:
-            if self._proc:
-                self.close()
-            self._open(w, h)
+            self.width, self.height = w, h
+            self._open()
+
+        if not self._proc or not self._proc.stdin:
+            return
 
         try:
-            if self._proc and self._proc.stdin:
-                self._proc.stdin.write(frame.tobytes())
-        except (BrokenPipeError, BlockingIOError):
-            # Drop frame and reset so that the next call recreates the subprocess
-            self.close()
+            self._proc.stdin.write(frame.tobytes())
+        except BlockingIOError:
+            # Drop frame to keep latency under control
+            return
+        except BrokenPipeError:
+            err = ""
+            if self._proc.stderr is not None:
+                try:
+                    err = self._proc.stderr.read().decode("utf-8", "ignore")
+                except Exception:
+                    pass
+            self._handle_failure(err, frame)
+            return
+
+        if self._first_write:
+            err = ""
+            if self._proc.stderr is not None:
+                try:
+                    err = self._proc.stderr.read().decode("utf-8", "ignore")
+                except Exception:
+                    pass
+            rc = self._proc.poll()
+            if (
+                (rc and rc != 0)
+                or "could not find a valid device" in err
+                or "can't configure encoder" in err
+            ):
+                self._handle_failure(err, frame)
+                return
+            self._first_write = False
 
     # ------------------------------------------------------------------
     def close(self) -> None:
@@ -148,9 +171,31 @@ class FrameToFFmpeg:
                     self._proc.stdin.close()
                 except Exception:
                     pass
+            if self._proc.stderr:
+                try:
+                    self._proc.stderr.close()
+                except Exception:
+                    pass
             self._proc.wait()
             self._proc = None
-            self._resolution = None
+            self._first_write = False
+
+    # ------------------------------------------------------------------
+    def _handle_failure(self, err: str, frame) -> None:
+        """Handle encoder failures and attempt a software fallback."""
+
+        if self.encoder == "h264_v4l2m2m":
+            logger.warning("fallback to libx264")
+            self.close()
+            self.encoder = "libx264"
+            self._open()
+            if self._proc and self._proc.stdin:
+                try:
+                    self._proc.stdin.write(frame.tobytes())
+                except BlockingIOError:
+                    return
+        else:
+            self.close()
 
 
 # Backwards compatibility for previous imports
