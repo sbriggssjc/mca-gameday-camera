@@ -1,0 +1,6 @@
+# Default streaming configuration
+rtmp_url: rtmp://youtube.com/live2
+rtmp_key: ""
+bitrate: 12000k
+encoder: h264_v4l2m2m
+keyint: 60
