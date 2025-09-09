@@ -18,7 +18,7 @@ def test_calibration_round_trip(tmp_path: Path) -> None:
     h, w = frame.shape[:2]
     clicks = [(0.0, 0.0), (w - 1.0, 0.0), (w - 1.0, h - 1.0), (0.0, h - 1.0)]
     save_path = tmp_path / "field_homography.json"
-    calibrator = calibrate_from_clicks(frame, save_path=str(save_path), clicks=clicks)
+    calibrator = calibrate_from_clicks(frame, points=clicks, save_to=str(save_path))
 
     assert save_path.exists()
     with open(save_path, "r", encoding="utf-8") as fh:

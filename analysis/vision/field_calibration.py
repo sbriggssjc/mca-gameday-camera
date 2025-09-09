@@ -111,15 +111,67 @@ def field_to_img(pt: Point, h_inv: np.ndarray) -> Point:
     return float(dst[0] / dst[2]), float(dst[1] / dst[2])
 
 
+def parse_points_str(s: str) -> List[Point]:
+    """Parse a space-separated string of ``x,y`` pairs.
+
+    ``s`` should look like ``"x1,y1 x2,y2 x3,y3 x4,y4"``.  Returns a list of
+    four ``(x, y)`` tuples.  Raises ``ValueError`` if the input is malformed.
+    """
+
+    parts = s.strip().split()
+    if len(parts) != 4:
+        raise ValueError("Expected four x,y pairs")
+    pts: List[Point] = []
+    for part in parts:
+        try:
+            x_str, y_str = part.split(",")
+            pts.append((float(x_str), float(y_str)))
+        except Exception as exc:  # pragma: no cover - defensive
+            raise ValueError(f"Invalid point '{part}'") from exc
+    return pts
+
+
 def calibrate_from_clicks(
     frame: np.ndarray,
-    save_path: str = DEFAULT_CALIB_PATH,
-    clicks: Optional[Sequence[Point]] = None,
+    *,
+    headless: bool = False,
+    points: Optional[Sequence[Point]] = None,
+    save_to: str = DEFAULT_CALIB_PATH,
 ) -> FieldCalibrator:
-    """Interactively (or programmatically) compute and save a field homography."""
+    """Compute and save a field homography.
 
-    if clicks is None:
+    ``frame`` is the image to calibrate.  If ``points`` is provided, it must be
+    a list of four ``(x, y)`` pixel coordinates (clockwise starting near the
+    left goal line corner) and no GUI will be shown.  If ``points`` is ``None``
+    and ``headless`` is ``True``, the frame is written to ``configs/calib_frame.jpg``
+    and a ``RuntimeError`` is raised instructing the caller how to proceed.  If
+    neither ``points`` nor ``headless`` are provided, an interactive OpenCV
+    window is used to collect the clicks.
+    """
+
+    image_points: List[Point]
+
+    if points is not None:
+        image_points = list(points)
+    else:
+        if headless:
+            import cv2  # Lazy import to keep tests light
+
+            calib_frame = os.path.join("configs", "calib_frame.jpg")
+            os.makedirs(os.path.dirname(calib_frame), exist_ok=True)
+            cv2.imwrite(calib_frame, frame)
+            raise RuntimeError(
+                "Run with --points 'x1,y1 x2,y2 x3,y3 x4,y4' or copy configs/calib_frame.jpg to a GUI host to click points."
+            )
+
         import cv2  # Imported lazily to avoid dependency for tests
+        import sys
+
+        # If there's no display, OpenCV will fail.  Provide an actionable error
+        if sys.platform != "win32" and os.environ.get("DISPLAY") in (None, ""):
+            raise RuntimeError(
+                "No display available for calibration. Set DISPLAY or run with --headless."
+            )
 
         pts: List[Point] = []
 
@@ -147,8 +199,6 @@ def calibrate_from_clicks(
             cv2.waitKey(10)
         cv2.destroyWindow("calibrate")
         image_points = pts
-    else:
-        image_points = list(clicks)
 
     h, h_inv = compute_homography(image_points, FIELD_POINTS)
 
@@ -160,9 +210,9 @@ def calibrate_from_clicks(
         "field_dims": {"length": 120.0, "width": 53.3},
     }
 
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    with open(save_path, "w", encoding="utf-8") as fh:
+    os.makedirs(os.path.dirname(save_to), exist_ok=True)
+    with open(save_to, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2)
 
-    return FieldCalibrator(calib_path=save_path, h=h)
+    return FieldCalibrator(calib_path=save_to, h=h)
 
