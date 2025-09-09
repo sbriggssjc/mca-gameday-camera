@@ -2,10 +2,14 @@
 """Measure capture to display latency for a video source."""
 
 import argparse
+import logging
+import os
 import time
 from typing import Union
 
 import cv2
+
+log = logging.getLogger(__name__)
 
 
 def parse_source(src: str) -> Union[int, str]:
@@ -25,6 +29,16 @@ def main() -> None:
     cap = cv2.VideoCapture(source)
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open source: {source}")
+
+    if not os.environ.get("DISPLAY"):
+        log.warning("DISPLAY not set; OpenCV GUI may be unavailable")
+    try:
+        cv2.namedWindow("frame", cv2.WINDOW_NORMAL)
+    except cv2.error as e:
+        raise RuntimeError(
+            "OpenCV GUI not available. Run via xvfb "
+            "(`xvfb-run -a python -m tools.latency_check`)."
+        ) from e
 
     latencies = []
     for _ in range(args.frames):
