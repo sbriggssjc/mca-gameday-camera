@@ -1,9 +1,8 @@
 """Video analysis pipeline utilities.
 
 Boolean CLI options accept either presence/absence flags (for example,
-``--follow-ball``/``--no-follow-ball``) or explicit ``--*-val`` true/false values.
-If both a flag and a ``--*-val`` are provided, the last occurrence wins
-(`argparse` default behavior).
+``--follow-ball``/``--no-follow-ball``) or explicit ``--*-val`` true/false
+values. Flag and value styles are mutually exclusive to avoid ambiguity.
 """
 
 from __future__ import annotations
@@ -414,17 +413,12 @@ def _build_live_parser() -> argparse.ArgumentParser:
     p.add_argument("--fps", type=int, default=30)
     follow_group = p.add_mutually_exclusive_group()
     follow_group.add_argument(
-        "--follow-ball",
-        dest="follow_ball",
-        nargs="?",
-        const=True,
-        type=str2bool,
-        help="Enable follow-ball",
+        "--follow-ball", dest="follow_ball", action="store_true", help="Enable follow-ball"
     )
     follow_group.add_argument(
         "--no-follow-ball", dest="follow_ball", action="store_false", help="Disable follow-ball"
     )
-    p.add_argument(
+    follow_group.add_argument(
         "--follow-ball-val",
         dest="follow_ball",
         type=str2bool,
@@ -434,17 +428,12 @@ def _build_live_parser() -> argparse.ArgumentParser:
     p.add_argument("--calib")
     stream_group = p.add_mutually_exclusive_group()
     stream_group.add_argument(
-        "--stream",
-        dest="stream",
-        nargs="?",
-        const=True,
-        type=str2bool,
-        help="Enable stream",
+        "--stream", dest="stream", action="store_true", help="Enable stream"
     )
     stream_group.add_argument(
         "--no-stream", dest="stream", action="store_false", help="Disable stream"
     )
-    p.add_argument(
+    stream_group.add_argument(
         "--stream-val", dest="stream", type=str2bool, help="Explicit true/false (optional)"
     )
     p.add_argument("--rtmp-url")
@@ -457,12 +446,7 @@ def _build_live_parser() -> argparse.ArgumentParser:
     p.add_argument("--postroll", type=float, default=2.0)
     debug_group = p.add_mutually_exclusive_group()
     debug_group.add_argument(
-        "--debug-overlay",
-        dest="debug_overlay",
-        nargs="?",
-        const=True,
-        type=str2bool,
-        help="Enable debug-overlay",
+        "--debug-overlay", dest="debug_overlay", action="store_true", help="Enable debug-overlay"
     )
     debug_group.add_argument(
         "--no-debug-overlay",
@@ -470,7 +454,7 @@ def _build_live_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="Disable debug-overlay",
     )
-    p.add_argument(
+    debug_group.add_argument(
         "--debug-overlay-val",
         dest="debug_overlay",
         type=str2bool,
