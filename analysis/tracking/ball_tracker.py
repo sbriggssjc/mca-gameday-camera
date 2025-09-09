@@ -1,67 +1,259 @@
-"""Simple ball detector and tracker.
+"""Lightweight football detector and tracker.
 
-The implementation is intentionally lightweight – it uses a Hough circle
-transform to detect a potential ball and a small Kalman filter to smooth
-the trajectory.  A confidence score (0-1) is returned for each update so
-that callers can gracefully fall back to a wider crop when tracking is
-uncertain.
+This module implements a very small ball tracking pipeline designed for
+press‑box style footage.  The goal is to provide a fast and reasonably
+robust tracker that can run on an embedded device without any heavy
+models.  The tracker combines simple motion estimation, color/shape
+priors and a constant–velocity Kalman filter.  The public API mirrors the
+rest of the tracking utilities in this repository – :class:`BallTracker`
+exposes an :py:meth:`update` method that consumes a BGR frame and
+optionally a region of interest and returns a tuple describing the
+current estimate of the ball location.
+
+The tracker maintains three states:
+
+``TRACKING``
+    A confident detection was associated with the previous estimate.
+``SEARCHING``
+    A prediction is returned but the confidence has fallen below the
+    threshold.
+``LOST``
+    No reliable position is available.  After a grace period the tracker
+    returns ``None`` but keeps the last known bounding box so that callers
+    may continue to crop around the previous location.
+
+The behaviour of the tracker can be tuned through
+``configs/tracking.yaml`` which currently supports the following keys:
+
+``min_area``
+    Minimum contour area for a candidate region.
+``max_area``
+    Maximum contour area for a candidate region.
+``min_confidence``
+    Minimum score required to report the ``TRACKING`` state.
+``decay_rate``
+    Multiplicative decay applied when no detection is observed.
 """
+
 from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+import os
+from typing import Optional, Tuple
 
 import cv2
 import numpy as np
+import yaml
+
+
+class TrackState(str, Enum):
+    """Simple enumeration for the tracker state."""
+
+    TRACKING = "TRACKING"
+    SEARCHING = "SEARCHING"
+    LOST = "LOST"
+
+
+@dataclass
+class TrackerConfig:
+    """Configuration loaded from ``configs/tracking.yaml``."""
+
+    min_area: int = 30
+    max_area: int = 2000
+    min_confidence: float = 0.3
+    decay_rate: float = 0.9
+    lost_threshold: int = 10
+
+
+def _load_config(path: str) -> TrackerConfig:
+    cfg = TrackerConfig()
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as fh:  # pragma: no cover - trivial
+            data = yaml.safe_load(fh) or {}
+        for key, val in data.items():
+            if hasattr(cfg, key):
+                setattr(cfg, key, val)
+    return cfg
+
+
+def _iou(a: Tuple[int, int, int, int], b: Tuple[int, int, int, int]) -> float:
+    """Intersection over union for two ``(x, y, w, h)`` boxes."""
+
+    ax1, ay1, aw, ah = a
+    bx1, by1, bw, bh = b
+    ax2, ay2 = ax1 + aw, ay1 + ah
+    bx2, by2 = bx1 + bw, by1 + bh
+
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+    inter = iw * ih
+    if inter == 0:
+        return 0.0
+    union = aw * ah + bw * bh - inter
+    return inter / float(union)
 
 
 class BallTracker:
-    """Detect and track the football in a video stream."""
+    """Detect and track the football in a sequence of frames."""
 
-    def __init__(self) -> None:
-        # 4 state variables (x, y, vx, vy) and 2 measurements (x, y)
+    def __init__(self, config_path: str = "configs/tracking.yaml") -> None:
+        self.cfg = _load_config(config_path)
+
+        # Kalman filter with state (x, y, vx, vy) and measurements (x, y)
         self.kalman = cv2.KalmanFilter(4, 2)
-        self.kalman.measurementMatrix = np.array([[1, 0, 0, 0], [0, 1, 0, 0]], np.float32)
+        self.kalman.measurementMatrix = np.array(
+            [[1, 0, 0, 0], [0, 1, 0, 0]], np.float32
+        )
         self.kalman.transitionMatrix = np.array(
             [[1, 0, 1, 0], [0, 1, 0, 1], [0, 0, 1, 0], [0, 0, 0, 1]],
             np.float32,
         )
         self.kalman.processNoiseCov = np.eye(4, dtype=np.float32) * 0.03
+
+        self.prev_gray: Optional[np.ndarray] = None
+        self.last_bbox: Optional[Tuple[int, int, int, int]] = None
         self.last_conf: float = 0.0
+        self.state: TrackState = TrackState.LOST
+        self.lost_frames: int = 0
 
-    def _detect(self, frame: "cv2.Mat") -> tuple[int, int, float]:
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (5, 5), 0)
-        circles = cv2.HoughCircles(
-            gray,
-            cv2.HOUGH_GRADIENT,
-            dp=1.2,
-            minDist=20,
-            param1=50,
-            param2=30,
-            minRadius=5,
-            maxRadius=30,
-        )
-        if circles is not None:
-            x, y, r = circles[0][0]
-            conf = min(1.0, r / 30.0)
-            return int(x), int(y), float(conf)
-        # No detection – return centre with zero confidence
-        h, w = frame.shape[:2]
-        return w // 2, h // 2, 0.0
+    # ------------------------------------------------------------------
+    # internal helpers
+    def _motion_mask(self, gray: np.ndarray) -> np.ndarray:
+        if self.prev_gray is None:
+            self.prev_gray = gray
+            return np.zeros_like(gray)
+        diff = cv2.absdiff(gray, self.prev_gray)
+        self.prev_gray = gray
+        _, mask = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
+        mask = cv2.dilate(mask, None, iterations=2)
+        return mask
 
-    def update(self, frame: "cv2.Mat") -> tuple[int, int, float]:
-        """Update the tracker with a new frame.
+    def _color_mask(self, frame: np.ndarray) -> np.ndarray:
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        brown = cv2.inRange(hsv, (5, 50, 50), (25, 255, 255))
+        white = cv2.inRange(hsv, (0, 0, 200), (180, 40, 255))
+        green = cv2.inRange(hsv, (35, 50, 50), (90, 255, 255))
+        mask = cv2.bitwise_or(brown, white)
+        return cv2.bitwise_and(mask, cv2.bitwise_not(green))
 
-        Returns ``(x, y, confidence)`` where ``(x, y)`` are pixel
-        coordinates of the estimated ball position and ``confidence`` is a
-        float in the range ``[0, 1]``.  When no detection is available the
-        previous state prediction is returned with the last confidence
-        score.
+    # ------------------------------------------------------------------
+    def reset_on_snap(self, snap_hint: bool) -> None:
+        """Reset the tracker when a new play begins."""
+
+        if not snap_hint:
+            return
+        self.kalman.statePre[:] = 0
+        self.kalman.statePost[:] = 0
+        self.prev_gray = None
+        self.last_bbox = None
+        self.last_conf = 0.0
+        self.state = TrackState.SEARCHING
+        self.lost_frames = 0
+
+    # ------------------------------------------------------------------
+    def update(
+        self, frame: np.ndarray, roi: Optional[Tuple[int, int, int, int]] = None
+    ) -> Optional[Tuple[int, int, int, int, float, TrackState]]:
+        """Process a new frame.
+
+        Parameters
+        ----------
+        frame:
+            BGR image.
+        roi:
+            Optional ``(x, y, w, h)`` region in which to search.
         """
 
-        x, y, conf = self._detect(frame)
-        if conf > 0.5:  # good detection
-            measurement = np.array([[np.float32(x)], [np.float32(y)]])
-            self.kalman.correct(measurement)
-            self.last_conf = conf
+        if roi is not None:
+            x0, y0, w0, h0 = roi
+            frame_roi = frame[y0 : y0 + h0, x0 : x0 + w0]
+        else:
+            x0 = y0 = 0
+            frame_roi = frame
+
+        gray = cv2.cvtColor(frame_roi, cv2.COLOR_BGR2GRAY)
+        motion_mask = self._motion_mask(gray)
+        color_mask = self._color_mask(frame_roi)
+        mask = cv2.bitwise_and(motion_mask, color_mask)
+
+        cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        best_bbox: Optional[Tuple[int, int, int, int]] = None
+        best_score: float = 0.0
+
         prediction = self.kalman.predict()
         px, py = int(prediction[0]), int(prediction[1])
-        return px, py, self.last_conf
+        predicted_bbox = None
+        if self.last_bbox is not None:
+            lw, lh = self.last_bbox[2], self.last_bbox[3]
+            predicted_bbox = (px - lw // 2, py - lh // 2, lw, lh)
+
+        for c in cnts:
+            area = cv2.contourArea(c)
+            if area < self.cfg.min_area or area > self.cfg.max_area:
+                continue
+            x, y, w, h = cv2.boundingRect(c)
+            aspect = w / float(h)
+            aspect_score = 1.0 - abs(aspect - 1.5) / 1.5
+            if aspect_score < 0:
+                continue
+            peri = cv2.arcLength(c, True)
+            roundness = 4 * np.pi * area / (peri * peri + 1e-5)
+            score = aspect_score * roundness
+            if predicted_bbox is not None:
+                score *= 0.5 + 0.5 * _iou(predicted_bbox, (x, y, w, h))
+            if score > best_score:
+                best_score = score
+                best_bbox = (x, y, w, h)
+
+        if best_bbox is not None:
+            bx, by, bw, bh = best_bbox
+            cx, cy = bx + bw // 2, by + bh // 2
+            measurement = np.array([[np.float32(cx)], [np.float32(cy)]])
+            self.kalman.correct(measurement)
+            self.last_bbox = (bx, by, bw, bh)
+            self.last_conf = min(1.0, max(best_score, self.last_conf))
+            self.lost_frames = 0
+            self.state = (
+                TrackState.TRACKING
+                if self.last_conf >= self.cfg.min_confidence
+                else TrackState.SEARCHING
+            )
+            return (
+                bx + x0,
+                by + y0,
+                bw,
+                bh,
+                float(self.last_conf),
+                self.state,
+            )
+
+        # No detection: decay confidence and return prediction if possible
+        self.last_conf *= self.cfg.decay_rate
+        self.lost_frames += 1
+        if self.last_bbox is not None and self.lost_frames <= self.cfg.lost_threshold:
+            bx, by, bw, bh = self.last_bbox
+            bx = px - bw // 2
+            by = py - bh // 2
+            self.last_bbox = (bx, by, bw, bh)
+            self.state = (
+                TrackState.SEARCHING
+                if self.last_conf >= self.cfg.min_confidence
+                else TrackState.LOST
+            )
+            if self.state is TrackState.LOST and self.lost_frames > self.cfg.lost_threshold:
+                return None
+            return (
+                bx + x0,
+                by + y0,
+                bw,
+                bh,
+                float(self.last_conf),
+                self.state,
+            )
+
+        self.state = TrackState.LOST
+        return None
+
