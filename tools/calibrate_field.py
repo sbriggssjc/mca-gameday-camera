@@ -2,15 +2,18 @@
 
 Grabs a 4K frame from the primary capture device, lets the user click
 four field corners, saves the homography JSON, and overlays yardline
-and hash mark guides for validation.  It also supports a headless mode
+and hash mark guides for validation. It also supports a headless mode
 for remote servers.
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 import logging
 import os
+import sys
+
 import cv2
 import numpy as np
 
@@ -51,56 +54,10 @@ def _draw_guides(frame, calib: field_calibration.FieldCalibrator) -> None:
 
 
 # ---------------------------------------------------------------------------
-def main() -> None:
-    p = argparse.ArgumentParser(description="Calibrate the field")
-    p.add_argument("--source", default="/dev/video0", help="Video device or file")
-    p.add_argument("--frame", help="Use an existing image instead of grabbing a frame")
-    p.add_argument("--headless", action="store_true", help="Run without a GUI")
-    p.add_argument(
-        "--points",
-        help="Space separated 'x,y' pixel pairs (clockwise from left goal line)",
-    )
-    p.add_argument(
-        "--output",
-        default=field_calibration.DEFAULT_CALIB_PATH,
-        help="Destination calibration JSON",
-    )
-    args = p.parse_args()
-
-    if args.frame:
-        frame = cv2.imread(args.frame)
-        if frame is None:
-            raise RuntimeError(f"Failed to read frame from {args.frame}")
-    else:
-        cam = FrameCapture(args.source)
-        cam.warmup(0.5)
-        frame, _ = cam.read()
-        cam.release()
-        if frame is None:
-            raise RuntimeError("Failed to capture frame")
-
-    pts = None
-    if args.points:
-        try:
-            pts = field_calibration.parse_points_str(args.points)
-        except ValueError as exc:
-            raise SystemExit(f"Invalid --points value: {exc}")
-
-    try:
-        calibrator = field_calibration.calibrate_from_clicks(
-            frame,
-            headless=args.headless and pts is None,
-            points=pts,
-            save_to=args.output,
-        )
-    except RuntimeError as exc:
-        print(exc)
-        return
-
-    with open(args.output, "r", encoding="utf-8") as fh:
-        data = json.load(fh)
-    image_points = [tuple(map(float, p)) for p in data["image_points"]]
-
+def _reprojection_error(
+    calibrator: field_calibration.FieldCalibrator, image_points
+) -> float:
+    """Compute average reprojection error in pixels."""
     errs = []
     for x, y in image_points:
         field_pt = calibrator.pixel_to_field((x, y))
@@ -109,31 +66,88 @@ def main() -> None:
         back = calibrator.field_to_pixel(field_pt)
         if back is not None:
             errs.append(np.hypot(back[0] - x, back[1] - y))
-    avg_err = float(np.mean(errs)) if errs else 0.0
+    return float(np.mean(errs)) if errs else 0.0
 
-    if not args.headless and args.points is None:
-        _draw_guides(frame, calibrator)
-        cv2.imshow("calibration", frame)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
 
-    print(f"Saved calibration to {args.output} (avg error {avg_err:.6f} px)")
-    _draw_guides(frame, calibrator)
+# ---------------------------------------------------------------------------
+def main() -> None:
+    p = argparse.ArgumentParser(description="Calibrate the field")
+    p.add_argument(
+        "--points",
+        help="space-separated pixel coords x1,y1 x2,y2 x3,y3 x4,y4",
+    )
+    p.add_argument("--headless", action="store_true", help="run without a GUI")
+    p.add_argument("--source", default="/dev/video0", help="video device or file")
+    p.add_argument(
+        "--save-to",
+        default=field_calibration.DEFAULT_CALIB_PATH,
+        help="destination calibration JSON",
+    )
+    args = p.parse_args()
+
+    # ------------------------------------------------------------------
+    # Calibration from provided points: avoid touching the camera
+    if args.points:
+        try:
+            points = field_calibration.parse_points_str(args.points)
+        except ValueError as exc:
+            raise SystemExit(f"Invalid --points value: {exc}")
+        calibrator = field_calibration.calibrate_from_clicks(
+            frame=None, headless=True, points=points, save_to=args.save_to
+        )
+        with open(args.save_to, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        image_points = [tuple(map(float, p)) for p in data["image_points"]]
+        avg_err = _reprojection_error(calibrator, image_points)
+        print(f"Saved calibration to {args.save_to} (avg error {avg_err:.6f} px)")
+        return
+
+    # ------------------------------------------------------------------
+    # We need a frame from the source
+    cam = FrameCapture(args.source)
+    cam.warmup(0.5)
+    frame, _ = cam.read()
+    cam.release()
+    if frame is None:
+        print(f"Failed to capture frame from {args.source}", file=sys.stderr)
+        raise SystemExit(1)
+
+    if args.headless:
+        snap_path = os.path.join("configs", "calib_frame.jpg")
+        os.makedirs(os.path.dirname(snap_path), exist_ok=True)
+        cv2.imwrite(snap_path, frame)
+        print(
+            f"Saved frame to {snap_path}. Use a pixel picker to collect points "
+            f"and re-run with --points 'x1,y1 x2,y2 x3,y3 x4,y4'."
+        )
+        return
+
     if not os.environ.get("DISPLAY"):
-        log.warning("DISPLAY not set; OpenCV GUI may be unavailable")
+        raise RuntimeError(
+            "DISPLAY not set; OpenCV GUI not available. Use --headless or xvfb-run."
+        )
     try:
         cv2.namedWindow("calibration", cv2.WINDOW_NORMAL)
     except cv2.error as e:
         raise RuntimeError(
-            "OpenCV GUI not available. Try headless mode "
-            "(`python -m tools.calibrate_field --headless`) or run via xvfb "
-            "(`xvfb-run -a python -m tools.calibrate_field`)."
+            "OpenCV GUI not available. Try headless mode or run via xvfb-run."
         ) from e
+
+    calibrator = field_calibration.calibrate_from_clicks(
+        frame, headless=False, points=None, save_to=args.save_to
+    )
+    with open(args.save_to, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    image_points = [tuple(map(float, p)) for p in data["image_points"]]
+    avg_err = _reprojection_error(calibrator, image_points)
+
+    _draw_guides(frame, calibrator)
     cv2.imshow("calibration", frame)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-    print(f"Saved calibration to {args.output}")
+    print(f"Saved calibration to {args.save_to} (avg error {avg_err:.6f} px)")
 
 
 if __name__ == "__main__":
     main()
+
