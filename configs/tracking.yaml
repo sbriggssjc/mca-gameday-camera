@@ -1,0 +1,7 @@
+# Thresholds for the lightweight ball tracker
+min_area: 30        # minimum contour area in pixels
+max_area: 2000      # maximum contour area in pixels
+min_confidence: 0.3 # minimum confidence before reporting LOST
+decay_rate: 0.9     # decay applied each frame without detection
+# lost_threshold is kept in code with a default of 10 frames
+
