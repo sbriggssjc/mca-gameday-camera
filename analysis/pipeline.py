@@ -279,6 +279,7 @@ def run_live(
     rtmp_url: str | None = None,
     rtmp_key: str | None = None,
     record_out: str | None = None,
+    fragmented_mp4: bool = True,
     encoder: str = "h264_v4l2m2m",
     bitrate: str = "12000k",
     keyint: int = 60,
@@ -340,6 +341,7 @@ def run_live(
             stream=stream,
             rtmp_url=rtmp_url,
             rtmp_key=rtmp_key,
+            fragmented_mp4=fragmented_mp4,
         )
 
     last_crop = (0, 0, in_w, in_h)
@@ -493,6 +495,12 @@ def _build_live_parser() -> argparse.ArgumentParser:
     p.add_argument("--rtmp-url")
     p.add_argument("--rtmp-key")
     p.add_argument("--record-out")
+    p.add_argument(
+        "--fragmented-mp4",
+        action="store_true",
+        default=True,
+        help="Write fragmented MP4 (safer if interrupted).",
+    )
     p.add_argument("--encoder", default="h264_v4l2m2m")
     p.add_argument("--bitrate", default="12000k")
     p.add_argument("--keyint", type=int, default=60)
@@ -1253,6 +1261,7 @@ def main(argv=None) -> None:
             rtmp_url=args.rtmp_url,
             rtmp_key=args.rtmp_key,
             record_out=args.record_out,
+            fragmented_mp4=args.fragmented_mp4,
             encoder=args.encoder,
             bitrate=args.bitrate,
             keyint=args.keyint,
