@@ -58,14 +58,37 @@ class Capture:
 
         self.source = source
         self.resolution = resolution
-        self.fps = fps
-        self.cap = cv2.VideoCapture(source, cv2.CAP_V4L2)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
-        self.cap.set(cv2.CAP_PROP_FPS, fps)
-        self.buffer: Deque[Tuple[float, "cv2.Mat"]] = deque(
-            maxlen=int(fps * buffer_seconds)
+        self.fps = float(fps)
+
+        # Detect explicit GStreamer pipelines, e.g. "v4l2src ! ... ! appsink"
+        is_gst = (
+            isinstance(source, str)
+            and "v4l2src" in source
+            and "appsink" in source
         )
+
+        if is_gst:
+            self.cap = cv2.VideoCapture(source, cv2.CAP_GSTREAMER)
+        else:
+            # Regular V4L2 device
+            self.cap = cv2.VideoCapture(source, cv2.CAP_V4L2)
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
+            self.cap.set(cv2.CAP_PROP_FPS, fps)
+
+        ok, frame = self.cap.read()
+        if not ok or frame is None:
+            raise RuntimeError("Failed to read initial frame")
+
+        h, w = frame.shape[:2]
+        self.width = w or resolution[0]
+        self.height = h or resolution[1]
+        self.fps = float(fps)
+
+        self.buffer: Deque[Tuple[float, "cv2.Mat"]] = deque(
+            maxlen=int(self.fps * buffer_seconds)
+        )
+        self.buffer.append((time.time(), frame))
 
     def read(self) -> tuple[bool, "cv2.Mat", float]:
         """Read a frame from the device.
