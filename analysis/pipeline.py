@@ -1264,6 +1264,12 @@ def main(argv=None) -> None:
         args = lp.parse_args(argv)
         width, height = [int(v) for v in args.resolution.lower().split("x")]
         streamer = cap = None
+        mkv_path = (
+            args.record_out
+            if args.record_out and args.record_out.endswith(".mkv")
+            else None
+        )
+        success = False
         try:
             run_live(
                 source=args.source,
@@ -1290,13 +1296,31 @@ def main(argv=None) -> None:
                 debug_overlay=args.debug_overlay,
                 cap_backend=args.cap_backend,
             )
+            success = True
         except KeyboardInterrupt:
             print("[pipeline] interrupted; shutting down…")
+            success = True
         finally:
             try:
                 streamer.close()
             except:
                 pass
+            if success and mkv_path:
+                subprocess.run(
+                    [
+                        "ffmpeg",
+                        "-hide_banner",
+                        "-y",
+                        "-i",
+                        mkv_path,
+                        "-c",
+                        "copy",
+                        "-movflags",
+                        "+faststart",
+                        mkv_path.replace(".mkv", "_final.mp4"),
+                    ],
+                    check=False,
+                )
             try:
                 cap.close()
             except:
