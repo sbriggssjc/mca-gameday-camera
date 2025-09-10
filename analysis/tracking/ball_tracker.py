@@ -117,10 +117,15 @@ class BallTracker:
     def __init__(
         self,
         config_path: str = "configs/tracking.yaml",
-        proc_scale: float = 0.5,
+        proc_scale: Optional[float] = None,
+        args=None,
     ) -> None:
         self.cfg = _load_config(config_path)
-        self.proc_scale = proc_scale
+        if proc_scale is not None:
+            self.proc_scale = proc_scale
+        else:
+            # ``args`` may come from a CLI; default to 0.5 if not provided
+            self.proc_scale = getattr(args, "proc_scale", 0.5)
 
         # Kalman filter with state (x, y, vx, vy) and measurements (x, y)
         self.kalman = cv2.KalmanFilter(4, 2)
@@ -147,13 +152,15 @@ class BallTracker:
     # ------------------------------------------------------------------
     # internal helpers
     def _motion_mask(self, gray: np.ndarray) -> np.ndarray:
-        if self.prev_gray is None:
-            self.prev_gray = gray
-            return np.zeros_like(gray)
+        # First frame or size change: initialize and return empty mask
+        if getattr(self, "prev_gray", None) is None or self.prev_gray.shape != gray.shape:
+            self.prev_gray = gray.copy()
+            return np.zeros_like(gray, dtype=np.uint8)
+
         diff = cv2.absdiff(gray, self.prev_gray)
         self.prev_gray = gray
         _, mask = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
-        mask = cv2.dilate(mask, None, iterations=2)
+        mask = cv2.medianBlur(mask, 3)
         return mask
 
     def _color_mask(self, frame: np.ndarray) -> np.ndarray:
@@ -221,35 +228,38 @@ class BallTracker:
         """
 
         self.frame_idx += 1
+        h, w = frame.shape[:2]
+        if self.proc_scale != 1.0:
+            work = cv2.resize(
+                frame,
+                (int(w * self.proc_scale), int(h * self.proc_scale)),
+                interpolation=cv2.INTER_AREA,
+            )
+        else:
+            work = frame
+        gray = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
+        motion_full = self._motion_mask(gray)
+        color_full = self._color_mask(work)
+        mask_full = cv2.bitwise_and(motion_full, color_full)
+
         if roi is not None:
             x0, y0, w0, h0 = roi
-            frame_roi = frame[y0 : y0 + h0, x0 : x0 + w0]
         elif self.search_roi is not None and self.frame_idx % self.reacquire_interval != 0:
             x0, y0, w0, h0 = self.search_roi
             x1 = min(x0 + w0, frame.shape[1])
             y1 = min(y0 + h0, frame.shape[0])
-            frame_roi = frame[y0:y1, x0:x1]
-            w0, h0 = frame_roi.shape[1], frame_roi.shape[0]
+            w0, h0 = x1 - x0, y1 - y0
         else:
             x0 = y0 = 0
             w0, h0 = frame.shape[1], frame.shape[0]
-            frame_roi = frame
 
-        if self.proc_scale != 1.0:
-            frame_proc = cv2.resize(
-                frame_roi,
-                None,
-                fx=self.proc_scale,
-                fy=self.proc_scale,
-                interpolation=cv2.INTER_AREA,
-            )
-        else:
-            frame_proc = frame_roi
-
-        gray = cv2.cvtColor(frame_proc, cv2.COLOR_BGR2GRAY)
-        motion_mask = self._motion_mask(gray)
-        color_mask = self._color_mask(frame_proc)
-        mask = cv2.bitwise_and(motion_mask, color_mask)
+        sx0 = int(x0 * self.proc_scale)
+        sy0 = int(y0 * self.proc_scale)
+        sw0 = int(w0 * self.proc_scale)
+        sh0 = int(h0 * self.proc_scale)
+        sx1 = min(sx0 + sw0, mask_full.shape[1])
+        sy1 = min(sy0 + sh0, mask_full.shape[0])
+        mask = mask_full[sy0:sy1, sx0:sx1]
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.k3)
 
         cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
