@@ -280,6 +280,7 @@ def run_live(
     rtmp_key: str | None = None,
     record_out: str | None = None,
     fragmented_mp4: bool = True,
+    segment_seconds: int = 0,
     encoder: str = "h264_v4l2m2m",
     bitrate: str = "12000k",
     keyint: int = 60,
@@ -330,6 +331,11 @@ def run_live(
         out_w -= out_w % 2
         out_h -= out_h % 2
         record_out_path = record_out
+        if record_out and segment_seconds > 0:
+            base_dir = record_out
+            if os.path.splitext(record_out)[1]:
+                base_dir = os.path.dirname(record_out) or "."
+            record_out_path = os.path.join(base_dir, "%Y%m%d_%H%M%S_segment.mp4")
         streamer = FrameToFFmpeg(
             path=record_out_path,
             width=out_w,
@@ -342,6 +348,7 @@ def run_live(
             rtmp_url=rtmp_url,
             rtmp_key=rtmp_key,
             fragmented_mp4=fragmented_mp4,
+            segment_seconds=segment_seconds,
         )
 
     last_crop = (0, 0, in_w, in_h)
@@ -495,6 +502,12 @@ def _build_live_parser() -> argparse.ArgumentParser:
     p.add_argument("--rtmp-url")
     p.add_argument("--rtmp-key")
     p.add_argument("--record-out")
+    p.add_argument(
+        "--segment-seconds",
+        type=int,
+        default=0,
+        help="roll files every N seconds; 0 disables",
+    )
     p.add_argument(
         "--fragmented-mp4",
         action="store_true",
@@ -1264,6 +1277,7 @@ def main(argv=None) -> None:
                 rtmp_key=args.rtmp_key,
                 record_out=args.record_out,
                 fragmented_mp4=args.fragmented_mp4,
+                segment_seconds=args.segment_seconds,
                 encoder=args.encoder,
                 bitrate=args.bitrate,
                 keyint=args.keyint,

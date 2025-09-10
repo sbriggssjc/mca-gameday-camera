@@ -35,3 +35,9 @@ def test_flag_and_val_mutually_exclusive(args):
     parser = pipeline._build_live_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["--source", "dummy", *args])
+
+
+def test_segment_seconds_parsing():
+    parser = pipeline._build_live_parser()
+    ns = parser.parse_args(["--source", "dummy", "--segment-seconds", "30"])
+    assert ns.segment_seconds == 30
