@@ -136,23 +136,27 @@ class FrameToFFmpeg:
 
     # ------------------------------------------------------------------
     def close(self) -> None:
-        if self._proc is None:
+        proc = self._proc
+        self._proc = None
+        if proc is None:
             return
+        if proc.stdin:
+            try:
+                proc.stdin.flush()
+            finally:
+                proc.stdin.close()
         try:
-            if self._proc.stdin:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.terminate()
+                proc.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                proc.kill()
                 try:
-                    self._proc.stdin.flush()
+                    proc.wait(timeout=1)
                 except Exception:
                     pass
-                self._proc.stdin.close()
-            self._proc.wait(timeout=3)
-        except Exception:
-            try:
-                self._proc.kill()
-            except Exception:
-                pass
-        finally:
-            self._proc = None
 
 
 # Backwards compatibility
