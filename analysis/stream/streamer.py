@@ -50,8 +50,8 @@ class FrameToFFmpeg:
             "-hide_banner",
             "-loglevel",
             "error",
-            "-nostdin",
-            "-y",
+            "-y",        # overwrite output files
+            "-nostdin",  # avoid blocking on stdin
             "-f",
             "rawvideo",
             "-pix_fmt",
