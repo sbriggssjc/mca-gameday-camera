@@ -5,3 +5,11 @@ min_confidence: 0.3 # minimum confidence before reporting LOST
 decay_rate: 0.9     # decay applied each frame without detection
 # lost_threshold is kept in code with a default of 10 frames
 
+# HSV color ranges for masking
+hsv_brown: [[5, 50, 50], [25, 255, 255]]
+hsv_white: [[0, 0, 200], [180, 40, 255]]
+# Bright day turf
+hsv_green: [[35, 50, 50], [90, 255, 255]]
+# Dull grass or night conditions
+hsv_green_dull: [[35, 35, 25], [95, 255, 255]]
+

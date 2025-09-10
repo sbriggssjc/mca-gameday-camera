@@ -23,6 +23,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run ball tracking pipeline for a short period")
     parser.add_argument("source", nargs="?", default="0", help="Video file or camera index")
     parser.add_argument("--duration", type=float, default=30.0, help="Duration in seconds")
+    parser.add_argument(
+        "--proc-scale",
+        type=float,
+        default=0.5,
+        help="Downscale factor for processing",
+    )
     args = parser.parse_args()
 
     source = parse_source(args.source)
@@ -30,7 +36,7 @@ def main() -> None:
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open source: {source}")
 
-    tracker = BallTracker()
+    tracker = BallTracker(proc_scale=args.proc_scale)
     confidences = []
     frames = 0
     start = time.time()
