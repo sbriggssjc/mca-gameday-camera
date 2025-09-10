@@ -64,6 +64,22 @@ class TrackerConfig:
     min_confidence: float = 0.3
     decay_rate: float = 0.9
     lost_threshold: int = 10
+    hsv_brown: Tuple[Tuple[int, int, int], Tuple[int, int, int]] = (
+        (5, 50, 50),
+        (25, 255, 255),
+    )
+    hsv_white: Tuple[Tuple[int, int, int], Tuple[int, int, int]] = (
+        (0, 0, 200),
+        (180, 40, 255),
+    )
+    hsv_green: Tuple[Tuple[int, int, int], Tuple[int, int, int]] = (
+        (35, 50, 50),
+        (90, 255, 255),
+    )
+    hsv_green_dull: Tuple[Tuple[int, int, int], Tuple[int, int, int]] = (
+        (35, 35, 25),
+        (95, 255, 255),
+    )
 
 
 def _load_config(path: str) -> TrackerConfig:
@@ -98,8 +114,13 @@ def _iou(a: Tuple[int, int, int, int], b: Tuple[int, int, int, int]) -> float:
 class BallTracker:
     """Detect and track the football in a sequence of frames."""
 
-    def __init__(self, config_path: str = "configs/tracking.yaml") -> None:
+    def __init__(
+        self,
+        config_path: str = "configs/tracking.yaml",
+        proc_scale: float = 0.5,
+    ) -> None:
         self.cfg = _load_config(config_path)
+        self.proc_scale = proc_scale
 
         # Kalman filter with state (x, y, vx, vy) and measurements (x, y)
         self.kalman = cv2.KalmanFilter(4, 2)
@@ -117,6 +138,11 @@ class BallTracker:
         self.last_conf: float = 0.0
         self.state: TrackState = TrackState.LOST
         self.lost_frames: int = 0
+        self.frame_idx: int = 0
+        self.search_roi: Optional[Tuple[int, int, int, int]] = None
+        self.reacquire_interval = 15
+        self.roi_margin = 50
+        self.k3 = np.ones((3, 3), np.uint8)
 
     # ------------------------------------------------------------------
     # internal helpers
@@ -132,11 +158,39 @@ class BallTracker:
 
     def _color_mask(self, frame: np.ndarray) -> np.ndarray:
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        brown = cv2.inRange(hsv, (5, 50, 50), (25, 255, 255))
-        white = cv2.inRange(hsv, (0, 0, 200), (180, 40, 255))
-        green = cv2.inRange(hsv, (35, 50, 50), (90, 255, 255))
+        brown = cv2.inRange(
+            hsv,
+            np.array(self.cfg.hsv_brown[0]),
+            np.array(self.cfg.hsv_brown[1]),
+        )
+        white = cv2.inRange(
+            hsv,
+            np.array(self.cfg.hsv_white[0]),
+            np.array(self.cfg.hsv_white[1]),
+        )
+        green1 = cv2.inRange(
+            hsv,
+            np.array(self.cfg.hsv_green[0]),
+            np.array(self.cfg.hsv_green[1]),
+        )
+        green2 = cv2.inRange(
+            hsv,
+            np.array(self.cfg.hsv_green_dull[0]),
+            np.array(self.cfg.hsv_green_dull[1]),
+        )
+        green = cv2.bitwise_or(green1, green2)
         mask = cv2.bitwise_or(brown, white)
         return cv2.bitwise_and(mask, cv2.bitwise_not(green))
+
+    def _update_search_roi(
+        self, x: int, y: int, w: int, h: int, fw: int, fh: int
+    ) -> None:
+        pad = self.roi_margin
+        x0 = max(x - pad, 0)
+        y0 = max(y - pad, 0)
+        x1 = min(x + w + pad, fw)
+        y1 = min(y + h + pad, fh)
+        self.search_roi = (x0, y0, x1 - x0, y1 - y0)
 
     # ------------------------------------------------------------------
     def reset_on_snap(self, snap_hint: bool) -> None:
@@ -166,17 +220,37 @@ class BallTracker:
             Optional ``(x, y, w, h)`` region in which to search.
         """
 
+        self.frame_idx += 1
         if roi is not None:
             x0, y0, w0, h0 = roi
             frame_roi = frame[y0 : y0 + h0, x0 : x0 + w0]
+        elif self.search_roi is not None and self.frame_idx % self.reacquire_interval != 0:
+            x0, y0, w0, h0 = self.search_roi
+            x1 = min(x0 + w0, frame.shape[1])
+            y1 = min(y0 + h0, frame.shape[0])
+            frame_roi = frame[y0:y1, x0:x1]
+            w0, h0 = frame_roi.shape[1], frame_roi.shape[0]
         else:
             x0 = y0 = 0
+            w0, h0 = frame.shape[1], frame.shape[0]
             frame_roi = frame
 
-        gray = cv2.cvtColor(frame_roi, cv2.COLOR_BGR2GRAY)
+        if self.proc_scale != 1.0:
+            frame_proc = cv2.resize(
+                frame_roi,
+                None,
+                fx=self.proc_scale,
+                fy=self.proc_scale,
+                interpolation=cv2.INTER_AREA,
+            )
+        else:
+            frame_proc = frame_roi
+
+        gray = cv2.cvtColor(frame_proc, cv2.COLOR_BGR2GRAY)
         motion_mask = self._motion_mask(gray)
-        color_mask = self._color_mask(frame_roi)
+        color_mask = self._color_mask(frame_proc)
         mask = cv2.bitwise_and(motion_mask, color_mask)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.k3)
 
         cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -221,11 +295,17 @@ class BallTracker:
                 if self.last_conf >= self.cfg.min_confidence
                 else TrackState.SEARCHING
             )
+            scale_inv = 1.0 / self.proc_scale
+            gx = int(bx * scale_inv) + x0
+            gy = int(by * scale_inv) + y0
+            gw = int(bw * scale_inv)
+            gh = int(bh * scale_inv)
+            self._update_search_roi(gx, gy, gw, gh, frame.shape[1], frame.shape[0])
             return (
-                bx + x0,
-                by + y0,
-                bw,
-                bh,
+                gx,
+                gy,
+                gw,
+                gh,
                 float(self.last_conf),
                 self.state,
             )
@@ -244,16 +324,24 @@ class BallTracker:
                 else TrackState.LOST
             )
             if self.state is TrackState.LOST and self.lost_frames > self.cfg.lost_threshold:
+                self.search_roi = None
                 return None
+            scale_inv = 1.0 / self.proc_scale
+            gx = int(bx * scale_inv) + x0
+            gy = int(by * scale_inv) + y0
+            gw = int(bw * scale_inv)
+            gh = int(bh * scale_inv)
+            self._update_search_roi(gx, gy, gw, gh, frame.shape[1], frame.shape[0])
             return (
-                bx + x0,
-                by + y0,
-                bw,
-                bh,
+                gx,
+                gy,
+                gw,
+                gh,
                 float(self.last_conf),
                 self.state,
             )
 
         self.state = TrackState.LOST
+        self.search_roi = None
         return None
 
