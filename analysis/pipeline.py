@@ -1295,11 +1295,11 @@ def main(argv=None) -> None:
         finally:
             try:
                 streamer.close()
-            except Exception:
+            except:
                 pass
             try:
                 cap.close()
-            except Exception:
+            except:
                 pass
         return
 
