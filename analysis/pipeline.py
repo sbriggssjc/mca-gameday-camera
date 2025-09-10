@@ -257,14 +257,14 @@ def fit_to_size(frame, out_w, out_h, keep_aspect=True):
     h, w = frame.shape[:2]
     if not keep_aspect:
         return cv2.resize(frame, (out_w, out_h), interpolation=cv2.INTER_AREA)
-    # letterbox/pillarbox
     scale = min(out_w / w, out_h / h)
-    new_w, new_h = int(w * scale) // 2 * 2, int(h * scale) // 2 * 2  # even dims
+    new_w = max(2, (int(w * scale) // 2) * 2)
+    new_h = max(2, (int(h * scale) // 2) * 2)
     resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
     canvas = np.zeros((out_h, out_w, 3), dtype=resized.dtype)
     y0 = (out_h - new_h) // 2
     x0 = (out_w - new_w) // 2
-    canvas[y0:y0+new_h, x0:x0+new_w] = resized
+    canvas[y0:y0 + new_h, x0:x0 + new_w] = resized
     return canvas
 
 
@@ -285,6 +285,7 @@ def run_live(
     out_width: int = 1920,
     out_height: int = 1080,
     keep_aspect: bool = True,
+    out_fps: int | None = None,
     preroll: float = 1.5,
     postroll: float = 2.0,
     debug_overlay: bool = False,
@@ -302,7 +303,7 @@ def run_live(
     from .tracking.ball_tracker import TrackState
     from .vision.field_calibration import FieldCalibrator, img_to_field
     from .vision.yard_cropper import YardCropper
-    from .stream.streamer import Streamer
+    from .stream.streamer import FrameToFFmpeg
 
     buf_size = int(fps * max(preroll + postroll, 1.0))
     cap = FrameCapture(
@@ -322,14 +323,18 @@ def run_live(
     in_w, in_h = resolution
     streamer = None
     if stream or record_out:
-        streamer = Streamer(
+        out_w = int(out_width)
+        out_h = int(out_height)
+        enc_fps = int(out_fps or fps)
+        out_w -= out_w % 2
+        out_h -= out_h % 2
+        streamer = FrameToFFmpeg(
             out_file=record_out,
             rtmp_url=rtmp_url if stream else None,
             rtmp_key=rtmp_key,
-            width=width,
-            height=height,
-            resolution=(out_width, out_height),
-            fps=fps,
+            width=out_w,
+            height=out_h,
+            fps=enc_fps,
             encoder=encoder,
             bitrate=bitrate,
             keyint=keyint,
@@ -428,7 +433,7 @@ def run_live(
 
             if streamer:
                 frame = fit_to_size(
-                    frame, out_width, out_height, keep_aspect=keep_aspect
+                    frame, out_w, out_h, keep_aspect=keep_aspect
                 )
                 streamer.write(frame)
     finally:
@@ -446,6 +451,12 @@ def _build_live_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--resolution", default="3840x2160")
     p.add_argument("--fps", type=int, default=30)
+    p.add_argument(
+        "--out-fps",
+        type=int,
+        default=None,
+        help="output fps for encoding; default uses --fps",
+    )
     p.add_argument(
         "--cap-backend",
         choices=["auto", "v4l2", "gst"],
@@ -490,6 +501,7 @@ def _build_live_parser() -> argparse.ArgumentParser:
         "--keep-aspect",
         dest="keep_aspect",
         action="store_true",
+        default=True,
         help="letterbox/pillarbox instead of stretching",
     )
     aspect_group.add_argument(
@@ -522,7 +534,7 @@ def _build_live_parser() -> argparse.ArgumentParser:
         type=str2bool,
         help="Explicit true/false (optional)",
     )
-    p.set_defaults(follow_ball=False, stream=False, debug_overlay=False, keep_aspect=True)
+    p.set_defaults(follow_ball=False, stream=False, debug_overlay=False)
     return p
 
 
@@ -1245,6 +1257,7 @@ def main(argv=None) -> None:
             out_width=args.out_width,
             out_height=args.out_height,
             keep_aspect=args.keep_aspect,
+            out_fps=args.out_fps,
             preroll=args.preroll,
             postroll=args.postroll,
             debug_overlay=args.debug_overlay,
