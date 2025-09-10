@@ -23,6 +23,7 @@ class FrameToFFmpeg:
         stream: bool = False,
         rtmp_url: str | None = None,
         rtmp_key: str | None = None,
+        fragmented_mp4: bool = True,
     ) -> None:
         self.path = path or out_file or "out.mp4"
         self.width = int(width) - (int(width) % 2)
@@ -34,6 +35,7 @@ class FrameToFFmpeg:
         self.stream = bool(stream)
         self.rtmp_url = rtmp_url
         self.rtmp_key = rtmp_key
+        self.fragmented_mp4 = bool(fragmented_mp4)
 
         os.makedirs(os.path.dirname(self.path or "output"), exist_ok=True)
         self._proc: Optional[subprocess.Popen[bytes]] = None
@@ -74,9 +76,18 @@ class FrameToFFmpeg:
             "-g",
             str(self.keyint),
         ]
+        ext = (os.path.splitext(self.path)[1] if self.path else "").lower()
         if self.stream:
             assert self.rtmp_url and self.rtmp_key, "RTMP url/key required"
             out = ["-f", "flv", f"{self.rtmp_url}/{self.rtmp_key}"]
+        elif ext == ".mkv":
+            out = ["-f", "matroska", self.path]
+        elif ext == ".mp4" and self.fragmented_mp4:
+            out = [
+                "-movflags",
+                "+frag_keyframe+empty_moov+separate_moof+default_base_moof",
+                self.path,
+            ]
         else:
             out = ["-movflags", "+faststart", self.path]
         return base_in + enc + out
