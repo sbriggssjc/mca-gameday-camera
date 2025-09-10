@@ -329,15 +329,16 @@ def run_live(
         out_w -= out_w % 2
         out_h -= out_h % 2
         streamer = FrameToFFmpeg(
-            out_file=record_out,
-            rtmp_url=rtmp_url if stream else None,
-            rtmp_key=rtmp_key,
+            path=record_out,
             width=out_w,
             height=out_h,
             fps=enc_fps,
             encoder=encoder,
             bitrate=bitrate,
             keyint=keyint,
+            stream=stream,
+            rtmp_url=rtmp_url,
+            rtmp_key=rtmp_key,
         )
 
     last_crop = (0, 0, in_w, in_h)
