@@ -16,27 +16,33 @@ class FrameToFFmpeg:
 
     def __init__(
         self,
-        width: int,
-        height: int,
+        # output target
+        path: str | None = None,
+        out_file: str | None = None,  # backward compat
+        # geometry / timing
+        width: int = 1920,
+        height: int = 1080,
         fps: int = 30,
+        # encoding
         encoder: str = "h264_v4l2m2m",
-        bitrate: str = "8000k",
+        bitrate: str = "12000k",
         keyint: int = 60,
+        # streaming
         stream: bool = False,
-        rtmp_url: str = "",
-        rtmp_key: str = "",
-        path: str = "out.mp4",
+        rtmp_url: str | None = None,
+        rtmp_key: str | None = None,
     ) -> None:
-        self.width = width
-        self.height = height
-        self.fps = fps
+        # normalize target name
+        self.path = path or out_file or "out.mp4"  # accept either
+        self.stream = bool(stream)
+        self.rtmp_url = (rtmp_url or "").rstrip("/")
+        self.rtmp_key = rtmp_key or ""
+        self.width = int(width) - (int(width) % 2)
+        self.height = int(height) - (int(height) % 2)
+        self.fps = int(fps)
         self.encoder = encoder
         self.bitrate = bitrate
-        self.keyint = keyint
-        self.stream = stream
-        self.rtmp_url = rtmp_url.rstrip("/")
-        self.rtmp_key = rtmp_key
-        self.path = path
+        self.keyint = int(keyint)
 
         self.cmd: list[str] = []
         self._proc: Optional[subprocess.Popen[bytes]] = None
