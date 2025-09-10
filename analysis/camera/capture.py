@@ -60,12 +60,8 @@ class Capture:
         self.resolution = resolution
         self.fps = float(fps)
 
-        # Detect explicit GStreamer pipelines, e.g. "v4l2src ! ... ! appsink"
-        is_gst = (
-            isinstance(source, str)
-            and "v4l2src" in source
-            and "appsink" in source
-        )
+        # Detect explicit GStreamer pipelines, e.g. "... appsink"
+        is_gst = isinstance(source, str) and "appsink" in source
 
         if is_gst:
             self.cap = cv2.VideoCapture(source, cv2.CAP_GSTREAMER)
@@ -78,7 +74,11 @@ class Capture:
 
         ok, frame = self.cap.read()
         if not ok or frame is None:
-            raise RuntimeError("Failed to read initial frame")
+            msg = (
+                "GStreamer pipeline opened but first frame read failed.\n"
+                "Hint: install gstreamer1.0-plugins-*"
+            ) if is_gst else "Failed to read initial frame"
+            raise RuntimeError(msg)
 
         h, w = frame.shape[:2]
         self.width = w or resolution[0]
@@ -139,7 +139,7 @@ class FrameCapture:
     device:
         Path to a V4L2 device, device index, video file or a GStreamer
         pipeline.  Pipelines are detected automatically when the source
-        string contains ``"! appsink"`` or ``"v4l2src"`` (optionally
+        string contains ``"appsink"`` or ``"v4l2src"`` (optionally
         prefixed with ``"gst:"``).
     resolution:
         Desired ``(width, height)`` tuple.  Defaults to 4K.
@@ -154,7 +154,7 @@ class FrameCapture:
         ``/dev/video*`` sources, ``"v4l2"`` forces V4L2 and ``"gst"`` uses
         GStreamer.  When using the GStreamer backend a source string may be
         prefixed with ``"gst:"`` or contain an explicit pipeline with
-        ``"! appsink"`` or ``"v4l2src"``.
+        ``"appsink"`` or ``"v4l2src"``.
     """
 
     def __init__(
@@ -173,13 +173,13 @@ class FrameCapture:
             and backend == "auto"
             and (
                 device.startswith("gst:")
-                or "! appsink" in device
+                or "appsink" in device
                 or "v4l2src" in device
             )
         ):
             # Automatically switch to GST backend when an explicit pipeline is
             # provided either via "gst:<pipeline>" or an implicit pipeline
-            # containing "! appsink"/"v4l2src".
+            # containing "appsink"/"v4l2src".
             self.backend = "gst"
         self.resolution = resolution
         self.requested_fps = fps
@@ -212,7 +212,7 @@ class FrameCapture:
         # Auto-detect GStreamer pipeline strings
         if isinstance(self.device, str) and (
             self.device.startswith("gst:")
-            or "! appsink" in self.device
+            or "appsink" in self.device
             or "v4l2src" in self.device
         ):
             pipeline = self.device[4:] if self.device.startswith("gst:") else self.device
