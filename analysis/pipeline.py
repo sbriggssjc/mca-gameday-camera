@@ -328,8 +328,9 @@ def run_live(
         enc_fps = int(out_fps or fps)
         out_w -= out_w % 2
         out_h -= out_h % 2
+        record_out_path = record_out
         streamer = FrameToFFmpeg(
-            path=record_out,
+            path=record_out_path,
             width=out_w,
             height=out_h,
             fps=enc_fps,
