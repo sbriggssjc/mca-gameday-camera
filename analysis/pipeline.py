@@ -1250,30 +1250,43 @@ def main(argv=None) -> None:
         lp = _build_live_parser()
         args = lp.parse_args(argv)
         width, height = [int(v) for v in args.resolution.lower().split("x")]
-        run_live(
-            source=args.source,
-            resolution=(width, height),
-            fps=args.fps,
-            follow_ball=args.follow_ball,
-            crop_yards=args.crop_yards,
-            calib=args.calib,
-            stream=args.stream,
-            rtmp_url=args.rtmp_url,
-            rtmp_key=args.rtmp_key,
-            record_out=args.record_out,
-            fragmented_mp4=args.fragmented_mp4,
-            encoder=args.encoder,
-            bitrate=args.bitrate,
-            keyint=args.keyint,
-            out_width=args.out_width,
-            out_height=args.out_height,
-            keep_aspect=args.keep_aspect,
-            out_fps=args.out_fps,
-            preroll=args.preroll,
-            postroll=args.postroll,
-            debug_overlay=args.debug_overlay,
-            cap_backend=args.cap_backend,
-        )
+        streamer = cap = None
+        try:
+            run_live(
+                source=args.source,
+                resolution=(width, height),
+                fps=args.fps,
+                follow_ball=args.follow_ball,
+                crop_yards=args.crop_yards,
+                calib=args.calib,
+                stream=args.stream,
+                rtmp_url=args.rtmp_url,
+                rtmp_key=args.rtmp_key,
+                record_out=args.record_out,
+                fragmented_mp4=args.fragmented_mp4,
+                encoder=args.encoder,
+                bitrate=args.bitrate,
+                keyint=args.keyint,
+                out_width=args.out_width,
+                out_height=args.out_height,
+                keep_aspect=args.keep_aspect,
+                out_fps=args.out_fps,
+                preroll=args.preroll,
+                postroll=args.postroll,
+                debug_overlay=args.debug_overlay,
+                cap_backend=args.cap_backend,
+            )
+        except KeyboardInterrupt:
+            print("[pipeline] interrupted; shutting down…")
+        finally:
+            try:
+                streamer.close()
+            except Exception:
+                pass
+            try:
+                cap.close()
+            except Exception:
+                pass
         return
 
     p = argparse.ArgumentParser()
