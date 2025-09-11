@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, csv, math, pathlib, collections
+import json, csv, math, pathlib, collections, re
 from typing import Dict, Any, List, Tuple
 
 Play = Dict[str, Any]
@@ -13,6 +13,8 @@ FAMILIES = {
 
 def normalize(text:str)->str:
     return (text or "").lower().strip()
+
+norm = normalize
 
 def infer_family(play: Play) -> str:
     # Try explicit labels first, then keywords from clip title/notes
@@ -36,13 +38,19 @@ def infer_direction(play: Play) -> str:
     if any(t in blob for t in [" left"," lt"," lit"," leo"]): return "left"
     return "unknown"
 
-def infer_formation(play: Play) -> str:
-    cand = normalize(play.get("formation") or play.get("set"))
+FORM_TOKENS = [
+  r"\brit\b", r"\blit\b", r"\breo\b", r"\bleo\b",
+  r"\brend\b", r"\blend\b",
+  r"\btrips?\b", r"\btwins?\b", r"\bbunch\b", r"\bwing\b", r"\btight\b",
+  r"\bpistol\b", r"\bgun\b", r"\bshotgun\b", r"\bi[- ]?formation\b"
+]
+
+def infer_form(p: Play) -> str:
+    cand = norm(p.get("formation") or p.get("set"))
     if cand: return cand
-    # Heuristic from known MCA tokens
-    blob = normalize(play.get("title","")+" "+play.get("notes",""))
-    for key in ["rit","lit","reo","leo","rend","lend","trips","twins","bunch","i","wing","tight","empty"]:
-        if key in blob: return key
+    blob = norm((p.get("title") or "")+" "+(p.get("notes") or ""))
+    for pat in FORM_TOKENS:
+        if re.search(pat, blob): return re.sub(r"\\b", "", pat).strip("\\")
     return "unknown"
 
 def load_plays(out_dir: pathlib.Path) -> List[Play]:
@@ -66,7 +74,7 @@ def summarize(plays: List[Play]) -> Dict[str, Any]:
     }
     for p in plays:
         fam = infer_family(p); sums["by_family"][fam]+=1
-        form = infer_formation(p); sums["by_formation"][form]+=1
+        form = infer_form(p); sums["by_formation"][form]+=1
         dirn = infer_direction(p); sums["by_direction"][dirn]+=1
 
         if p.get("is_run") is True: sums["run_pass"]["run"]+=1
