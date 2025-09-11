@@ -117,15 +117,11 @@ class BallTracker:
     def __init__(
         self,
         config_path: str = "configs/tracking.yaml",
-        proc_scale: Optional[float] = None,
-        args=None,
+        proc_scale: float = 0.5,
+        **kwargs,
     ) -> None:
         self.cfg = _load_config(config_path)
-        if proc_scale is not None:
-            self.proc_scale = proc_scale
-        else:
-            # ``args`` may come from a CLI; default to 0.5 if not provided
-            self.proc_scale = getattr(args, "proc_scale", 0.5)
+        self.proc_scale = float(proc_scale)
 
         # Kalman filter with state (x, y, vx, vy) and measurements (x, y)
         self.kalman = cv2.KalmanFilter(4, 2)
@@ -148,46 +144,45 @@ class BallTracker:
         self.reacquire_interval = 15
         self.roi_margin = 50
         self.k3 = np.ones((3, 3), np.uint8)
+        self.k5 = np.ones((5, 5), np.uint8)
 
     # ------------------------------------------------------------------
     # internal helpers
-    def _motion_mask(self, gray: np.ndarray) -> np.ndarray:
-        # First frame or size change: initialize and return empty mask
+    def _safe_roi(self, img, x, y, w, h):
+        import numpy as np
+
+        H, W = img.shape[:2]
+        x0 = max(0, int(x))
+        y0 = max(0, int(y))
+        x1 = min(W, int(x + w))
+        y1 = min(H, int(y + h))
+        if x1 <= x0 or y1 <= y0:
+            return None
+        return img[y0:y1, x0:x1]
+
+    def _motion_mask(self, gray):
+        import numpy as np, cv2
+
+        if gray is None or gray.size == 0:
+            self.prev_gray = None
+            return None
         if getattr(self, "prev_gray", None) is None or self.prev_gray.shape != gray.shape:
             self.prev_gray = gray.copy()
             return np.zeros_like(gray, dtype=np.uint8)
-
         diff = cv2.absdiff(gray, self.prev_gray)
         self.prev_gray = gray
         _, mask = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
-        mask = cv2.medianBlur(mask, 3)
         return mask
 
-    def _color_mask(self, frame: np.ndarray) -> np.ndarray:
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        brown = cv2.inRange(
-            hsv,
-            np.array(self.cfg.hsv_brown[0]),
-            np.array(self.cfg.hsv_brown[1]),
-        )
-        white = cv2.inRange(
-            hsv,
-            np.array(self.cfg.hsv_white[0]),
-            np.array(self.cfg.hsv_white[1]),
-        )
-        green1 = cv2.inRange(
-            hsv,
-            np.array(self.cfg.hsv_green[0]),
-            np.array(self.cfg.hsv_green[1]),
-        )
-        green2 = cv2.inRange(
-            hsv,
-            np.array(self.cfg.hsv_green_dull[0]),
-            np.array(self.cfg.hsv_green_dull[1]),
-        )
-        green = cv2.bitwise_or(green1, green2)
-        mask = cv2.bitwise_or(brown, white)
-        return cv2.bitwise_and(mask, cv2.bitwise_not(green))
+    def _color_mask(self, bgr):
+        import numpy as np, cv2
+
+        if bgr is None or bgr.size == 0:
+            return None
+        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+        green = cv2.inRange(hsv, (35, 50, 50), (90, 255, 255))
+        mask = cv2.bitwise_not(green)
+        return mask
 
     def _update_search_roi(
         self, x: int, y: int, w: int, h: int, fw: int, fh: int
@@ -237,32 +232,45 @@ class BallTracker:
             )
         else:
             work = frame
-        gray = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
-        motion_full = self._motion_mask(gray)
-        color_full = self._color_mask(work)
-        mask_full = cv2.bitwise_and(motion_full, color_full)
 
         if roi is not None:
-            x0, y0, w0, h0 = roi
+            rx, ry, rw, rh = roi
         elif self.search_roi is not None and self.frame_idx % self.reacquire_interval != 0:
-            x0, y0, w0, h0 = self.search_roi
-            x1 = min(x0 + w0, frame.shape[1])
-            y1 = min(y0 + h0, frame.shape[0])
-            w0, h0 = x1 - x0, y1 - y0
+            rx, ry, rw, rh = self.search_roi
+            x1 = min(rx + rw, frame.shape[1])
+            y1 = min(ry + rh, frame.shape[0])
+            rw, rh = x1 - rx, y1 - ry
         else:
-            x0 = y0 = 0
-            w0, h0 = frame.shape[1], frame.shape[0]
+            rx = ry = 0
+            rw, rh = frame.shape[1], frame.shape[0]
 
-        sx0 = int(x0 * self.proc_scale)
-        sy0 = int(y0 * self.proc_scale)
-        sw0 = int(w0 * self.proc_scale)
-        sh0 = int(h0 * self.proc_scale)
-        sx1 = min(sx0 + sw0, mask_full.shape[1])
-        sy1 = min(sy0 + sh0, mask_full.shape[0])
-        mask = mask_full[sy0:sy1, sx0:sx1]
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.k3)
+        sx = int(rx * self.proc_scale)
+        sy = int(ry * self.proc_scale)
+        sw = int(rw * self.proc_scale)
+        sh = int(rh * self.proc_scale)
+        roi_img = self._safe_roi(work, sx, sy, sw, sh)
 
-        cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        mask = None
+        if roi_img is not None:
+            color = self._color_mask(roi_img)
+            gray = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY)
+            motion = self._motion_mask(gray)
+            masks = [m for m in (color, motion) if m is not None]
+            if masks:
+                mask = masks[0]
+                for m in masks[1:]:
+                    mask = cv2.bitwise_and(mask, m)
+                if mask is not None and mask.size != 0:
+                    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.k3)
+                    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.k5)
+                else:
+                    mask = None
+
+        cnts: list[np.ndarray]
+        if mask is not None:
+            cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        else:
+            cnts = []
 
         best_bbox: Optional[Tuple[int, int, int, int]] = None
         best_score: float = 0.0
@@ -306,8 +314,8 @@ class BallTracker:
                 else TrackState.SEARCHING
             )
             scale_inv = 1.0 / self.proc_scale
-            gx = int(bx * scale_inv) + x0
-            gy = int(by * scale_inv) + y0
+            gx = int(bx * scale_inv) + rx
+            gy = int(by * scale_inv) + ry
             gw = int(bw * scale_inv)
             gh = int(bh * scale_inv)
             self._update_search_roi(gx, gy, gw, gh, frame.shape[1], frame.shape[0])
@@ -337,8 +345,8 @@ class BallTracker:
                 self.search_roi = None
                 return None
             scale_inv = 1.0 / self.proc_scale
-            gx = int(bx * scale_inv) + x0
-            gy = int(by * scale_inv) + y0
+            gx = int(bx * scale_inv) + rx
+            gy = int(by * scale_inv) + ry
             gw = int(bw * scale_inv)
             gh = int(bh * scale_inv)
             self._update_search_roi(gx, gy, gw, gh, frame.shape[1], frame.shape[0])
