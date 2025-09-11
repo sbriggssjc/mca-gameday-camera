@@ -60,8 +60,9 @@ def build_coaches_cut(out_dir: str, plays):
     concat = out / "concat.txt"
     with concat.open("w", encoding="utf-8") as f:
         for pl in plays:
-            # ffmpeg concat demuxer needs single quotes escaped
-            f.write(f"file '{pl['src'].replace("'","'\\''")}'\n")
+            # Use shlex.quote to safely escape file path
+            safe_path = shlex.quote(pl["src"])
+            f.write(f"file {safe_path}\n")
     coach_out = out / "coach_cut_opponent.mp4"
     cmd = (
         f"ffmpeg -y -f concat -safe 0 -i {shlex.quote(str(concat))} -c copy "
