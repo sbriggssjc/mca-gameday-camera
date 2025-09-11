@@ -42,39 +42,84 @@ class FrameToFFmpeg:
         self.rtmp_key = rtmp_key
         self.fragmented_mp4 = bool(fragmented_mp4)
         self.segment_seconds = int(segment_seconds)
-        self.allow_stream_fail = True  # keep recording if RTMP dies
 
         self._proc: Optional[subprocess.Popen[bytes]] = None
         self._spawn(encoder=self.encoder)
 
     # ------------------------------------------------------------------
+    def _normalize_rtmp(self) -> str | None:
+        """Normalize RTMP(S) URL and append key."""
+        # Accept rtmp:// or rtmps://; prefer RTMPS (YouTube often blocks 1935).
+        url = (self.rtmp_url or "").strip()
+        key = (self.rtmp_key or "").strip()
+        if not url:
+            return None
+        # If user included the key in the URL, allow it as-is.
+        if (
+            url.startswith(("rtmp://", "rtmps://"))
+            and url.rstrip("/").split("/")[-2:]
+            and key
+            and url.endswith("/" + key)
+        ):
+            return url  # full URL with key
+        # If URL doesn't include scheme, add RTMPS
+        if not url.startswith(("rtmp://", "rtmps://")):
+            url = "rtmps://" + url.lstrip("/")
+        # Force YouTube hostnames to rtmps://
+        url = url.replace("rtmp://a.rtmp.youtube.com", "rtmps://a.rtmps.youtube.com")
+        # Compose final
+        if key and not url.rstrip("/").endswith("/" + key):
+            url = url.rstrip("/") + "/" + key
+        return url
+
+    # ------------------------------------------------------------------
     def _build_cmd(self, encoder: str) -> list[str]:
+        import os
+
+        rtmp_full = self._normalize_rtmp()
         base_in = [
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-            "-f", "rawvideo", "-pix_fmt", "bgr24",
-            "-s", f"{self.width}x{self.height}", "-r", str(self.fps), "-i", "-",
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-y",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgr24",
+            "-s",
+            f"{self.width}x{self.height}",
+            "-r",
+            str(self.fps),
+            "-i",
+            "-",
         ]
         enc = [
-            "-an", "-c:v", encoder, "-pix_fmt", "yuv420p",
-            "-b:v", self.bitrate, "-maxrate", self.bitrate,
-            "-bufsize", str(int(1.5 * int(self.bitrate.rstrip("k")))) + "k",
-            "-g", str(self.keyint),
+            "-an",
+            "-c:v",
+            encoder,
+            "-pix_fmt",
+            "yuv420p",
+            "-b:v",
+            self.bitrate,
+            "-maxrate",
+            self.bitrate,
+            "-bufsize",
+            str(int(1.5 * int(self.bitrate.rstrip("k")))) + "k",
+            "-g",
+            str(self.keyint),
         ]
-
-        if self.stream and self.path:
-            tee_spec = (
-                f"[onfail=ignore:f=flv]{self.rtmp_url}/{self.rtmp_key}" +
-                f"|[f=matroska]{self.path}"
-            )
+        if self.stream and self.path and rtmp_full:
+            # Stream + record simultaneously via tee; ignore RTMP failure so local file continues.
+            # NOTE: f=flv for RTMP(S); f=matroska for local MKV.
+            tee_spec = f"[onfail=ignore:f=flv]{rtmp_full}|[f=matroska]{self.path}"
             out = ["-f", "tee", tee_spec]
-        elif self.stream:
-            out = ["-f", "flv", f"{self.rtmp_url}/{self.rtmp_key}"]
+        elif self.stream and rtmp_full:
+            out = ["-f", "flv", rtmp_full]
         else:
             ext = (os.path.splitext(self.path)[1] if self.path else "").lower()
-            if ext == ".mkv":
-                out = ["-f", "matroska", self.path]
-            else:
-                out = ["-movflags", "+faststart", self.path]
+            out = ["-f", "matroska", self.path] if ext == ".mkv" else ["-movflags", "+faststart", self.path]
         return base_in + enc + out
 
     # ------------------------------------------------------------------
@@ -101,9 +146,8 @@ class FrameToFFmpeg:
     # ------------------------------------------------------------------
     def write(self, frame) -> None:
         if self._proc is None or self._proc.poll() is not None:
-            # ffmpeg died — fall back smartly
-            if self.stream and self.allow_stream_fail and self.path:
-                # try local-file only
+            if self.stream and self.path:
+                # Drop stream, keep file
                 print(
                     "[streamer] RTMP/tee failed; falling back to local file only",
                     file=sys.stderr,
@@ -112,19 +156,15 @@ class FrameToFFmpeg:
                 self._restart_with(
                     self.encoder if self.encoder != "h264_v4l2m2m" else "libx264"
                 )
-                return  # drop this frame
-            # try encoder fallback once
+                return
             if self.encoder != "libx264":
-                print("[streamer] restarting with libx264", file=sys.stderr)
                 self._restart_with("libx264")
                 return
             raise BrokenPipeError("ffmpeg process is dead")
-
         try:
             self._proc.stdin.write(frame.tobytes())
         except (BrokenPipeError, ValueError):
-            # Same fallback logic on write failure
-            if self.stream and self.allow_stream_fail and self.path:
+            if self.stream and self.path:
                 print(
                     "[streamer] write failed; switching to local file only",
                     file=sys.stderr,
@@ -135,12 +175,11 @@ class FrameToFFmpeg:
                 )
                 return
             if self.encoder != "libx264":
-                print("[streamer] fallback to libx264", file=sys.stderr)
                 self._restart_with("libx264")
                 return
             raise
         except BlockingIOError:
-            return  # drop frame to keep latency
+            return
 
     # ------------------------------------------------------------------
     def close(self) -> None:
