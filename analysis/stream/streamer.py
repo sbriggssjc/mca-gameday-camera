@@ -26,6 +26,8 @@ class FrameToFFmpeg:
         fragmented_mp4: bool = True,
         segment_seconds: int = 0,
     ) -> None:
+        if path:
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         self.path = path or out_file or "out.mp4"
         self.width = int(width) - (int(width) % 2)
         self.height = int(height) - (int(height) % 2)
@@ -39,7 +41,6 @@ class FrameToFFmpeg:
         self.fragmented_mp4 = bool(fragmented_mp4)
         self.segment_seconds = int(segment_seconds)
 
-        os.makedirs(os.path.dirname(self.path or "output"), exist_ok=True)
         self._proc: Optional[subprocess.Popen[bytes]] = None
         self._spawn(encoder=self.encoder)
 
@@ -79,7 +80,13 @@ class FrameToFFmpeg:
             str(self.keyint),
         ]
         ext = (os.path.splitext(self.path)[1] if self.path else "").lower()
-        if self.stream:
+        if self.stream and self.path:
+            assert self.rtmp_url and self.rtmp_key, "RTMP url/key required"
+            tee_spec = (
+                f"[f=flv]{self.rtmp_url}/{self.rtmp_key}" + f"|[f=matroska]{self.path}"
+            )
+            out = ["-f", "tee", tee_spec]
+        elif self.stream:
             assert self.rtmp_url and self.rtmp_key, "RTMP url/key required"
             out = ["-f", "flv", f"{self.rtmp_url}/{self.rtmp_key}"]
         elif self.segment_seconds > 0:
