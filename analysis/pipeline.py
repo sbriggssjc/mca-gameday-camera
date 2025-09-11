@@ -1446,6 +1446,11 @@ def main(argv=None) -> None:
         plays = discover_plays(args.input_dir)
         write_plays_jsonl(args.out, plays)
         try:
+            from .team_filter import apply as team_apply
+            team_apply(args.out)
+        except Exception as e:
+            print(f"[warn] team_filter failed: {e}")
+        try:
             from .autotag import process_jsonl as autotag_process
             autotag_process(args.out)
         except Exception as e:
