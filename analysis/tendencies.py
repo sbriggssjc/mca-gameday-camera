@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, csv, math, pathlib, collections, re
+import json, csv, math, pathlib, collections, re, argparse
 from typing import Dict, Any, List, Tuple
 
 Play = Dict[str, Any]
@@ -113,8 +113,8 @@ def summarize(plays: List[Play]) -> Dict[str, Any]:
             sums["outcomes"][outcome] += 1
     return sums
 
-def write_csv(out_dir: pathlib.Path, plays: List[Play], sums: Dict[str,Any]):
-    csv_path = out_dir / "tendencies.csv"
+def write_csv(out_dir: pathlib.Path, plays: List[Play], sums: Dict[str, Any], suffix: str = ""):
+    csv_path = out_dir / f"tendencies{suffix}.csv"
     with csv_path.open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["metric","key","value"])
@@ -126,8 +126,9 @@ def write_csv(out_dir: pathlib.Path, plays: List[Play], sums: Dict[str,Any]):
         for k,v in sums.get("outcomes", {}).items(): w.writerow(["outcome",k,v])
     return csv_path
 
-def write_md(out_dir: pathlib.Path, sums: Dict[str,Any]):
-    md = out_dir / "tendencies.md"
+
+def write_md(out_dir: pathlib.Path, sums: Dict[str, Any], suffix: str = ""):
+    md = out_dir / f"tendencies{suffix}.md"
     total = max(1, sums["total"])
     def pct(n): return f"{(100.0*n/total):.1f}%"
     def block(counter: collections.Counter, title: str) -> str:
@@ -154,13 +155,30 @@ def write_md(out_dir: pathlib.Path, sums: Dict[str,Any]):
     md.write_text(content)
     return md
 
-def main(out_dir_str: str):
-    out_dir = pathlib.Path(out_dir_str)
-    plays = load_plays(out_dir)
+
+def parse_args():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("out_dir")
+    ap.add_argument("--only-lincoln-offense", action="store_true")
+    ap.add_argument("--only-lincoln-defense", action="store_true")
+    return ap.parse_args()
+
+
+def main():
+    args = parse_args()
+    out = pathlib.Path(args.out_dir)
+    plays = load_plays(out)
+    if args.only_lincoln_offense:
+        plays = [p for p in plays if p.get("lincoln_side") == "offense"]
+    if args.only_lincoln_defense:
+        plays = [p for p in plays if p.get("lincoln_side") == "defense"]
     sums = summarize(plays)
-    write_csv(out_dir, plays, sums)
-    write_md(out_dir, sums)
+    suffix = "_offense" if args.only_lincoln_offense else (
+        "_defense" if args.only_lincoln_defense else ""
+    )
+    write_csv(out, plays, sums, suffix)
+    write_md(out, sums, suffix)
+
 
 if __name__ == "__main__":
-    import sys
-    main(sys.argv[1] if len(sys.argv)>1 else "output")
+    main()
