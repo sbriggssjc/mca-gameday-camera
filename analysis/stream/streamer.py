@@ -206,86 +206,57 @@ class FrameToFFmpeg:
 
 
 class MultiSinkStreamer:
-    def __init__(self, path, width, height, fps, encoder, bitrate, keyint, rtmp_url_with_key):
+    def __init__(self, path, width, height, fps, encoder, bitrate, keyint, rtmp_full):
+        import os, subprocess
         self.width, self.height, self.fps = width, height, fps
         self.encoder, self.bitrate, self.keyint = encoder, bitrate, keyint
         self.path = path
-        self.rtmp = rtmp_url_with_key
-        import os, subprocess
-
+        self.rtmp = rtmp_full
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
 
         base = [
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-nostdin",
-            "-y",
-            "-f",
-            "rawvideo",
-            "-pix_fmt",
-            "bgr24",
-            "-s",
-            f"{width}x{height}",
-            "-r",
-            str(fps),
-            "-i",
-            "-",
-            "-an",
-            "-c:v",
-            encoder,
-            "-pix_fmt",
-            "yuv420p",
-            "-b:v",
-            bitrate,
-            "-maxrate",
-            bitrate,
-            "-bufsize",
-            str(int(1.5 * int(bitrate.rstrip("k")))) + "k",
-            "-g",
-            str(keyint),
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+            "-f", "rawvideo", "-pix_fmt", "bgr24",
+            "-s", f"{width}x{height}", "-r", str(fps), "-i", "-",
+            "-an", "-c:v", encoder, "-pix_fmt", "yuv420p",
+            "-b:v", bitrate, "-maxrate", bitrate,
+            "-bufsize", f"{int(1.5*int(bitrate.rstrip('k')))}k",
+            "-g", str(keyint),
         ]
+        # Local file sink (MKV for resilience)
         self.p_file = subprocess.Popen(
-            ["ffmpeg", *base, "-f", "matroska", path],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            [*base, "-f", "matroska", path],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
         )
+        # RTMP(S) sink
         self.p_rtmp = subprocess.Popen(
-            ["ffmpeg", *base, "-f", "flv", rtmp_url_with_key],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            [*base, "-f", "flv", rtmp_full],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
         )
 
     def write(self, frame):
+        # Try both sinks; if one dies, keep the other
+        data = frame.tobytes()
         for p in (self.p_file, self.p_rtmp):
             if p and p.poll() is None:
                 try:
-                    p.stdin.write(frame.tobytes())
+                    p.stdin.write(data)
                 except Exception:
-                    pass  # drop frame for this sink
+                    pass  # drop for this sink
 
     def close(self):
         for p in (self.p_file, self.p_rtmp):
-            if not p:
-                continue
+            if not p: continue
             try:
                 if p.stdin:
-                    try:
-                        p.stdin.flush()
-                    except Exception:
-                        pass
-                    try:
-                        p.stdin.close()
-                    except Exception:
-                        pass
+                    try: p.stdin.flush()
+                    except: pass
+                    try: p.stdin.close()
+                    except: pass
                 p.wait(timeout=3)
             except Exception:
-                try:
-                    p.kill()
-                except Exception:
-                    pass
+                try: p.kill()
+                except: pass
 
 
 # Backwards compatibility

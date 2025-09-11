@@ -336,33 +336,34 @@ def run_live(
             if os.path.splitext(record_out)[1]:
                 base_dir = os.path.dirname(record_out) or "."
             record_out_path = os.path.join(base_dir, "%Y%m%d_%H%M%S_segment.mp4")
-        rtmp_full = f"{(rtmp_url or '').rstrip('/')}/{rtmp_key}" if stream else None
-        try:
-            streamer = FrameToFFmpeg(
-                path=record_out_path,
-                width=out_w,
-                height=out_h,
-                fps=enc_fps,
-                encoder=encoder,
-                bitrate=bitrate,
-                keyint=keyint,
-                stream=stream,
-                rtmp_url=rtmp_url,
-                rtmp_key=rtmp_key,
-                fragmented_mp4=fragmented_mp4,
-                segment_seconds=segment_seconds,
-            )
-        except Exception as e:
-            print("[pipeline] tee unavailable or failed; using MultiSink", e)
+
+        # Compose full RTMP(S) URL with key
+        rtmp_full = None
+        if stream:
+            url = (rtmp_url or "").strip()
+            key = (rtmp_key or "").strip()
+            if url and not url.startswith(("rtmp://", "rtmps://")):
+                url = "rtmps://" + url.lstrip("/")
+            # Prefer YouTube RTMPS
+            url = url.replace("rtmp://a.rtmp.youtube.com", "rtmps://a.rtmps.youtube.com")
+            if key and not url.rstrip("/").endswith("/" + key):
+                url = url.rstrip("/") + "/" + key
+            rtmp_full = url
+
+        # If both stream and record_out: use MultiSink (two ffmpegs)
+        if stream and record_out:
             streamer = MultiSinkStreamer(
-                path=record_out_path,
-                width=out_w,
-                height=out_h,
-                fps=enc_fps,
-                encoder=encoder,
-                bitrate=bitrate,
-                keyint=keyint,
-                rtmp_url_with_key=rtmp_full,
+                path=record_out_path, width=out_w, height=out_h, fps=enc_fps,
+                encoder=encoder, bitrate=bitrate, keyint=keyint,
+                rtmp_full=rtmp_full,
+            )
+        else:
+            # existing single-sink FrameToFFmpeg code path
+            streamer = FrameToFFmpeg(
+                path=record_out_path, width=out_w, height=out_h, fps=enc_fps,
+                encoder=encoder, bitrate=bitrate, keyint=keyint,
+                stream=stream, rtmp_url=rtmp_url, rtmp_key=rtmp_key,
+                fragmented_mp4=fragmented_mp4, segment_seconds=segment_seconds,
             )
 
     if record_out:
