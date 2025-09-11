@@ -305,7 +305,7 @@ def run_live(
     from .tracking.ball_tracker import TrackState
     from .vision.field_calibration import FieldCalibrator, img_to_field
     from .vision.yard_cropper import YardCropper
-    from .stream.streamer import FrameToFFmpeg
+    from .stream.streamer import FrameToFFmpeg, MultiSinkStreamer
 
     buf_size = int(fps * max(preroll + postroll, 1.0))
     cap = FrameCapture(
@@ -336,20 +336,34 @@ def run_live(
             if os.path.splitext(record_out)[1]:
                 base_dir = os.path.dirname(record_out) or "."
             record_out_path = os.path.join(base_dir, "%Y%m%d_%H%M%S_segment.mp4")
-        streamer = FrameToFFmpeg(
-            path=record_out_path,
-            width=out_w,
-            height=out_h,
-            fps=enc_fps,
-            encoder=encoder,
-            bitrate=bitrate,
-            keyint=keyint,
-            stream=stream,
-            rtmp_url=rtmp_url,
-            rtmp_key=rtmp_key,
-            fragmented_mp4=fragmented_mp4,
-            segment_seconds=segment_seconds,
-        )
+        rtmp_full = f"{(rtmp_url or '').rstrip('/')}/{rtmp_key}" if stream else None
+        try:
+            streamer = FrameToFFmpeg(
+                path=record_out_path,
+                width=out_w,
+                height=out_h,
+                fps=enc_fps,
+                encoder=encoder,
+                bitrate=bitrate,
+                keyint=keyint,
+                stream=stream,
+                rtmp_url=rtmp_url,
+                rtmp_key=rtmp_key,
+                fragmented_mp4=fragmented_mp4,
+                segment_seconds=segment_seconds,
+            )
+        except Exception as e:
+            print("[pipeline] tee unavailable or failed; using MultiSink", e)
+            streamer = MultiSinkStreamer(
+                path=record_out_path,
+                width=out_w,
+                height=out_h,
+                fps=enc_fps,
+                encoder=encoder,
+                bitrate=bitrate,
+                keyint=keyint,
+                rtmp_url_with_key=rtmp_full,
+            )
 
     if record_out:
         print(f"[pipeline] recording to: {record_out}")
