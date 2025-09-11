@@ -205,5 +205,88 @@ class FrameToFFmpeg:
             self._proc = None
 
 
+class MultiSinkStreamer:
+    def __init__(self, path, width, height, fps, encoder, bitrate, keyint, rtmp_url_with_key):
+        self.width, self.height, self.fps = width, height, fps
+        self.encoder, self.bitrate, self.keyint = encoder, bitrate, keyint
+        self.path = path
+        self.rtmp = rtmp_url_with_key
+        import os, subprocess
+
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+
+        base = [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-y",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgr24",
+            "-s",
+            f"{width}x{height}",
+            "-r",
+            str(fps),
+            "-i",
+            "-",
+            "-an",
+            "-c:v",
+            encoder,
+            "-pix_fmt",
+            "yuv420p",
+            "-b:v",
+            bitrate,
+            "-maxrate",
+            bitrate,
+            "-bufsize",
+            str(int(1.5 * int(bitrate.rstrip("k")))) + "k",
+            "-g",
+            str(keyint),
+        ]
+        self.p_file = subprocess.Popen(
+            ["ffmpeg", *base, "-f", "matroska", path],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        self.p_rtmp = subprocess.Popen(
+            ["ffmpeg", *base, "-f", "flv", rtmp_url_with_key],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+
+    def write(self, frame):
+        for p in (self.p_file, self.p_rtmp):
+            if p and p.poll() is None:
+                try:
+                    p.stdin.write(frame.tobytes())
+                except Exception:
+                    pass  # drop frame for this sink
+
+    def close(self):
+        for p in (self.p_file, self.p_rtmp):
+            if not p:
+                continue
+            try:
+                if p.stdin:
+                    try:
+                        p.stdin.flush()
+                    except Exception:
+                        pass
+                    try:
+                        p.stdin.close()
+                    except Exception:
+                        pass
+                p.wait(timeout=3)
+            except Exception:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+
+
 # Backwards compatibility
 Streamer = FrameToFFmpeg
