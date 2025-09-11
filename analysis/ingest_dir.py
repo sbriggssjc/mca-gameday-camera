@@ -55,14 +55,15 @@ def write_plays_jsonl(out_dir: str, plays):
 
 
 def build_coaches_cut(out_dir: str, plays):
-    # concat list
     out = pathlib.Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
     concat = out / "concat.txt"
     with concat.open("w", encoding="utf-8") as f:
         for pl in plays:
-            # Use shlex.quote to safely escape file path
-            safe_path = shlex.quote(pl["src"])
-            f.write(f"file {safe_path}\n")
+            abs_path = pathlib.Path(pl["src"]).resolve()
+            f.write(f"file {shlex.quote(str(abs_path))}\n")
+
     coach_out = out / "coach_cut_opponent.mp4"
     cmd = (
         f"ffmpeg -y -f concat -safe 0 -i {shlex.quote(str(concat))} -c copy "
