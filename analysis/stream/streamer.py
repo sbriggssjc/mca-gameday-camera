@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
+import subprocess
+import shlex
+import time
 from typing import Optional
 
 
@@ -40,6 +42,7 @@ class FrameToFFmpeg:
         self.rtmp_key = rtmp_key
         self.fragmented_mp4 = bool(fragmented_mp4)
         self.segment_seconds = int(segment_seconds)
+        self.allow_stream_fail = True  # keep recording if RTMP dies
 
         self._proc: Optional[subprocess.Popen[bytes]] = None
         self._spawn(encoder=self.encoder)
@@ -47,77 +50,31 @@ class FrameToFFmpeg:
     # ------------------------------------------------------------------
     def _build_cmd(self, encoder: str) -> list[str]:
         base_in = [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",        # overwrite output files
-            "-nostdin",  # avoid blocking on stdin
-            "-f",
-            "rawvideo",
-            "-pix_fmt",
-            "bgr24",
-            "-s",
-            f"{self.width}x{self.height}",
-            "-r",
-            str(self.fps),
-            "-i",
-            "-",
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+            "-f", "rawvideo", "-pix_fmt", "bgr24",
+            "-s", f"{self.width}x{self.height}", "-r", str(self.fps), "-i", "-",
         ]
         enc = [
-            "-an",
-            "-c:v",
-            encoder,
-            "-pix_fmt",
-            "yuv420p",
-            "-b:v",
-            self.bitrate,
-            "-maxrate",
-            self.bitrate,
-            "-bufsize",
-            str(int(1.5 * int(self.bitrate.rstrip("k")))) + "k",
-            "-g",
-            str(self.keyint),
+            "-an", "-c:v", encoder, "-pix_fmt", "yuv420p",
+            "-b:v", self.bitrate, "-maxrate", self.bitrate,
+            "-bufsize", str(int(1.5 * int(self.bitrate.rstrip("k")))) + "k",
+            "-g", str(self.keyint),
         ]
-        ext = (os.path.splitext(self.path)[1] if self.path else "").lower()
+
         if self.stream and self.path:
-            assert self.rtmp_url and self.rtmp_key, "RTMP url/key required"
             tee_spec = (
-                f"[f=flv]{self.rtmp_url}/{self.rtmp_key}" + f"|[f=matroska]{self.path}"
+                f"[onfail=ignore:f=flv]{self.rtmp_url}/{self.rtmp_key}" +
+                f"|[f=matroska]{self.path}"
             )
             out = ["-f", "tee", tee_spec]
         elif self.stream:
-            assert self.rtmp_url and self.rtmp_key, "RTMP url/key required"
             out = ["-f", "flv", f"{self.rtmp_url}/{self.rtmp_key}"]
-        elif self.segment_seconds > 0:
-            movflags = (
-                "+frag_keyframe+empty_moov+separate_moof+default_base_moof"
-                if self.fragmented_mp4
-                else "+faststart"
-            )
-            out = [
-                "-movflags",
-                movflags,
-                "-f",
-                "segment",
-                "-segment_time",
-                str(self.segment_seconds),
-                "-reset_timestamps",
-                "1",
-                "-strftime",
-                "1",
-                self.path,
-            ]
-        elif ext == ".mkv":
-            out = ["-f", "matroska", self.path]
-        elif ext == ".mp4" and self.fragmented_mp4:
-            out = [
-                "-movflags",
-                "+frag_keyframe+empty_moov+separate_moof+default_base_moof",
-                self.path,
-            ]
         else:
-            out = ["-movflags", "+faststart", self.path]
+            ext = (os.path.splitext(self.path)[1] if self.path else "").lower()
+            if ext == ".mkv":
+                out = ["-f", "matroska", self.path]
+            else:
+                out = ["-movflags", "+faststart", self.path]
         return base_in + enc + out
 
     # ------------------------------------------------------------------
@@ -143,7 +100,20 @@ class FrameToFFmpeg:
 
     # ------------------------------------------------------------------
     def write(self, frame) -> None:
-        if not self._alive():
+        if self._proc is None or self._proc.poll() is not None:
+            # ffmpeg died — fall back smartly
+            if self.stream and self.allow_stream_fail and self.path:
+                # try local-file only
+                print(
+                    "[streamer] RTMP/tee failed; falling back to local file only",
+                    file=sys.stderr,
+                )
+                self.stream = False
+                self._restart_with(
+                    self.encoder if self.encoder != "h264_v4l2m2m" else "libx264"
+                )
+                return  # drop this frame
+            # try encoder fallback once
             if self.encoder != "libx264":
                 print("[streamer] restarting with libx264", file=sys.stderr)
                 self._restart_with("libx264")
@@ -151,40 +121,49 @@ class FrameToFFmpeg:
             raise BrokenPipeError("ffmpeg process is dead")
 
         try:
-            assert self._proc and self._proc.stdin
             self._proc.stdin.write(frame.tobytes())
         except (BrokenPipeError, ValueError):
+            # Same fallback logic on write failure
+            if self.stream and self.allow_stream_fail and self.path:
+                print(
+                    "[streamer] write failed; switching to local file only",
+                    file=sys.stderr,
+                )
+                self.stream = False
+                self._restart_with(
+                    self.encoder if self.encoder != "h264_v4l2m2m" else "libx264"
+                )
+                return
             if self.encoder != "libx264":
                 print("[streamer] fallback to libx264", file=sys.stderr)
                 self._restart_with("libx264")
                 return
             raise
         except BlockingIOError:
-            return
+            return  # drop frame to keep latency
 
     # ------------------------------------------------------------------
     def close(self) -> None:
-        proc = self._proc
-        self._proc = None
-        if proc is None:
+        if not self._proc:
             return
-        if proc.stdin:
-            try:
-                proc.stdin.flush()
-            finally:
-                proc.stdin.close()
         try:
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            try:
-                proc.terminate()
-                proc.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                proc.kill()
+            if self._proc.stdin:
                 try:
-                    proc.wait(timeout=1)
+                    self._proc.stdin.flush()
                 except Exception:
                     pass
+                try:
+                    self._proc.stdin.close()
+                except Exception:
+                    pass
+            self._proc.wait(timeout=3)
+        except Exception:
+            try:
+                self._proc.kill()
+            except Exception:
+                pass
+        finally:
+            self._proc = None
 
 
 # Backwards compatibility
