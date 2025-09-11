@@ -361,7 +361,6 @@ def run_live(
         while True:
             frame, ts = cap.read()
             if frame is None or frame.size == 0:
-                time.sleep(0.01)
                 continue
             if ts == last_ts:
                 time.sleep(0.001)
@@ -1265,13 +1264,11 @@ def main(argv=None) -> None:
         lp = _build_live_parser()
         args = lp.parse_args(argv)
         width, height = [int(v) for v in args.resolution.lower().split("x")]
+        if args.record_out:
+            print(f"[pipeline] recording to: {args.record_out}")
+        if args.stream:
+            print(f"[pipeline] streaming to: {args.rtmp_url}/******")
         streamer = cap = None
-        mkv_path = (
-            args.record_out
-            if args.record_out and args.record_out.endswith(".mkv")
-            else None
-        )
-        success = False
         try:
             run_live(
                 source=args.source,
@@ -1298,31 +1295,13 @@ def main(argv=None) -> None:
                 debug_overlay=args.debug_overlay,
                 cap_backend=args.cap_backend,
             )
-            success = True
         except KeyboardInterrupt:
             print("[pipeline] interrupted; shutting down…")
-            success = True
         finally:
             try:
                 streamer.close()
             except:
                 pass
-            if success and mkv_path:
-                subprocess.run(
-                    [
-                        "ffmpeg",
-                        "-hide_banner",
-                        "-y",
-                        "-i",
-                        mkv_path,
-                        "-c",
-                        "copy",
-                        "-movflags",
-                        "+faststart",
-                        mkv_path.replace(".mkv", "_final.mp4"),
-                    ],
-                    check=False,
-                )
             try:
                 cap.close()
             except:
