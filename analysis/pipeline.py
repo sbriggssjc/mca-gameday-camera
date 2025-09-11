@@ -1331,7 +1331,9 @@ def main(argv=None) -> None:
         return
 
     p = argparse.ArgumentParser()
-    p.add_argument("--video", required=True)
+    group = p.add_mutually_exclusive_group(required=True)
+    group.add_argument("--video", type=str)
+    group.add_argument("--input-dir", type=str)
     p.add_argument("--team", required=True)
     p.add_argument("--playbook", required=True)
     p.add_argument("--out", required=True)
@@ -1433,6 +1435,23 @@ def main(argv=None) -> None:
     p.set_defaults(require_classifier=True)
     args = p.parse_args(argv)
     print(f"[pipeline] config: {json.dumps(vars(args), sort_keys=True)}")
+
+    if args.input_dir:
+        from .ingest_dir import (
+            discover_plays,
+            write_plays_jsonl,
+            build_coaches_cut,
+        )
+
+        plays = discover_plays(args.input_dir)
+        write_plays_jsonl(args.out, plays)
+        build_coaches_cut(args.out, plays)
+        if args.generate_report:
+            try:
+                write_tendencies(args.out)
+            except Exception:
+                pass
+        return
 
     run_pipeline(
         video=args.video,
