@@ -12,6 +12,7 @@ from collections import Counter
 import html
 
 from .harmonizer import harmonize
+from .tendencies import main as write_tendencies
 
 try:
     # When executed as module (recommended)
@@ -1118,6 +1119,7 @@ def run_pipeline(
         }
         with open(os.path.join(run_dir, "report.json"), "w") as f:
             json.dump(report, f, indent=2)
+        write_tendencies(run_dir)
 
     # QA guardrails
     if rows:
