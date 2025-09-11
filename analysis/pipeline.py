@@ -351,6 +351,11 @@ def run_live(
             segment_seconds=segment_seconds,
         )
 
+    if record_out:
+        print(f"[pipeline] recording to: {record_out}")
+    if stream:
+        print(f"[pipeline] streaming to: {rtmp_url}/******")
+
     last_crop = (0, 0, in_w, in_h)
     fps_times: deque[float] = deque(maxlen=30)
     last_ts = 0.0
