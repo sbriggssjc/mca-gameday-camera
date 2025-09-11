@@ -76,10 +76,19 @@ def summarize(plays: List[Play]) -> Dict[str, Any]:
         fam = infer_family(p); sums["by_family"][fam]+=1
         form = infer_form(p); sums["by_formation"][form]+=1
         dirn = infer_direction(p); sums["by_direction"][dirn]+=1
-
-        if p.get("is_run") is True: sums["run_pass"]["run"]+=1
-        elif p.get("is_pass") is True: sums["run_pass"]["pass"]+=1
-        else: sums["run_pass"]["unknown"]+=1
+        if p.get("is_run") is True:
+            sums["run_pass"]["run"] += 1
+        elif p.get("is_pass") is True:
+            sums["run_pass"]["pass"] += 1
+        else:
+            af = p.get("auto_flow") or {}
+            mag_med = af.get("mag_med", 0)
+            vy_med = af.get("vy_med", 0)
+            if mag_med >= 0.03:
+                rp_guess = "run" if abs(vy_med) < 0.03 else "pass"
+                sums["run_pass"][rp_guess] += 1
+            else:
+                sums["run_pass"]["unknown"] += 1
 
         down = p.get("down")
         togo = p.get("distance") or p.get("to_go")
@@ -98,6 +107,10 @@ def summarize(plays: List[Play]) -> Dict[str, Any]:
                 sums["explosives"] += 1
         except Exception:
             pass
+        outcome = p.get("auto_outcome")
+        if outcome:
+            sums.setdefault("outcomes", collections.Counter())
+            sums["outcomes"][outcome] += 1
     return sums
 
 def write_csv(out_dir: pathlib.Path, plays: List[Play], sums: Dict[str,Any]):
@@ -110,6 +123,7 @@ def write_csv(out_dir: pathlib.Path, plays: List[Play], sums: Dict[str,Any]):
         for k,v in sums["by_family"].items(): w.writerow(["family",k,v])
         for k,v in sums["by_formation"].items(): w.writerow(["formation",k,v])
         for k,v in sums["by_direction"].items(): w.writerow(["direction",k,v])
+        for k,v in sums.get("outcomes", {}).items(): w.writerow(["outcome",k,v])
     return csv_path
 
 def write_md(out_dir: pathlib.Path, sums: Dict[str,Any]):
@@ -132,6 +146,7 @@ def write_md(out_dir: pathlib.Path, sums: Dict[str,Any]):
 {block(sums['by_family'], "Play Families")}
 {block(sums['by_formation'], "Formations (top)")}
 {block(sums['by_direction'], "Direction")}
+{block(sums.get('outcomes', collections.Counter()), "Outcomes")}
 ### Situational
 - **1st down (by family):** {dict(sums['first_down_calls'])}
 - **3rd & 5+ (by family):** {dict(sums['third_and_medium_plus'])}

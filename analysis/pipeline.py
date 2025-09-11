@@ -1445,6 +1445,11 @@ def main(argv=None) -> None:
 
         plays = discover_plays(args.input_dir)
         write_plays_jsonl(args.out, plays)
+        try:
+            from .autotag import process_jsonl as autotag_process
+            autotag_process(args.out)
+        except Exception as e:
+            print(f"[warn] autotag failed: {e}")
         build_coaches_cut(args.out, plays)
         if args.generate_report:
             try:
