@@ -360,7 +360,7 @@ def run_live(
     try:
         while True:
             frame, ts = cap.read()
-            if frame is None:
+            if frame is None or frame.size == 0:
                 time.sleep(0.01)
                 continue
             if ts == last_ts:
@@ -419,6 +419,8 @@ def run_live(
 
             x, y, w, h = crop
             frame = frame[y : y + h, x : x + w]
+            if frame is None or frame.size == 0:
+                continue
 
             if debug_overlay:
                 if res:
@@ -1060,7 +1062,7 @@ def run_pipeline(
                     cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
                     ok, frame = cap.read()
                     cap.release()
-                    if not ok:
+                    if not ok or frame is None or frame.size == 0:
                         continue
 
                     text_lines = [
