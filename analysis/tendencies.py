@@ -161,7 +161,14 @@ def parse_args():
     ap.add_argument("out_dir")
     ap.add_argument("--only-lincoln-offense", action="store_true")
     ap.add_argument("--only-lincoln-defense", action="store_true")
-    ap.add_argument("--exclude-phase", default="", help="comma list of phases to exclude")
+    ap.add_argument("--use-smoothed-side", dest="use_smoothed_side", action="store_true")
+    ap.add_argument("--no-use-smoothed-side", dest="use_smoothed_side", action="store_false")
+    ap.set_defaults(use_smoothed_side=True)
+    ap.add_argument(
+        "--exclude-phase",
+        default="special_teams,unknown",
+        help="comma list of phases to exclude",
+    )
     ap.add_argument("--min-side-conf", type=float, default=0.40)
     return ap.parse_args()
 
@@ -172,21 +179,23 @@ def main():
     plays = load_plays(out)
     excl = set()
     if args.exclude_phase:
-        excl = set([x.strip() for x in args.exclude_phase.split(",") if x.strip()])
+        excl = {x.strip() for x in args.exclude_phase.split(",") if x.strip()}
     plays = [p for p in plays if p.get("phase") not in excl]
+
+    side_key = "lincoln_side_final" if args.use_smoothed_side else "lincoln_side"
 
     if args.min_side_conf:
         plays = [
             p
             for p in plays
-            if float(p.get("lincoln_side_conf", 0)) >= args.min_side_conf
-            or p.get("lincoln_side") == "unknown"
+            if p.get(side_key) == "unknown"
+            or float(p.get("lincoln_side_conf", 0)) >= args.min_side_conf
         ]
 
     if args.only_lincoln_offense:
-        plays = [p for p in plays if p.get("lincoln_side") == "offense"]
+        plays = [p for p in plays if p.get(side_key) == "offense"]
     if args.only_lincoln_defense:
-        plays = [p for p in plays if p.get("lincoln_side") == "defense"]
+        plays = [p for p in plays if p.get(side_key) == "defense"]
 
     sums = summarize(plays)
     suffix = ""
@@ -198,6 +207,8 @@ def main():
         suffix += f"_conf{int(args.min_side_conf*100)}"
     if args.exclude_phase:
         suffix += "_nophase"
+    if args.use_smoothed_side:
+        suffix += "_smooth"
     write_csv(out, plays, sums, suffix)
     write_md(out, sums, suffix)
 

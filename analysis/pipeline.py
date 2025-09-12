@@ -1451,6 +1451,16 @@ def main(argv=None) -> None:
         except Exception as e:
             print(f"[warn] team_filter failed: {e}")
         try:
+            from .calibrate_team_colors import run as calibrate_colors
+            calibrate_colors(args.out)
+        except Exception as e:
+            print(f"[warn] calibrate_team_colors failed: {e}")
+        try:
+            from .side_classifier import apply as side_apply
+            side_apply(args.out)
+        except Exception as e:
+            print(f"[warn] side_classifier failed: {e}")
+        try:
             from .autotag import process_jsonl as autotag_process
             autotag_process(args.out)
         except Exception as e:
@@ -1460,12 +1470,16 @@ def main(argv=None) -> None:
             phase_apply(args.out)
         except Exception as e:
             print(f"[warn] phase_classify failed: {e}")
-        # Clean up low-confidence & special teams
         try:
-            from .reclassify import main as reclassify_main
-            reclassify_main(args.out, min_side_conf=0.40, drop_special=True)
+            from .sequence_smooth import smooth as seq_smooth
+            seq_smooth(args.out)
         except Exception as e:
-            print(f"[warn] reclassify failed: {e}")
+            print(f"[warn] sequence_smooth failed: {e}")
+        try:
+            from .reclassify2 import main as reclass2
+            reclass2(args.out, min_side_conf=0.40)
+        except Exception as e:
+            print(f"[warn] reclassify2 failed: {e}")
         build_coaches_cut(args.out, plays)
         if args.generate_report:
             try:
