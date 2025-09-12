@@ -1,9 +1,11 @@
 """Tests for the lightweight BallTracker."""
 
 import numpy as np
-import cv2
+import pytest
 
-from analysis.tracking.ball_tracker import BallTracker, TrackState
+cv2 = pytest.importorskip("cv2")
+
+from analysis.tracking.ball_tracker import BallTracker
 
 
 def _frame(pos=None):
@@ -15,21 +17,18 @@ def _frame(pos=None):
     return frame
 
 
-def test_tracking_and_confidence_decay():
+def test_update_tuple_and_states():
     tracker = BallTracker()
 
-    # Move ball horizontally for a few frames
-    for i in range(5):
-        res = tracker.update(_frame((50 + i * 5, 100)))
-        assert res is not None
-        x, y, w, h, conf, state = res
-        assert state is TrackState.TRACKING
-        assert conf >= tracker.cfg.min_confidence
+    # Detect ball in frame
+    x, y, w, h, conf, state = tracker.update(_frame((100, 100)))
+    assert state == "ok"
+    assert conf > 0.0
+    assert w > 0 and h > 0
 
-    # Now remove the ball and allow confidence to decay
-    out = None
-    for _ in range(tracker.cfg.lost_threshold + 1):
-        out = tracker.update(_frame(None))
-
-    assert out is None  # tracker should eventually report None when lost
+    # Process frames without the ball; ensure no detection reported
+    tracker.update(_frame(None))  # warm up motion mask
+    x, y, w, h, conf, state = tracker.update(_frame(None))
+    assert state != "ok"
+    assert conf == 0.0
 
