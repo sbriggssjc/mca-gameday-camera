@@ -12,7 +12,7 @@ from collections import Counter
 import html
 
 from .harmonizer import harmonize
-from .tendencies import main as write_tendencies
+from .tendencies import run_from_pipeline as write_tendencies
 
 try:
     # When executed as module (recommended)
@@ -199,6 +199,97 @@ def _write_warnings(
             wf.write("warnings:\n")
             for line in warnings:
                 wf.write(f"  {line}\n")
+
+
+# ---------------------------------------------------------------------------
+# Generic opponent scouting helpers
+
+def _make_side_cuts(out_dir: str, plays: list[dict]) -> None:
+    """Create offense/defense cutups using ffmpeg concat."""
+
+    def _build(side: str, clips: list[str]) -> None:
+        if not clips:
+            return
+        outp = pathlib.Path(out_dir)
+        concat = outp / f"{side}_concat.txt"
+        with concat.open("w", encoding="utf-8") as f:
+            for clip in clips:
+                f.write(f"file '{pathlib.Path(clip).resolve()}'\n")
+        out_mp4 = outp / f"lincoln_{side}_cut.mp4"
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat),
+                "-c",
+                "copy",
+                str(out_mp4),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    offense = [p["src"] for p in plays if p.get("lincoln_side_final") == "offense"]
+    defense = [p["src"] for p in plays if p.get("lincoln_side_final") == "defense"]
+    _build("offense", offense)
+    _build("defense", defense)
+
+
+def _generic_scout_pipeline(out_dir: str, plays: list[dict], *, csv_out: str | None, make_side_cuts: bool) -> None:
+    from pathlib import Path
+    from . import det_track, team_assign, jersey_ocr, formation_infer, run_pass_routes, yardage
+
+    outp = Path(out_dir)
+    updated: list[dict] = []
+    for play in plays:
+        clip = play.get("src")
+        try:
+            tracks = det_track.run_det_track(clip)
+            det_track.write_tracks_json(outp, clip, tracks)
+            tracks_json = outp / "tracks" / f"{Path(clip).stem}.json"
+            team = team_assign.assign_from_tracks(tracks)
+            formation = formation_infer.run(outp, clip, str(tracks_json))
+            events = run_pass_routes.run(outp, clip, str(tracks_json))
+            yards = yardage.run(outp, clip, str(tracks_json))
+            jersey_ocr.run(outp, clip, str(tracks_json))
+            play.update(team)
+            play.update(events)
+            play.update(yards)
+            play["offense_personnel"] = formation.get("offense_personnel")
+            play["formation_text"] = formation.get("formation_text")
+            play.setdefault("phase", "unknown")
+            play.setdefault("players", team.get("players", []))
+        except Exception:
+            play.setdefault("phase", "unknown")
+            play.setdefault("lincoln_side_final", "unknown")
+            play.setdefault("lincoln_side_final_conf", 0.0)
+            play.setdefault("players", [])
+            play.setdefault("offense_personnel", None)
+            play.setdefault("formation_text", None)
+            play.setdefault("run_pass", "unknown")
+            play.setdefault("run_direction", "unknown")
+            play.setdefault("route_primary", "unknown")
+            play.setdefault("yards_gained", None)
+            play.setdefault("explosive", False)
+        updated.append(play)
+
+    plays_path = outp / "plays.jsonl"
+    with plays_path.open("w", encoding="utf-8") as f:
+        for p in updated:
+            f.write(json.dumps(p) + "\n")
+
+    if csv_out:
+        try:
+            write_tendencies(out_dir, csv_out=csv_out)
+        except Exception as e:  # pragma: no cover - best effort
+            print(f"[warn] tendencies failed: {e}")
+    if make_side_cuts:
+        _make_side_cuts(out_dir, updated)
 
 
 def _load_model_labels(
@@ -1377,6 +1468,21 @@ def main(argv=None) -> None:
         action="store_true",
         help=argparse.SUPPRESS,
     )
+    p.add_argument(
+        "--scout-generic",
+        action="store_true",
+        help="enable generic opponent scouting pipeline",
+    )
+    p.add_argument(
+        "--make-side-cuts",
+        action="store_true",
+        help="emit offense/defense cutups when scouting",
+    )
+    p.add_argument(
+        "--csv-out",
+        default=None,
+        help="write per-side tendencies CSV to this path",
+    )
     p.add_argument("--debug-weak", action="store_true")
 
     p.add_argument("--enhance", action="store_true", help="enhance exported clips")
@@ -1491,10 +1597,20 @@ def main(argv=None) -> None:
             print(f"[warn] sequence_smooth failed: {e}")
         from .reclassify2 import main as reclass2
         reclass2(args.out, min_side_conf=0.40)
+        if args.scout_generic:
+            try:
+                _generic_scout_pipeline(
+                    args.out,
+                    plays,
+                    csv_out=args.csv_out,
+                    make_side_cuts=args.make_side_cuts,
+                )
+            except Exception as e:
+                print(f"[warn] scout_generic failed: {e}")
         build_coaches_cut(args.out, plays)
         if args.generate_report:
             try:
-                write_tendencies(args.out)
+                write_tendencies(args.out, csv_out=args.csv_out)
             except Exception:
                 pass
         return

@@ -1,238 +1,191 @@
+"""Compute simple opponent tendencies from ``plays.jsonl``.
+
+This module focuses on the generic scouting data produced by the upgraded
+pipeline.  The implementation intentionally favours clarity over performance
+and keeps external dependencies to a minimum so it can run in the unit tests.
+
+The public entry point is :func:`run_from_pipeline` which is used by the
+pipeline module.  A command line interface is also provided for ad‑hoc runs.
+"""
+
 from __future__ import annotations
-import json, csv, math, pathlib, collections, re, argparse
-from typing import Dict, Any, List, Tuple
+
+import argparse
+import csv
+import json
+import statistics
+from collections import defaultdict, Counter
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Tuple
 
 Play = Dict[str, Any]
 
-FAMILIES = {
-    "inside_run": ["dive","power","iso","counter","trap"],
-    "outside_run": ["sweep","jet","stretch","toss"],
-    "pa_boot": ["boot","naked","waggle","flare boot","play action","option"],
-    "quick_game": ["stick","quick screen","bubble","smoke","hitch","slant","flood","quick"]
-}
 
-def normalize(text:str)->str:
-    return (text or "").lower().strip()
+# ---------------------------------------------------------------------------
+# Data loading and filtering
 
-norm = normalize
+def load_plays(out_dir: Path) -> List[Play]:
+    path = out_dir / "plays.jsonl"
+    if not path.exists():
+        return []
+    with path.open() as f:
+        return [json.loads(line) for line in f if line.strip()]
 
-def infer_family(play: Play) -> str:
-    # Try explicit labels first, then keywords from clip title/notes
-    labels = [normalize(play.get("play_label")), normalize(play.get("family")), normalize(play.get("call"))]
-    blob = " ".join(labels + [normalize(play.get("title","")), normalize(play.get("notes",""))])
-    for fam, keys in FAMILIES.items():
-        if any(k in blob for k in keys):
-            return fam
-    # fallback: if run/pass bool exists
-    if play.get("is_run") is True: return "inside_run"
-    if play.get("is_pass") is True: return "quick_game"
-    return "unknown"
 
-def infer_direction(play: Play) -> str:
-    d = normalize(play.get("direction") or play.get("dir"))
-    if d in ("right","r","rt","rit","reo"): return "right"
-    if d in ("left","l","lt","lit","leo"): return "left"
-    # Heuristic: look for tokens in title/notes
-    blob = normalize(play.get("title","")+" "+play.get("notes",""))
-    if any(t in blob for t in [" right"," rt"," rit"," reo"]): return "right"
-    if any(t in blob for t in [" left"," lt"," lit"," leo"]): return "left"
-    return "unknown"
+def filter_plays(plays: Iterable[Play], *, only_off=False, only_def=False,
+                 exclude_phase: Iterable[str] | None = None,
+                 min_conf: float | None = None) -> List[Play]:
+    exclude_phase = set(exclude_phase or [])
+    result = []
+    for p in plays:
+        if p.get("phase") in exclude_phase:
+            continue
+        side = p.get("lincoln_side_final") or p.get("lincoln_side")
+        conf = float(p.get("lincoln_side_final_conf") or p.get("lincoln_side_conf") or 0)
+        if min_conf is not None and side != "unknown" and conf < min_conf:
+            continue
+        if only_off and side != "offense":
+            continue
+        if only_def and side != "defense":
+            continue
+        result.append(p)
+    return result
 
-FORM_TOKENS = [
-  r"\brit\b", r"\blit\b", r"\breo\b", r"\bleo\b",
-  r"\brend\b", r"\blend\b",
-  r"\btrips?\b", r"\btwins?\b", r"\bbunch\b", r"\bwing\b", r"\btight\b",
-  r"\bpistol\b", r"\bgun\b", r"\bshotgun\b", r"\bi[- ]?formation\b"
-]
 
-def infer_form(p: Play) -> str:
-    cand = norm(p.get("formation") or p.get("set"))
-    if cand: return cand
-    blob = norm((p.get("title") or "")+" "+(p.get("notes") or ""))
-    for pat in FORM_TOKENS:
-        if re.search(pat, blob): return re.sub(r"\\b", "", pat).strip("\\")
-    return "unknown"
+# ---------------------------------------------------------------------------
+# Aggregation helpers
 
-def load_plays(out_dir: pathlib.Path) -> List[Play]:
-    for fname in ["plays.jsonl","detections.jsonl","events.jsonl"]:
-        p = out_dir / fname
-        if p.exists():
-            with p.open() as f:
-                return [json.loads(line) for line in f if line.strip()]
-    return []
+def _success(play: Play) -> bool:
+    yards = float(play.get("yards_gained") or 0.0)
+    rp = play.get("run_pass")
+    if rp == "run":
+        return yards >= 3.0
+    if rp == "pass":
+        return yards >= 5.0
+    return False
 
-def summarize(plays: List[Play]) -> Dict[str, Any]:
-    sums = {
-        "total": len(plays),
-        "by_family": collections.Counter(),
-        "by_formation": collections.Counter(),
-        "by_direction": collections.Counter(),
-        "run_pass": collections.Counter(),
-        "first_down_calls": collections.Counter(),
-        "third_and_medium_plus": collections.Counter(),
-        "explosives": 0
+
+def summarise(plays: Iterable[Play]) -> Dict[str, Dict[str, List[Play]]]:
+    agg: Dict[str, Dict[str, List[Play]]] = {
+        "run_pass": defaultdict(list),
+        "formation_text": defaultdict(list),
+        "offense_personnel": defaultdict(list),
+        "run_direction": defaultdict(list),
+        "route_primary": defaultdict(list),
     }
     for p in plays:
-        fam = infer_family(p); sums["by_family"][fam]+=1
-        form = infer_form(p); sums["by_formation"][form]+=1
-        dirn = infer_direction(p); sums["by_direction"][dirn]+=1
-        if p.get("is_run") is True:
-            sums["run_pass"]["run"] += 1
-        elif p.get("is_pass") is True:
-            sums["run_pass"]["pass"] += 1
-        else:
-            af = p.get("auto_flow") or {}
-            mag_med = af.get("mag_med", 0)
-            vy_med = af.get("vy_med", 0)
-            if mag_med >= 0.03:
-                rp_guess = "run" if abs(vy_med) < 0.03 else "pass"
-                sums["run_pass"][rp_guess] += 1
-            else:
-                sums["run_pass"]["unknown"] += 1
+        for key in agg:
+            val = p.get(key, "unknown") or "unknown"
+            agg[key][val].append(p)
+    return agg
 
-        down = p.get("down")
-        togo = p.get("distance") or p.get("to_go")
-        if down == 1: sums["first_down_calls"][fam]+=1
-        try:
-            if down == 3 and float(togo or 0) >= 5:
-                sums["third_and_medium_plus"][fam]+=1
-        except Exception:
-            pass
 
-        # explosive heuristic: >=12 yards run or >=16 yards pass if gain present
-        gain = p.get("yards") or p.get("gain")
-        try:
-            g = float(gain)
-            if (p.get("is_run") and g >= 12) or (p.get("is_pass") and g >= 16):
-                sums["explosives"] += 1
-        except Exception:
-            pass
-        outcome = p.get("auto_outcome")
-        if outcome:
-            sums.setdefault("outcomes", collections.Counter())
-            sums["outcomes"][outcome] += 1
-    return sums
+def _metric_rows(agg: Dict[str, Dict[str, List[Play]]]) -> List[Tuple[str, str, int, float, float, float, int]]:
+    rows: List[Tuple[str, str, int, float, float, float, int]] = []
+    for metric, groups in agg.items():
+        for val, plays in groups.items():
+            yards = [float(p.get("yards_gained") or 0.0) for p in plays]
+            count = len(plays)
+            avg = statistics.fmean(yards) if yards else 0.0
+            median = statistics.median(yards) if yards else 0.0
+            success = sum(1 for p in plays if _success(p))
+            success_rate = success / count if count else 0.0
+            explosives = sum(1 for p in plays if p.get("explosive"))
+            rows.append((metric, val, count, avg, median, success_rate, explosives))
+    return rows
 
-def write_csv(
-    out_dir: pathlib.Path,
-    sums: Dict[str, Any],
-    suffix: str = "",
-    csv_out: str | None = None,
-):
-    csv_path = pathlib.Path(csv_out) if csv_out else out_dir / f"tendencies{suffix}.csv"
+
+# ---------------------------------------------------------------------------
+# Output helpers
+
+def write_csv(out_dir: Path, rows: List[Tuple[str, str, int, float, float, float, int]],
+              csv_out: str | None = None) -> Path:
+    csv_path = Path(csv_out) if csv_out else out_dir / "tendencies.csv"
     with csv_path.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["metric", "value", "count"])
-        w.writerow(["total", "plays", sums["total"]])
-        for k, v in sums["run_pass"].items():
-            w.writerow(["run_pass", k, v])
-        for k, v in sums["by_family"].items():
-            w.writerow(["family", k, v])
-        for k, v in sums["by_formation"].items():
-            w.writerow(["formation", k, v])
-        for k, v in sums["by_direction"].items():
-            w.writerow(["direction", k, v])
-        for k, v in sums.get("outcomes", {}).items():
-            w.writerow(["outcome", k, v])
+        w.writerow(["metric", "value", "count", "avg_yards", "median_yards", "success_rate", "explosives"])
+        for r in rows:
+            w.writerow(r)
     return csv_path
 
 
-def write_md(out_dir: pathlib.Path, sums: Dict[str, Any], suffix: str = ""):
-    md = out_dir / f"tendencies{suffix}.md"
-    total = max(1, sums["total"])
-    def pct(n): return f"{(100.0*n/total):.1f}%"
-    def block(counter: collections.Counter, title: str) -> str:
-        rows = sorted(counter.items(), key=lambda kv: kv[1], reverse=True)
-        lines = [f"### {title}"]
-        for k,v in rows[:8]:
-            lines.append(f"- **{k}**: {v} ({pct(v)})")
-        return "\n".join(lines)
+def write_md(out_dir: Path, rows: List[Tuple[str, str, int, float, float, float, int]]) -> Path:
+    total = 0
+    rp = Counter()
+    forms = Counter()
+    dirs = Counter()
+    routes = Counter()
+    for metric, val, count, *_ in rows:
+        if metric == "run_pass":
+            rp[val] += count; total += count
+        if metric == "formation_text":
+            forms[val] += count
+        if metric == "run_direction":
+            dirs[val] += count
+        if metric == "route_primary":
+            routes[val] += count
 
-    content = f"""# Opponent Tendencies
+    def fmt(counter: Counter) -> str:
+        parts = [f"- {k}: {v}" for k, v in counter.most_common(5)]
+        return "\n".join(parts) if parts else "- none"
 
-**Total plays:** {sums['total']}  
-**Explosives:** {sums['explosives']}
-
-{block(sums['run_pass'], "Run/Pass")}
-{block(sums['by_family'], "Play Families")}
-{block(sums['by_formation'], "Formations (top)")}
-{block(sums['by_direction'], "Direction")}
-{block(sums.get('outcomes', collections.Counter()), "Outcomes")}
-### Situational
-- **1st down (by family):** {dict(sums['first_down_calls'])}
-- **3rd & 5+ (by family):** {dict(sums['third_and_medium_plus'])}
-"""
-    md.write_text(content)
-    return md
+    lines = ["# Opponent Tendencies", f"**Total plays:** {total}", "", "## Run/Pass", fmt(rp), "", "## Formations", fmt(forms), "", "## Run Direction", fmt(dirs), "", "## Routes", fmt(routes)]
+    md_path = out_dir / "tendencies.md"
+    md_path.write_text("\n".join(lines), encoding="utf-8")
+    return md_path
 
 
-def parse_args():
-    ap = argparse.ArgumentParser()
+# ---------------------------------------------------------------------------
+# Entry points
+
+def _run(args: argparse.Namespace) -> Tuple[Path, Path]:
+    out_dir = Path(args.out_dir)
+    plays = load_plays(out_dir)
+    plays = filter_plays(
+        plays,
+        only_off=args.only_lincoln_offense,
+        only_def=args.only_lincoln_defense,
+        exclude_phase=args.exclude_phase.split(",") if args.exclude_phase else [],
+        min_conf=args.min_side_conf,
+    )
+    agg = summarise(plays)
+    rows = _metric_rows(agg)
+    csv_path = write_csv(out_dir, rows, args.csv_out)
+    md_path = write_md(out_dir, rows)
+    return csv_path, md_path
+
+
+def run_from_pipeline(out_dir: str, *, only_lincoln_offense: bool = False,
+                      only_lincoln_defense: bool = False,
+                      exclude_phase: str = "special_teams,unknown",
+                      min_side_conf: float = 0.40,
+                      csv_out: str | None = None) -> Tuple[Path, Path]:
+    args = argparse.Namespace(
+        out_dir=out_dir,
+        only_lincoln_offense=only_lincoln_offense,
+        only_lincoln_defense=only_lincoln_defense,
+        exclude_phase=exclude_phase,
+        min_side_conf=min_side_conf,
+        csv_out=csv_out,
+    )
+    return _run(args)
+
+
+def parse_args() -> argparse.Namespace:  # pragma: no cover - CLI helper
+    ap = argparse.ArgumentParser(description="compute opponent tendencies")
     ap.add_argument("out_dir")
     ap.add_argument("--only-lincoln-offense", action="store_true")
     ap.add_argument("--only-lincoln-defense", action="store_true")
-    ap.add_argument(
-        "--use-raw-side",
-        action="store_true",
-        help="Use lincoln_side instead of lincoln_side_final",
-    )
-    ap.add_argument(
-        "--exclude-phase",
-        default="special_teams,unknown",
-        help="comma list of phases to exclude",
-    )
+    ap.add_argument("--exclude-phase", default="special_teams,unknown")
     ap.add_argument("--min-side-conf", type=float, default=0.40)
-    ap.add_argument(
-        "--csv-out",
-        type=str,
-        default=None,
-        help="Write computed tendencies to this CSV file",
-    )
+    ap.add_argument("--csv-out", default=None)
     return ap.parse_args()
 
 
-def main():
-    args = parse_args()
-    out = pathlib.Path(args.out_dir)
-    plays = load_plays(out)
-    excl = set()
-    if args.exclude_phase:
-        excl = {x.strip() for x in args.exclude_phase.split(",") if x.strip()}
-    plays = [p for p in plays if p.get("phase") not in excl]
-
-    side_key = "lincoln_side" if args.use_raw_side else "lincoln_side_final"
-    conf_key = "lincoln_side_conf" if args.use_raw_side else "lincoln_side_final_conf"
-
-    if args.min_side_conf:
-        plays = [
-            p
-            for p in plays
-            if p.get(side_key) == "unknown"
-            or float(p.get(conf_key, 0)) >= args.min_side_conf
-        ]
-
-    if args.only_lincoln_offense:
-        plays = [p for p in plays if p.get(side_key) == "offense"]
-    if args.only_lincoln_defense:
-        plays = [p for p in plays if p.get(side_key) == "defense"]
-
-    sums = summarize(plays)
-    suffix = ""
-    if args.only_lincoln_offense:
-        suffix += "_offense"
-    if args.only_lincoln_defense:
-        suffix += "_defense"
-    if args.min_side_conf:
-        suffix += f"_conf{int(args.min_side_conf*100)}"
-    if args.exclude_phase:
-        suffix += "_nophase"
-    if args.use_raw_side:
-        suffix += "_raw"
-    csv_path = write_csv(out, sums, suffix, args.csv_out)
-    if args.csv_out:
-        print(f"[tendencies] wrote {csv_path}")
-    write_md(out, sums, suffix)
+def main() -> None:  # pragma: no cover - CLI entry
+    _run(parse_args())
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()
+
