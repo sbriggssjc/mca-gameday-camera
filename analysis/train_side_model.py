@@ -61,8 +61,10 @@ def main():
 
     feat=load_feats(out); seeds=load_seeds(out)
     X,y=build_XY(feat,seeds)
-    if len(y)<4:
-        print("[train] need at least 4 seed examples across classes"); return
+    # NEW: allow training with >=3 total examples spanning >=2 classes
+    if len(y) < 3 or (len(set(y)) < 2):
+        print("[train] need >=3 total seed examples across >=2 classes")
+        return
     Xn,mu,sigma=normalize(X)
     W,b=train_softmax(Xn,y,lr=0.05,epochs=800,lam=1e-3)
     save_model(out,mu,sigma,W,b)

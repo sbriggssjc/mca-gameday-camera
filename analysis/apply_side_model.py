@@ -21,6 +21,10 @@ def predict_one(f, M):
     idx=int(np.argmax(p)); return M["classes"][idx], float(p[idx])
 
 def apply(out: pathlib.Path):
+    out = pathlib.Path(out)
+    if not (out/"side_model.json").exists():
+        print("[apply_model] no side_model.json; skipping apply")
+        return
     model=load_model(out); feat=load_feats(out)
     p=out/"plays.jsonl"; rows=[json.loads(x) for x in p.read_text().splitlines() if x.strip()]
     upd=[]
