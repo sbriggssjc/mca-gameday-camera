@@ -1,6 +1,5 @@
 from __future__ import annotations
 import json, csv, math, pathlib, collections, re, argparse
-import pandas as pd
 from typing import Dict, Any, List, Tuple
 
 Play = Dict[str, Any]
@@ -114,17 +113,27 @@ def summarize(plays: List[Play]) -> Dict[str, Any]:
             sums["outcomes"][outcome] += 1
     return sums
 
-def write_csv(out_dir: pathlib.Path, plays: List[Play], sums: Dict[str, Any], suffix: str = ""):
-    csv_path = out_dir / f"tendencies{suffix}.csv"
+def write_csv(
+    out_dir: pathlib.Path,
+    sums: Dict[str, Any],
+    suffix: str = "",
+    csv_out: str | None = None,
+):
+    csv_path = pathlib.Path(csv_out) if csv_out else out_dir / f"tendencies{suffix}.csv"
     with csv_path.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["metric","key","value"])
-        w.writerow(["total","plays",sums["total"]])
-        for k,v in sums["run_pass"].items(): w.writerow(["run_pass",k,v])
-        for k,v in sums["by_family"].items(): w.writerow(["family",k,v])
-        for k,v in sums["by_formation"].items(): w.writerow(["formation",k,v])
-        for k,v in sums["by_direction"].items(): w.writerow(["direction",k,v])
-        for k,v in sums.get("outcomes", {}).items(): w.writerow(["outcome",k,v])
+        w.writerow(["metric", "value", "count"])
+        w.writerow(["total", "plays", sums["total"]])
+        for k, v in sums["run_pass"].items():
+            w.writerow(["run_pass", k, v])
+        for k, v in sums["by_family"].items():
+            w.writerow(["family", k, v])
+        for k, v in sums["by_formation"].items():
+            w.writerow(["formation", k, v])
+        for k, v in sums["by_direction"].items():
+            w.writerow(["direction", k, v])
+        for k, v in sums.get("outcomes", {}).items():
+            w.writerow(["outcome", k, v])
     return csv_path
 
 
@@ -208,18 +217,6 @@ def main():
         plays = [p for p in plays if p.get(side_key) == "defense"]
 
     sums = summarize(plays)
-    rows = []
-    for k, v in sums["run_pass"].items():
-        rows.append({"run_pass": k, "count": v})
-    for k, v in sums["by_family"].items():
-        rows.append({"family": k, "count": v})
-    for k, v in sums["by_formation"].items():
-        rows.append({"formation": k, "count": v})
-    for k, v in sums["by_direction"].items():
-        rows.append({"direction": k, "count": v})
-    for k, v in sums.get("outcomes", {}).items():
-        rows.append({"outcome": k, "count": v})
-    df = pd.DataFrame(rows)
     suffix = ""
     if args.only_lincoln_offense:
         suffix += "_offense"
@@ -231,10 +228,9 @@ def main():
         suffix += "_nophase"
     if args.use_raw_side:
         suffix += "_raw"
+    csv_path = write_csv(out, sums, suffix, args.csv_out)
     if args.csv_out:
-        df.to_csv(args.csv_out, index=False)
-        print(f"[tendencies] wrote {args.csv_out}")
-    write_csv(out, plays, sums, suffix)
+        print(f"[tendencies] wrote {csv_path}")
     write_md(out, sums, suffix)
 
 
