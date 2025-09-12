@@ -1563,7 +1563,10 @@ def main(argv=None) -> None:
             print(f"[warn] calibrate_team_colors failed: {e}")
 
         from .feat_extract import cache_all as feat_cache
-        feat_cache(args.out)
+        try:
+            feat_cache(pathlib.Path(args.out))  # be tolerant if feat_cache expects Path
+        except TypeError:
+            feat_cache(args.out)                # and if it expects str in older versions
 
         from pathlib import Path
         outp=Path(args.out)

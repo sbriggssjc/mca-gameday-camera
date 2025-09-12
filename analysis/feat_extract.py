@@ -1,5 +1,6 @@
 from __future__ import annotations
 import cv2, numpy as np, json, pathlib, statistics, sys
+from pathlib import Path
 
 def _read_frames(path, max_samples=12):
     cap = cv2.VideoCapture(str(path))
@@ -87,12 +88,13 @@ def extract_for_clip(path, out_dir: pathlib.Path):
         "n1":float(n1), "a1":float(a1), "n4":float(n4), "a4":float(a4)
     }
 
-def cache_all(out: pathlib.Path):
-    p=out/"plays.jsonl";
+def cache_all(out_dir="output"):
+    out = Path(out_dir)            # ensure Path
+    p = out / "plays.jsonl"        # was using `out` before defining it
     rows=[json.loads(x) for x in p.read_text().splitlines() if x.strip()]
     feat={}
     for i,r in enumerate(rows,1):
-        src=r.get("src"); 
+        src=r.get("src");
         if not src or not pathlib.Path(src).exists(): continue
         f=extract_for_clip(src,out)
         feat[src]=f
