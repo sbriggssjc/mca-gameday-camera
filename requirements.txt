@@ -1,5 +1,5 @@
 python-dotenv>=1.0.0
-ultralytics
+ultralytics==8.*
 deep_sort_realtime
 easyocr
 opencv-python
@@ -11,3 +11,14 @@ google-auth
 google-auth-httplib2
 google-auth-oauthlib
 tqdm
+
+numpy
+scipy
+pandas
+# trackers
+onemetric
+lap
+filterpy
+
+# Optional helpers
+# mmpose==1.*
