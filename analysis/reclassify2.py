@@ -22,23 +22,19 @@ def main(out_dir: str, min_side_conf=0.40):
     cleaned=[]
     for r in rows:
         src=r.get("src"); phase=r.get("phase","unknown")
-        # precedence: manual override > model > heuristic > smoothed
-        side = None; conf=0.0
+        side=None; conf=0.0
         if src in seeds:
-            side=seeds[src]; conf=0.99
+            side = seeds[src]; conf = 0.99
         elif r.get("lincoln_side_model"):
-            side=r["lincoln_side_model"]; conf=float(r.get("lincoln_side_model_conf",0.5))
+            side = r["lincoln_side_model"]; conf = float(r.get("lincoln_side_model_conf",0.5))
         elif r.get("lincoln_side"):
-            side=r["lincoln_side"]; conf=float(r.get("lincoln_side_conf",0.3))
+            side = r["lincoln_side"]; conf = float(r.get("lincoln_side_conf",0.3))
         elif r.get("lincoln_side_smoothed"):
-            side=r["lincoln_side_smoothed"]; conf=0.35
-
-        # phase gating
-        if phase=="special_teams":
-            side="unknown"
-
-        r["lincoln_side_final"]=side or "unknown"
-        r["lincoln_side_final_conf"]=conf
+            side = r.get("lincoln_side_smoothed"); conf = 0.35
+        if phase == "special_teams":
+            side = "unknown"
+        r["lincoln_side_final"] = side or "unknown"
+        r["lincoln_side_final_conf"] = conf
         r["lincoln_low_conf"] = bool(conf < min_side_conf and r["lincoln_side_final"]!="unknown")
         cleaned.append(r)
 

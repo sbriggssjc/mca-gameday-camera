@@ -61,7 +61,6 @@ def main():
 
     feat=load_feats(out); seeds=load_seeds(out)
     X,y=build_XY(feat,seeds)
-    # NEW: allow training with >=3 total examples spanning >=2 classes
     if len(y) < 3 or (len(set(y)) < 2):
         print("[train] need >=3 total seed examples across >=2 classes")
         return
