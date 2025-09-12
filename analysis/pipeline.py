@@ -1455,6 +1455,17 @@ def main(argv=None) -> None:
             autotag_process(args.out)
         except Exception as e:
             print(f"[warn] autotag failed: {e}")
+        try:
+            from .phase_classify import apply as phase_apply
+            phase_apply(args.out)
+        except Exception as e:
+            print(f"[warn] phase_classify failed: {e}")
+        # Clean up low-confidence & special teams
+        try:
+            from .reclassify import main as reclassify_main
+            reclassify_main(args.out, min_side_conf=0.40, drop_special=True)
+        except Exception as e:
+            print(f"[warn] reclassify failed: {e}")
         build_coaches_cut(args.out, plays)
         if args.generate_report:
             try:

@@ -106,6 +106,7 @@ def apply(out_dir: str):
             updated.append(pl)
             continue
         side, conf, diag = tag_file(src)
+        conf = max(0.2, min(0.95, conf))
         # Save only if not user-override present
         if pl.get("lincoln_side") in (None, "unknown"):
             pl["lincoln_side"] = side
