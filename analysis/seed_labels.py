@@ -68,8 +68,13 @@ def main():
             j=int(n)-1
             if 0<=j<len(srcs): labels[srcs[j]]="special_teams"
 
-    (out/"seed_labels.json").write_text(json.dumps(labels, indent=2))
-    print("[seed] wrote", out/"seed_labels.json")
+    seed_path = out/"seed_labels.json"
+    if seed_path.exists():
+        existing = json.loads(seed_path.read_text())
+        existing.update(labels)
+        labels = existing
+    seed_path.write_text(json.dumps(labels, indent=2))
+    print("[seed] merged and wrote", seed_path)
 
 if __name__=="__main__":
     main()
