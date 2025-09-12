@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json, csv, math, pathlib, collections, re, argparse
+import pandas as pd
 from typing import Dict, Any, List, Tuple
 
 Play = Dict[str, Any]
@@ -172,6 +173,12 @@ def parse_args():
         help="comma list of phases to exclude",
     )
     ap.add_argument("--min-side-conf", type=float, default=0.40)
+    ap.add_argument(
+        "--csv-out",
+        type=str,
+        default=None,
+        help="Write computed tendencies to this CSV file",
+    )
     return ap.parse_args()
 
 
@@ -201,6 +208,18 @@ def main():
         plays = [p for p in plays if p.get(side_key) == "defense"]
 
     sums = summarize(plays)
+    rows = []
+    for k, v in sums["run_pass"].items():
+        rows.append({"run_pass": k, "count": v})
+    for k, v in sums["by_family"].items():
+        rows.append({"family": k, "count": v})
+    for k, v in sums["by_formation"].items():
+        rows.append({"formation": k, "count": v})
+    for k, v in sums["by_direction"].items():
+        rows.append({"direction": k, "count": v})
+    for k, v in sums.get("outcomes", {}).items():
+        rows.append({"outcome": k, "count": v})
+    df = pd.DataFrame(rows)
     suffix = ""
     if args.only_lincoln_offense:
         suffix += "_offense"
@@ -212,6 +231,9 @@ def main():
         suffix += "_nophase"
     if args.use_raw_side:
         suffix += "_raw"
+    if args.csv_out:
+        df.to_csv(args.csv_out, index=False)
+        print(f"[tendencies] wrote {args.csv_out}")
     write_csv(out, plays, sums, suffix)
     write_md(out, sums, suffix)
 
