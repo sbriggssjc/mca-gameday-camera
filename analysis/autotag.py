@@ -28,13 +28,15 @@ def flow_features(frames):
         xs.append(np.median(vx))
         ys.append(np.median(vy))
     if not mags:
-        return dict(mag_med=0, vx_med=0, vy_med=0, ang_med=0, mag_p95=0)
+        return dict(mag_med=0, vx_med=0, vy_med=0, ang_med=0, mag_p95=0, vy_std=0)
+    vy_std = float(np.std(ys)) if ys else 0.0
     return dict(
-        mag_med = float(statistics.median(mags)),
-        mag_p95 = float(np.percentile(mags, 95)),
-        vx_med  = float(statistics.median(xs)),
-        vy_med  = float(statistics.median(ys)),
-        ang_med = float(statistics.median(angs)),
+        mag_med=float(statistics.median(mags)),
+        mag_p95=float(np.percentile(mags, 95)),
+        vx_med=float(statistics.median(xs)),
+        vy_med=float(statistics.median(ys)),
+        ang_med=float(statistics.median(angs)),
+        vy_std=vy_std,
     )
 
 def infer_direction(vx_med):
@@ -42,11 +44,11 @@ def infer_direction(vx_med):
     if abs(vx_med) < 0.02: return "unknown"
     return "right" if vx_med > 0 else "left"
 
-def infer_run_pass(mag_med, vy_med):
-    # Very rough: runs usually have steadier horizontal field motion near LOS;
-    # passes produce more erratic motion (dropback + disperse). Use thresholds.
-    if mag_med < 0.03: return "unknown"
-    # small vertical + steady magnitude -> "run"
+def infer_run_pass(mag_med, vy_med, vy_std):
+    if mag_med < 0.02:
+        return "unknown"
+    if vy_std >= 0.08:
+        return "pass"
     return "run" if abs(vy_med) < 0.03 else "pass"
 
 def infer_outcome(mag_p95):
@@ -70,7 +72,7 @@ def process_jsonl(out_dir):
         frames = read_clip(src, max_frames=180, step=2)
         feats = flow_features(frames)
         dir_guess = infer_direction(feats["vx_med"])
-        rp_guess  = infer_run_pass(feats["mag_med"], feats["vy_med"])
+        rp_guess  = infer_run_pass(feats["mag_med"], feats["vy_med"], feats["vy_std"])
         outc      = infer_outcome(feats["mag_p95"])
         # Apply guesses only if not already set
         if (pl.get("direction") in (None,"unknown")): pl["direction"] = dir_guess
