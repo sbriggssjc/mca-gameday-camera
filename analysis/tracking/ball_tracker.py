@@ -160,29 +160,53 @@ class BallTracker:
             return None
         return img[y0:y1, x0:x1]
 
-    def _motion_mask(self, gray):
-        import numpy as np, cv2
-
-        if gray is None or gray.size == 0:
-            self.prev_gray = None
+    def _color_mask(self, bgr):
+        """
+        Robust color mask for a (white-ish) ball on green field.
+        Returns uint8 mask or None if the input is invalid.
+        """
+        if bgr is None or not isinstance(bgr, np.ndarray) or bgr.size == 0:
             return None
+        if bgr.ndim != 3 or bgr.shape[2] != 3:
+            return None
+
+        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+
+        # Field green range (to suppress)
+        green = cv2.inRange(hsv, (35, 50, 50), (90, 255, 255))
+
+        # White/bright range (typical youth footballs read bright/tan under sun)
+        white = cv2.inRange(hsv, (0, 0, 200), (180, 50, 255))
+
+        out = cv2.bitwise_and(white, cv2.bitwise_not(green))
+        # Ensure uint8 mask
+        if out is None or out.size == 0:
+            return None
+        if out.dtype != np.uint8:
+            out = out.astype(np.uint8)
+        return out
+
+    def _motion_mask(self, gray):
+        """
+        Motion mask vs previous grayscale frame.
+        Returns uint8 mask or None during warmup / invalid input.
+        """
+        if gray is None or not isinstance(gray, np.ndarray) or gray.size == 0:
+            return None
+
+        # Warmup or resize: initialize and skip one frame
         if getattr(self, "prev_gray", None) is None or self.prev_gray.shape != gray.shape:
             self.prev_gray = gray.copy()
-            return np.zeros_like(gray, dtype=np.uint8)
-        diff = cv2.absdiff(gray, self.prev_gray)
-        self.prev_gray = gray
-        _, mask = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
-        return mask
-
-    def _color_mask(self, bgr):
-        import numpy as np, cv2
-
-        if bgr is None or bgr.size == 0:
             return None
-        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-        green = cv2.inRange(hsv, (35, 50, 50), (90, 255, 255))
-        mask = cv2.bitwise_not(green)
-        return mask
+
+        diff = cv2.absdiff(gray, self.prev_gray)
+        self.prev_gray = gray  # update for next call
+
+        blur = cv2.GaussianBlur(diff, (5, 5), 0)
+        _, thr = cv2.threshold(blur, 15, 255, cv2.THRESH_BINARY)
+        if thr.dtype != np.uint8:
+            thr = thr.astype(np.uint8)
+        return thr
 
     def _update_search_roi(
         self, x: int, y: int, w: int, h: int, fw: int, fh: int
@@ -209,157 +233,90 @@ class BallTracker:
         self.lost_frames = 0
 
     # ------------------------------------------------------------------
-    def update(
-        self, frame: np.ndarray, roi: Optional[Tuple[int, int, int, int]] = None
-    ) -> Optional[Tuple[int, int, int, int, float, TrackState]]:
-        """Process a new frame.
-
-        Parameters
-        ----------
-        frame:
-            BGR image.
-        roi:
-            Optional ``(x, y, w, h)`` region in which to search.
+    def update(self, frame):
         """
+        Safe, guard-rail update.
+        Returns: dict with keys 'bbox' (x,y,w,h) or None, 'center' (cx,cy) or None, and 'debug'.
+        """
+        # --- Basic frame validation ---
+        if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
+            return {"bbox": None, "center": None, "debug": {"reason": "empty_frame"}}
 
-        self.frame_idx += 1
         h, w = frame.shape[:2]
-        if self.proc_scale != 1.0:
-            work = cv2.resize(
-                frame,
-                (int(w * self.proc_scale), int(h * self.proc_scale)),
-                interpolation=cv2.INTER_AREA,
-            )
-        else:
-            work = frame
 
-        if roi is not None:
-            rx, ry, rw, rh = roi
-        elif self.search_roi is not None and self.frame_idx % self.reacquire_interval != 0:
-            rx, ry, rw, rh = self.search_roi
-            x1 = min(rx + rw, frame.shape[1])
-            y1 = min(ry + rh, frame.shape[0])
-            rw, rh = x1 - rx, y1 - ry
-        else:
-            rx = ry = 0
-            rw, rh = frame.shape[1], frame.shape[0]
+        # Kernels (create lazily)
+        if not hasattr(self, "k3"):
+            self.k3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        if not hasattr(self, "k5"):
+            self.k5 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
 
-        sx = int(rx * self.proc_scale)
-        sy = int(ry * self.proc_scale)
-        sw = int(rw * self.proc_scale)
-        sh = int(rh * self.proc_scale)
-        roi_img = self._safe_roi(work, sx, sy, sw, sh)
+        # Planes
+        try:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        except cv2.error:
+            return {"bbox": None, "center": None, "debug": {"reason": "cvt_gray_error"}}
 
-        mask = None
-        if roi_img is not None:
-            color = self._color_mask(roi_img)
-            gray = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY)
-            motion = self._motion_mask(gray)
-            masks = [m for m in (color, motion) if m is not None]
-            if masks:
-                mask = masks[0]
-                for m in masks[1:]:
-                    mask = cv2.bitwise_and(mask, m)
-                if mask is not None and mask.size != 0:
-                    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.k3)
-                    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.k5)
-                else:
-                    mask = None
+        # Masks (each may be None on warmup or failure)
+        m_motion = self._motion_mask(gray)
+        m_color = self._color_mask(frame)
 
-        cnts: list[np.ndarray]
-        if mask is not None:
+        masks = [m for m in (m_motion, m_color) if m is not None]
+        if not masks:
+            # Likely warmup or very static scene; skip gracefully
+            return {"bbox": None, "center": None, "debug": {"reason": "warmup_or_no_masks"}}
+
+        # Start with the first valid mask
+        mask = masks[0]
+        # Bitwise AND with any other masks that match shape
+        for m in masks[1:]:
+            if m.shape != mask.shape:
+                # Ignore mismatched shapes; don't crash
+                continue
+            mask = cv2.bitwise_and(mask, m)
+
+        # Empty / invalid mask check
+        if mask is None or mask.size == 0:
+            return {"bbox": None, "center": None, "debug": {"reason": "mask_none"}}
+        if mask.dtype != np.uint8:
+            mask = mask.astype(np.uint8)
+        if cv2.countNonZero(mask) == 0:
+            return {"bbox": None, "center": None, "debug": {"reason": "mask_empty"}}
+
+        # Morphology with guards
+        try:
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.k3)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.k5)
+        except cv2.error:
+            # If morphology fails (rare), just continue with the raw mask
+            pass
+
+        # Contours
+        cnts = []
+        try:
             cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        else:
-            cnts = []
+        except cv2.error:
+            return {"bbox": None, "center": None, "debug": {"reason": "findContours_error"}}
 
-        best_bbox: Optional[Tuple[int, int, int, int]] = None
-        best_score: float = 0.0
+        if not cnts:
+            return {"bbox": None, "center": None, "debug": {"reason": "no_contours"}}
 
-        prediction = self.kalman.predict()
-        px, py = int(prediction[0]), int(prediction[1])
-        predicted_bbox = None
-        if self.last_bbox is not None:
-            lw, lh = self.last_bbox[2], self.last_bbox[3]
-            predicted_bbox = (px - lw // 2, py - lh // 2, lw, lh)
+        # Pick largest reasonable blob (reject noise and absurd sizes)
+        areas = [(cv2.contourArea(c), c) for c in cnts]
+        areas.sort(key=lambda x: x[0], reverse=True)
+        area, best = areas[0]
 
-        for c in cnts:
-            area = cv2.contourArea(c)
-            if area < self.cfg.min_area or area > self.cfg.max_area:
-                continue
-            x, y, w, h = cv2.boundingRect(c)
-            aspect = w / float(h)
-            aspect_score = 1.0 - abs(aspect - 1.5) / 1.5
-            if aspect_score < 0:
-                continue
-            peri = cv2.arcLength(c, True)
-            roundness = 4 * np.pi * area / (peri * peri + 1e-5)
-            score = aspect_score * roundness
-            if predicted_bbox is not None:
-                score *= 0.5 + 0.5 * _iou(predicted_bbox, (x, y, w, h))
-            if score > best_score:
-                best_score = score
-                best_bbox = (x, y, w, h)
+        min_area = 5.0                      # tiny specks
+        max_area = 0.05 * w * h             # gigantic false-positive
+        if area < min_area or area > max_area:
+            return {"bbox": None, "center": None,
+                    "debug": {"reason": "area_out_of_range", "area": float(area)}}
 
-        if best_bbox is not None:
-            bx, by, bw, bh = best_bbox
-            cx, cy = bx + bw // 2, by + bh // 2
-            measurement = np.array([[np.float32(cx)], [np.float32(cy)]])
-            self.kalman.correct(measurement)
-            self.last_bbox = (bx, by, bw, bh)
-            self.last_conf = min(1.0, max(best_score, self.last_conf))
-            self.lost_frames = 0
-            self.state = (
-                TrackState.TRACKING
-                if self.last_conf >= self.cfg.min_confidence
-                else TrackState.SEARCHING
-            )
-            scale_inv = 1.0 / self.proc_scale
-            gx = int(bx * scale_inv) + rx
-            gy = int(by * scale_inv) + ry
-            gw = int(bw * scale_inv)
-            gh = int(bh * scale_inv)
-            self._update_search_roi(gx, gy, gw, gh, frame.shape[1], frame.shape[0])
-            return (
-                gx,
-                gy,
-                gw,
-                gh,
-                float(self.last_conf),
-                self.state,
-            )
+        x, y, ww, hh = cv2.boundingRect(best)
+        cx, cy = int(x + ww / 2), int(y + hh / 2)
 
-        # No detection: decay confidence and return prediction if possible
-        self.last_conf *= self.cfg.decay_rate
-        self.lost_frames += 1
-        if self.last_bbox is not None and self.lost_frames <= self.cfg.lost_threshold:
-            bx, by, bw, bh = self.last_bbox
-            bx = px - bw // 2
-            by = py - bh // 2
-            self.last_bbox = (bx, by, bw, bh)
-            self.state = (
-                TrackState.SEARCHING
-                if self.last_conf >= self.cfg.min_confidence
-                else TrackState.LOST
-            )
-            if self.state is TrackState.LOST and self.lost_frames > self.cfg.lost_threshold:
-                self.search_roi = None
-                return None
-            scale_inv = 1.0 / self.proc_scale
-            gx = int(bx * scale_inv) + rx
-            gy = int(by * scale_inv) + ry
-            gw = int(bw * scale_inv)
-            gh = int(bh * scale_inv)
-            self._update_search_roi(gx, gy, gw, gh, frame.shape[1], frame.shape[0])
-            return (
-                gx,
-                gy,
-                gw,
-                gh,
-                float(self.last_conf),
-                self.state,
-            )
-
-        self.state = TrackState.LOST
-        self.search_roi = None
-        return None
+        return {
+            "bbox": (int(x), int(y), int(ww), int(hh)),
+            "center": (cx, cy),
+            "debug": {"area": float(area)}
+        }
 

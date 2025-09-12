@@ -1455,6 +1455,20 @@ def main(argv=None) -> None:
             calibrate_colors(args.out)
         except Exception as e:
             print(f"[warn] calibrate_team_colors failed: {e}")
+
+        from .feat_extract import cache_all as feat_cache
+        feat_cache(args.out)
+
+        from pathlib import Path
+        outp=Path(args.out)
+        if (outp/"seed_labels.json").exists():
+            try:
+                from .train_side_model import main as train_model
+                train_model(args.out)
+                from .apply_side_model import apply as apply_model
+                apply_model(args.out)
+            except Exception as e:
+                print(f"[warn] side model failed: {e}")
         try:
             from .side_classifier import apply as side_apply
             side_apply(args.out)
@@ -1475,11 +1489,8 @@ def main(argv=None) -> None:
             seq_smooth(args.out)
         except Exception as e:
             print(f"[warn] sequence_smooth failed: {e}")
-        try:
-            from .reclassify2 import main as reclass2
-            reclass2(args.out, min_side_conf=0.40)
-        except Exception as e:
-            print(f"[warn] reclassify2 failed: {e}")
+        from .reclassify2 import main as reclass2
+        reclass2(args.out, min_side_conf=0.40)
         build_coaches_cut(args.out, plays)
         if args.generate_report:
             try:
