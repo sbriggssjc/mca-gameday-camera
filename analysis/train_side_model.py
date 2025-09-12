@@ -47,8 +47,18 @@ def save_model(out, mu,sigma,W,b):
     (out/"side_model.json").write_text(json.dumps(model, indent=2))
     print("[train] wrote", out/"side_model.json")
 
-def main(out_dir):
-    out=pathlib.Path(out_dir)
+def main():
+    out_arg = sys.argv[1] if len(sys.argv) > 1 else ""
+    out = pathlib.Path(out_arg) if out_arg else pathlib.Path("output")
+
+    plays_path = out / "plays.jsonl"
+    if not plays_path.exists():
+        raise SystemExit(
+            f"[train] plays.jsonl not found at '{plays_path}'. "
+            "Tip: verify OUT matches your pipeline run (e.g., OUT=output/opponent_lincoln_20250912) "
+            "and call: python -m analysis.train_side_model \"$OUT\""
+        )
+
     feat=load_feats(out); seeds=load_seeds(out)
     X,y=build_XY(feat,seeds)
     if len(y)<4:
@@ -58,4 +68,4 @@ def main(out_dir):
     save_model(out,mu,sigma,W,b)
 
 if __name__=="__main__":
-    main(sys.argv[1] if len(sys.argv)>1 else "output")
+    main()

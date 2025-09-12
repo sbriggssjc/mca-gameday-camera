@@ -7,7 +7,17 @@ Indexes refer to the order in plays.jsonl (1-based), or pass filenames with --fi
 """
 
 def main():
-    out=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else "output")
+    out_arg = sys.argv[1] if len(sys.argv) > 1 else ""
+    out = pathlib.Path(out_arg) if out_arg else pathlib.Path("output")
+
+    plays_path = out / "plays.jsonl"
+    if not plays_path.exists():
+        raise SystemExit(
+            f"[seed] plays.jsonl not found at '{plays_path}'. "
+            "Tip: verify OUT matches your pipeline run (e.g., OUT=output/opponent_lincoln_20250912) "
+            "and call: python -m analysis.seed_labels \"$OUT\" --offense 7  OR  --files --offense \"Wide - Clip 007.mp4\""
+        )
+
     args=sys.argv[2:]
     idx_off, idx_def, idx_sp = [], [], []
     files_mode=False
@@ -28,7 +38,7 @@ def main():
         else:
             print(HELP); return
 
-    rows=[json.loads(x) for x in (out/"plays.jsonl").read_text().splitlines() if x.strip()]
+    rows=[json.loads(x) for x in plays_path.read_text().splitlines() if x.strip()]
     srcs=[r["src"] for r in rows]
     labels={}
     if files_mode:

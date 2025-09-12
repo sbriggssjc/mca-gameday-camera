@@ -1,5 +1,5 @@
 from __future__ import annotations
-import cv2, numpy as np, json, pathlib, statistics
+import cv2, numpy as np, json, pathlib, statistics, sys
 
 def _read_frames(path, max_samples=12):
     cap = cv2.VideoCapture(str(path))
@@ -87,8 +87,8 @@ def extract_for_clip(path, out_dir: pathlib.Path):
         "n1":float(n1), "a1":float(a1), "n4":float(n4), "a4":float(a4)
     }
 
-def cache_all(out_dir_str: str):
-    out=pathlib.Path(out_dir_str); p=out/"plays.jsonl"
+def cache_all(out: pathlib.Path):
+    p=out/"plays.jsonl";
     rows=[json.loads(x) for x in p.read_text().splitlines() if x.strip()]
     feat={}
     for i,r in enumerate(rows,1):
@@ -100,5 +100,19 @@ def cache_all(out_dir_str: str):
     (out/"features.json").write_text(json.dumps(feat, indent=2))
     print("[feat] wrote", out/"features.json")
 
+def main():
+    out_arg = sys.argv[1] if len(sys.argv) > 1 else ""
+    out = pathlib.Path(out_arg) if out_arg else pathlib.Path("output")
+
+    plays_path = out / "plays.jsonl"
+    if not plays_path.exists():
+        raise SystemExit(
+            f"[feat] plays.jsonl not found at '{plays_path}'. "
+            "Tip: verify OUT matches your pipeline run (e.g., OUT=output/opponent_lincoln_20250912) "
+            "and call: python -m analysis.feat_extract \"$OUT\""
+        )
+
+    cache_all(out)
+
 if __name__=="__main__":
-    import sys; cache_all(sys.argv[1] if len(sys.argv)>1 else "output")
+    main()
