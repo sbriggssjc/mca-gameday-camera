@@ -20,8 +20,8 @@ def predict_one(f, M):
     e=np.exp(z); p=e/np.sum(e)
     idx=int(np.argmax(p)); return M["classes"][idx], float(p[idx])
 
-def apply(out: pathlib.Path):
-    out = pathlib.Path(out)
+def apply(out_dir: pathlib.Path):
+    out = pathlib.Path(out_dir)
     if not (out/"side_model.json").exists():
         print("[apply_model] no side_model.json; skipping apply")
         return
