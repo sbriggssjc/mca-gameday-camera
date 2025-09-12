@@ -61,9 +61,19 @@ def shortlist_star_clips(plays, k=6):
     return [name for _, name in scored[:k]]
 
 
-def main(out_dir_str):
-    out = pathlib.Path(out_dir_str)
-    plays = load_jsonl(out / "plays.jsonl")
+def main():
+    out_arg = sys.argv[1] if len(sys.argv) > 1 else ""
+    out = pathlib.Path(out_arg) if out_arg else pathlib.Path("output")
+
+    plays_path = out / "plays.jsonl"
+    if not plays_path.exists():
+        raise SystemExit(
+            f"[opponent_report] plays.jsonl not found at '{plays_path}'. "
+            "Tip: verify OUT matches your pipeline run (e.g., OUT=output/opponent_lincoln_20250912) "
+            "and call: python -m analysis.opponent_report \"$OUT\""
+        )
+
+    plays = load_jsonl(plays_path)
     # Split sides
     O = [p for p in plays if p.get("lincoln_side") == "offense"]
     D = [p for p in plays if p.get("lincoln_side") == "defense"]
@@ -123,4 +133,4 @@ def main(out_dir_str):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "output")
+    main()
