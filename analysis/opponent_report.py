@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, pathlib, csv, statistics, sys
+import json, pathlib, csv, sys, collections
 
 MCA_PLAYS = {
     # Offense suggestions we can call vs THEIR defense
@@ -14,36 +14,37 @@ def load_jsonl(p):
     return [json.loads(x) for x in p.read_text().splitlines() if x.strip()]
 
 
-def load_csv_counts(path):
-    counts = {}
-    if not path.exists():
-        return counts
-    with path.open() as f:
-        for row in csv.DictReader(f):
-            counts.setdefault(row["metric"], {})[row["key"]] = float(row["value"])
-    return counts
-
-
-def try_load_tendencies_csv(path):
+def try_load_csv(path: pathlib.Path):
+    """Return list of rows from CSV if path exists, else None."""
     p = pathlib.Path(path)
     if not p.exists():
         return None
-    rows = []
     with p.open() as f:
-        rdr = csv.DictReader(f)
-        for r in rdr:
-            rows.append(r)
-    return rows
+        return list(csv.DictReader(f))
 
 
-def csv_rows_to_counts(rows):
-    counts = {}
-    for r in rows or []:
-        for key in ("run_pass", "family", "formation", "direction", "outcome"):
-            val = r.get(key)
-            if val:
-                counts.setdefault(key, {})[val] = float(r.get("count", 0))
-    return counts
+def summarize(csv_rows):
+    """Summarize tendencies CSV into convenient counters."""
+    rp = collections.Counter()
+    fam = collections.Counter()
+    direction = collections.Counter()
+    pos = 0
+    total = 0
+    for r in csv_rows or []:
+        metric = r.get("metric")
+        val = r.get("value")
+        c = int(r.get("count") or r.get("value") or 0)
+        if metric == "rp":
+            rp[val] += c
+        elif metric == "family":
+            fam[val] += c
+        elif metric == "direction":
+            direction[val] += c
+        elif metric == "outcome" and val == "positive":
+            pos += c
+        elif metric == "total" and val in ("clips", "plays"):
+            total = c
+    return rp, fam, direction, pos, total
 
 
 def top_dirs(counts):
@@ -100,54 +101,46 @@ def main():
     O = [p for p in plays if p.get("lincoln_side") == "offense"]
     D = [p for p in plays if p.get("lincoln_side") == "defense"]
 
-    off_csv = try_load_tendencies_csv(out / "tendencies_offense.csv")
-    def_csv = try_load_tendencies_csv(out / "tendencies_defense.csv")
-    off_counts = csv_rows_to_counts(off_csv) if off_csv else load_csv_counts(out / "tendencies_offense.csv")
-    def_counts = csv_rows_to_counts(def_csv) if def_csv else load_csv_counts(out / "tendencies_defense.csv")
+    off_csv = try_load_csv(out / "tendencies_offense.csv")
+    def_csv = try_load_csv(out / "tendencies_defense.csv")
 
-    # Simple directional bias and family mix
+    off_rp, off_fam, off_dir, off_pos_csv, off_total_csv = summarize(off_csv)
+    def_rp, def_fam, def_dir, def_pos_csv, def_total_csv = summarize(def_csv)
+
+    o_pos, o_tot = (
+        (off_pos_csv, off_total_csv) if off_total_csv else positive_outcome_ratio(O)
+    )
+    d_pos, d_tot = (
+        (def_pos_csv, def_total_csv) if def_total_csv else positive_outcome_ratio(D)
+    )
+
     star_off = shortlist_star_clips(O, k=6)
 
-    # Weakness recs: what WE should call on offense vs THEIR defense
+    def_counts = {"direction": def_dir, "family": def_fam}
     rec_keys = infer_def_weakness(def_counts)
     suggestions = [item for key in rec_keys for item in MCA_PLAYS.get(key, [])]
 
-    # Quick summary lines
-    o_pos, o_tot = positive_outcome_ratio(O)
-    d_pos, d_tot = positive_outcome_ratio(D)
     lines = []
     lines.append("# Lincoln Christian — Opponent Report\n")
     lines.append(
-        f"**Clips analyzed:** {len(plays)}  |  **Lincoln Offense:** {len(O)}  |  **Lincoln Defense:** {len(D)}\n"
+        f"**Clips analyzed:** {len(plays)}  |  **Lincoln Offense:** {off_total_csv or len(O)}  |  **Lincoln Defense:** {def_total_csv or len(D)}\n"
     )
     lines.append("## Lincoln Offense Tendencies (quick peek)")
-    if off_csv:
-        rp = {r["run_pass"]: float(r.get("count", 0)) for r in off_csv if r.get("run_pass")}
-        fam_rows = [(r["family"], float(r.get("count", 0))) for r in off_csv if r.get("family")]
-        fam_rows = sorted(fam_rows, key=lambda kv: -kv[1])[:4]
-    else:
-        rp = off_counts.get("run_pass", {})
-        fam_rows = sorted(off_counts.get("family", {}).items(), key=lambda kv: -kv[1])[:4]
-    lines.append(f"- Run/Pass (auto): {int(rp.get('run', 0))} run / {int(rp.get('pass', 0))} pass")
-    if fam_rows:
-        lines.append(f"- Families top: {fam_rows}")
+    lines.append(
+        f"- Run/Pass (auto): {int(off_rp.get('run', 0))} run / {int(off_rp.get('pass', 0))} pass"
+    )
+    if off_fam:
+        lines.append(f"- Families top: {off_fam.most_common(5)}")
     lines.append(f"- Positive outcome rate (auto): {o_pos}/{o_tot}\n")
     lines.append("**Star clips to review (highest impact motion):**")
     for n in star_off:
         lines.append(f"- {n}")
     lines.append("\n## Lincoln Defense Tendencies (quick peek)")
-    if def_csv:
-        rpD = {r["run_pass"]: float(r.get("count", 0)) for r in def_csv if r.get("run_pass")}
-        famD_rows = [(r["family"], float(r.get("count", 0))) for r in def_csv if r.get("family")]
-        famD_rows = sorted(famD_rows, key=lambda kv: -kv[1])[:4]
-    else:
-        rpD = def_counts.get("run_pass", {})
-        famD_rows = sorted(def_counts.get("family", {}).items(), key=lambda kv:-kv[1])[:4]
     lines.append(
-        f"- Offense faced (for context): {int(rpD.get('run', 0))} runs / {int(rpD.get('pass', 0))} passes"
+        f"- Offense faced (for context): {int(def_rp.get('run', 0))} runs / {int(def_rp.get('pass', 0))} passes"
     )
-    if famD_rows:
-        lines.append(f"- Offense types vs them: {famD_rows}")
+    if def_fam:
+        lines.append(f"- Offense types vs them: {def_fam.most_common(5)}")
     lines.append(
         f"- Positive outcome rate allowed (auto proxy): {d_pos}/{d_tot}\n"
     )
