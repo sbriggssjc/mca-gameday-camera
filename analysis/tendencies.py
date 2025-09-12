@@ -161,9 +161,7 @@ def parse_args():
     ap.add_argument("out_dir")
     ap.add_argument("--only-lincoln-offense", action="store_true")
     ap.add_argument("--only-lincoln-defense", action="store_true")
-    ap.add_argument("--use-smoothed-side", dest="use_smoothed_side", action="store_true")
-    ap.add_argument("--no-use-smoothed-side", dest="use_smoothed_side", action="store_false")
-    ap.set_defaults(use_smoothed_side=True)
+    ap.add_argument("--use-raw-side", action="store_true", help="use original side classifier output")
     ap.add_argument(
         "--exclude-phase",
         default="special_teams,unknown",
@@ -182,14 +180,15 @@ def main():
         excl = {x.strip() for x in args.exclude_phase.split(",") if x.strip()}
     plays = [p for p in plays if p.get("phase") not in excl]
 
-    side_key = "lincoln_side_final" if args.use_smoothed_side else "lincoln_side"
+    side_key = "lincoln_side" if args.use_raw_side else "lincoln_side_final"
 
     if args.min_side_conf:
+        conf_key = "lincoln_side_conf" if args.use_raw_side else "lincoln_side_final_conf"
         plays = [
             p
             for p in plays
             if p.get(side_key) == "unknown"
-            or float(p.get("lincoln_side_conf", 0)) >= args.min_side_conf
+            or float(p.get(conf_key, 0)) >= args.min_side_conf
         ]
 
     if args.only_lincoln_offense:
@@ -207,8 +206,8 @@ def main():
         suffix += f"_conf{int(args.min_side_conf*100)}"
     if args.exclude_phase:
         suffix += "_nophase"
-    if args.use_smoothed_side:
-        suffix += "_smooth"
+    if args.use_raw_side:
+        suffix += "_raw"
     write_csv(out, plays, sums, suffix)
     write_md(out, sums, suffix)
 
