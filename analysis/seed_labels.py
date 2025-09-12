@@ -14,8 +14,8 @@ def main():
     if not plays_path.exists():
         raise SystemExit(
             f"[seed] plays.jsonl not found at '{plays_path}'. "
-            "Tip: verify OUT matches your pipeline run (e.g., OUT=output/opponent_lincoln_20250912) "
-            "and call: python -m analysis.seed_labels \"$OUT\" --offense 7  OR  --files --offense \"Wide - Clip 007.mp4\""
+            "Verify OUT (e.g., OUT=output/opponent_lincoln_20250912). "
+            'Use: --files --offense "Wide - Clip 007.mp4"'
         )
 
     args=sys.argv[2:]

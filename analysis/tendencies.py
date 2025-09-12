@@ -161,7 +161,11 @@ def parse_args():
     ap.add_argument("out_dir")
     ap.add_argument("--only-lincoln-offense", action="store_true")
     ap.add_argument("--only-lincoln-defense", action="store_true")
-    ap.add_argument("--use-raw-side", action="store_true", help="use original side classifier output")
+    ap.add_argument(
+        "--use-raw-side",
+        action="store_true",
+        help="Use lincoln_side instead of lincoln_side_final",
+    )
     ap.add_argument(
         "--exclude-phase",
         default="special_teams,unknown",
@@ -181,9 +185,9 @@ def main():
     plays = [p for p in plays if p.get("phase") not in excl]
 
     side_key = "lincoln_side" if args.use_raw_side else "lincoln_side_final"
+    conf_key = "lincoln_side_conf" if args.use_raw_side else "lincoln_side_final_conf"
 
     if args.min_side_conf:
-        conf_key = "lincoln_side_conf" if args.use_raw_side else "lincoln_side_final_conf"
         plays = [
             p
             for p in plays
