@@ -22,13 +22,13 @@ def test_update_tuple_and_states():
 
     # Detect ball in frame
     x, y, w, h, conf, state = tracker.update(_frame((100, 100)))
-    assert state == "ok"
+    assert state.value == "ok"
     assert conf > 0.0
     assert w > 0 and h > 0
 
     # Process frames without the ball; ensure no detection reported
     tracker.update(_frame(None))  # warm up motion mask
     x, y, w, h, conf, state = tracker.update(_frame(None))
-    assert state != "ok"
+    assert state.value != "ok"
     assert conf == 0.0
 

@@ -47,6 +47,17 @@ import numpy as np
 import yaml
 
 
+class _State:
+    """Minimal state shim with a `.value` attribute to satisfy pipeline logging."""
+    __slots__ = ("value",)
+
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def __str__(self) -> str:
+        return self.value
+
+
 class TrackState(str, Enum):
     """Simple enumeration for the tracker state."""
 
@@ -247,7 +258,7 @@ class BallTracker:
 
         # --- Basic frame validation ---
         if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
-            return (0, 0, 0, 0, 0.0, "empty_frame")
+            return (0, 0, 0, 0, 0.0, _State("empty_frame"))
 
         h, w = frame.shape[:2]
 
@@ -261,7 +272,7 @@ class BallTracker:
         try:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         except cv2.error:
-            return (0, 0, 0, 0, 0.0, "cvt_gray_error")
+            return (0, 0, 0, 0, 0.0, _State("cvt_gray_error"))
 
         # Masks (each may be None on warmup or failure)
         m_motion = self._motion_mask(gray)
@@ -270,7 +281,7 @@ class BallTracker:
         masks = [m for m in (m_motion, m_color) if m is not None]
         if not masks:
             # Likely warmup or very static scene; skip gracefully
-            return (0, 0, 0, 0, 0.0, "warmup_or_no_masks")
+            return (0, 0, 0, 0, 0.0, _State("warmup_or_no_masks"))
 
         # Start with the first valid mask
         mask = masks[0]
@@ -280,11 +291,11 @@ class BallTracker:
                 mask = cv2.bitwise_and(mask, m)
 
         if mask is None or mask.size == 0:
-            return (0, 0, 0, 0, 0.0, "mask_none")
+            return (0, 0, 0, 0, 0.0, _State("mask_none"))
         if mask.dtype != np.uint8:
             mask = mask.astype(np.uint8)
         if cv2.countNonZero(mask) == 0:
-            return (0, 0, 0, 0, 0.0, "mask_empty")
+            return (0, 0, 0, 0, 0.0, _State("mask_empty"))
 
         # Morphology with guards
         try:
@@ -298,10 +309,10 @@ class BallTracker:
         try:
             cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         except cv2.error:
-            return (0, 0, 0, 0, 0.0, "findContours_error")
+            return (0, 0, 0, 0, 0.0, _State("findContours_error"))
 
         if not cnts:
-            return (0, 0, 0, 0, 0.0, "no_contours")
+            return (0, 0, 0, 0, 0.0, _State("no_contours"))
 
         # Pick largest reasonable blob
         areas = [(cv2.contourArea(c), c) for c in cnts]
@@ -311,12 +322,12 @@ class BallTracker:
         min_area = 5.0
         max_area = 0.05 * w * h
         if area < min_area or area > max_area:
-            return (0, 0, 0, 0, 0.0, "area_out_of_range")
+            return (0, 0, 0, 0, 0.0, _State("area_out_of_range"))
 
         x, y, ww, hh = cv2.boundingRect(best)
 
         # Confidence heuristic: normalized area clipped to [0.0, 1.0]
         conf = float(max(0.0, min(1.0, area / (0.01 * w * h))))  # 1% of frame ~= conf 1.0
 
-        return (int(x), int(y), int(ww), int(hh), conf, "ok")
+        return (int(x), int(y), int(ww), int(hh), conf, _State("ok"))
 
