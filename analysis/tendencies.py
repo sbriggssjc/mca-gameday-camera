@@ -161,6 +161,8 @@ def parse_args():
     ap.add_argument("out_dir")
     ap.add_argument("--only-lincoln-offense", action="store_true")
     ap.add_argument("--only-lincoln-defense", action="store_true")
+    ap.add_argument("--exclude-phase", default="", help="comma list of phases to exclude")
+    ap.add_argument("--min-side-conf", type=float, default=0.40)
     return ap.parse_args()
 
 
@@ -168,14 +170,34 @@ def main():
     args = parse_args()
     out = pathlib.Path(args.out_dir)
     plays = load_plays(out)
+    excl = set()
+    if args.exclude_phase:
+        excl = set([x.strip() for x in args.exclude_phase.split(",") if x.strip()])
+    plays = [p for p in plays if p.get("phase") not in excl]
+
+    if args.min_side_conf:
+        plays = [
+            p
+            for p in plays
+            if float(p.get("lincoln_side_conf", 0)) >= args.min_side_conf
+            or p.get("lincoln_side") == "unknown"
+        ]
+
     if args.only_lincoln_offense:
         plays = [p for p in plays if p.get("lincoln_side") == "offense"]
     if args.only_lincoln_defense:
         plays = [p for p in plays if p.get("lincoln_side") == "defense"]
+
     sums = summarize(plays)
-    suffix = "_offense" if args.only_lincoln_offense else (
-        "_defense" if args.only_lincoln_defense else ""
-    )
+    suffix = ""
+    if args.only_lincoln_offense:
+        suffix += "_offense"
+    if args.only_lincoln_defense:
+        suffix += "_defense"
+    if args.min_side_conf:
+        suffix += f"_conf{int(args.min_side_conf*100)}"
+    if args.exclude_phase:
+        suffix += "_nophase"
     write_csv(out, plays, sums, suffix)
     write_md(out, sums, suffix)
 
