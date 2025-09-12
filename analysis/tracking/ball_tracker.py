@@ -236,11 +236,18 @@ class BallTracker:
     def update(self, frame):
         """
         Safe, guard-rail update.
-        Returns: dict with keys 'bbox' (x,y,w,h) or None, 'center' (cx,cy) or None, and 'debug'.
+
+        Returns a 6-tuple expected by the pipeline:
+          (bx, by, bw, bh, conf, state)
+
+        - If no detection: (0, 0, 0, 0, 0.0, 'no_det' or reason)
+        - On detection: (x, y, w, h, conf, 'ok')
         """
+        import cv2, numpy as np
+
         # --- Basic frame validation ---
         if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
-            return {"bbox": None, "center": None, "debug": {"reason": "empty_frame"}}
+            return (0, 0, 0, 0, 0.0, "empty_frame")
 
         h, w = frame.shape[:2]
 
@@ -254,69 +261,62 @@ class BallTracker:
         try:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         except cv2.error:
-            return {"bbox": None, "center": None, "debug": {"reason": "cvt_gray_error"}}
+            return (0, 0, 0, 0, 0.0, "cvt_gray_error")
 
         # Masks (each may be None on warmup or failure)
         m_motion = self._motion_mask(gray)
-        m_color = self._color_mask(frame)
+        m_color  = self._color_mask(frame)
 
         masks = [m for m in (m_motion, m_color) if m is not None]
         if not masks:
             # Likely warmup or very static scene; skip gracefully
-            return {"bbox": None, "center": None, "debug": {"reason": "warmup_or_no_masks"}}
+            return (0, 0, 0, 0, 0.0, "warmup_or_no_masks")
 
         # Start with the first valid mask
         mask = masks[0]
         # Bitwise AND with any other masks that match shape
         for m in masks[1:]:
-            if m.shape != mask.shape:
-                # Ignore mismatched shapes; don't crash
-                continue
-            mask = cv2.bitwise_and(mask, m)
+            if m.shape == mask.shape:
+                mask = cv2.bitwise_and(mask, m)
 
-        # Empty / invalid mask check
         if mask is None or mask.size == 0:
-            return {"bbox": None, "center": None, "debug": {"reason": "mask_none"}}
+            return (0, 0, 0, 0, 0.0, "mask_none")
         if mask.dtype != np.uint8:
             mask = mask.astype(np.uint8)
         if cv2.countNonZero(mask) == 0:
-            return {"bbox": None, "center": None, "debug": {"reason": "mask_empty"}}
+            return (0, 0, 0, 0, 0.0, "mask_empty")
 
         # Morphology with guards
         try:
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.k3)
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.k5)
         except cv2.error:
-            # If morphology fails (rare), just continue with the raw mask
+            # proceed with raw mask if morphology fails
             pass
 
         # Contours
-        cnts = []
         try:
             cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         except cv2.error:
-            return {"bbox": None, "center": None, "debug": {"reason": "findContours_error"}}
+            return (0, 0, 0, 0, 0.0, "findContours_error")
 
         if not cnts:
-            return {"bbox": None, "center": None, "debug": {"reason": "no_contours"}}
+            return (0, 0, 0, 0, 0.0, "no_contours")
 
-        # Pick largest reasonable blob (reject noise and absurd sizes)
+        # Pick largest reasonable blob
         areas = [(cv2.contourArea(c), c) for c in cnts]
         areas.sort(key=lambda x: x[0], reverse=True)
         area, best = areas[0]
 
-        min_area = 5.0                      # tiny specks
-        max_area = 0.05 * w * h             # gigantic false-positive
+        min_area = 5.0
+        max_area = 0.05 * w * h
         if area < min_area or area > max_area:
-            return {"bbox": None, "center": None,
-                    "debug": {"reason": "area_out_of_range", "area": float(area)}}
+            return (0, 0, 0, 0, 0.0, "area_out_of_range")
 
         x, y, ww, hh = cv2.boundingRect(best)
-        cx, cy = int(x + ww / 2), int(y + hh / 2)
 
-        return {
-            "bbox": (int(x), int(y), int(ww), int(hh)),
-            "center": (cx, cy),
-            "debug": {"area": float(area)}
-        }
+        # Confidence heuristic: normalized area clipped to [0.0, 1.0]
+        conf = float(max(0.0, min(1.0, area / (0.01 * w * h))))  # 1% of frame ~= conf 1.0
+
+        return (int(x), int(y), int(ww), int(hh), conf, "ok")
 
