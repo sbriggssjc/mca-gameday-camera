@@ -72,11 +72,37 @@ def summarise(plays: Iterable[Play]) -> Dict[str, Dict[str, List[Play]]]:
         "offense_personnel": defaultdict(list),
         "run_direction": defaultdict(list),
         "route_primary": defaultdict(list),
+        "formation": defaultdict(list),
+        "run_dir": defaultdict(list),
+        "pass_family": defaultdict(list),
+        "yards_bucket": defaultdict(list),
     }
     for p in plays:
-        for key in agg:
-            val = p.get(key, "unknown") or "unknown"
+        for key in [
+            "run_pass",
+            "formation_text",
+            "offense_personnel",
+            "run_direction",
+            "route_primary",
+            "formation",
+        ]:
+            lookup = "generic_formation" if key == "formation" else key
+            val = p.get(lookup, "unknown") or "unknown"
             agg[key][val].append(p)
+        rp = p.get("run_pass") or "unknown"
+        if rp == "run":
+            val = p.get("run_direction") or p.get("dir") or "unknown"
+            agg["run_dir"][val].append(p)
+        elif rp == "pass":
+            tags = p.get("tags") or []
+            pf = p.get("pass_family") or ("quick" if "quick" in tags else "unknown")
+            agg["pass_family"][pf].append(p)
+        yards = p.get("yards_est")
+        if yards is not None:
+            bucket = f"{int(yards)//5*5}-{int(yards)//5*5+4}"
+        else:
+            bucket = "unknown"
+        agg["yards_bucket"][bucket].append(p)
     return agg
 
 
@@ -148,6 +174,25 @@ def _run(args: argparse.Namespace) -> Tuple[Path, Path]:
         exclude_phase=args.exclude_phase.split(",") if args.exclude_phase else [],
         min_conf=args.min_side_conf,
     )
+    for p in plays:
+        gen_form = p.get("generic_formation")
+        if not gen_form:
+            fr = p.get("frame_meta", {})
+            from .generic_formation import infer_generic
+            gen_form = infer_generic(fr)
+        p["generic_formation"] = gen_form
+
+        yards = p.get("yards")
+        if yards is None:
+            tr = p.get("carrier_track") or []
+            if len(tr) >= 2:
+                dy = abs(tr[-1][1] - tr[0][1])
+                yards = round(float(dy) * 100.0, 1)
+            else:
+                yards = 0.0
+        p["yards_est"] = yards
+        if p.get("yards_gained") is None:
+            p["yards_gained"] = yards
     agg = summarise(plays)
     rows = _metric_rows(agg)
     csv_path = write_csv(out_dir, rows, args.csv_out)
