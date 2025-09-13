@@ -1,64 +1,62 @@
 from __future__ import annotations
-import json, pathlib, numpy as np, sys
+import json, pathlib, statistics
+from pathlib import Path
 
+# very small centroid classifier to avoid sklearn dependency
+SIDE_INDEX = {"offense":0, "defense":1, "special_teams":2}
 
-def load_feats(out: pathlib.Path):
-    return json.loads((out/"features.json").read_text())
+FEATURE_KEYS = [
+    "black_ratio","white_ratio",
+    "flow_mean","flow_std","vx_mean","vy_mean",
+    "mb_minus_mw_mean"
+]
 
+def _load_feats(out: Path):
+    p = out/"features.json"
+    feat = json.loads(p.read_text())
+    return {k: v for k, v in feat.items()}
 
-def load_seeds(out: pathlib.Path):
+def _load_seeds(out: Path):
     p = out/"seed_labels.json"
-    return {} if not p.exists() else json.loads(p.read_text())
+    if not p.exists(): return {}
+    return json.loads(p.read_text())
 
+def _vec(d):
+    return [float(d.get(k, 0.0)) for k in FEATURE_KEYS]
 
-def save_model(out: pathlib.Path, model):
-    (out/"side_model.json").write_text(json.dumps(model))
-
-
-def train(out_dir: str | pathlib.Path = "output"):
-    out = pathlib.Path(out_dir)
-    feat = load_feats(out)
-    seeds = load_seeds(out)
-
-    # need seeds across >=2 classes
-    labels = set(seeds.values())
-    if len(seeds) < 3 or len(labels) < 2:
-        print("[train] need >=3 total seed examples across >=2 classes")
-        return None
-
-    # very small/shallow model: per-class centroids in feature space
-    X = []
-    y = []
-    src_to_idx = {row["src"]: i for i, row in enumerate(feat["rows"])}
-    for src, lab in seeds.items():
-        idx = src_to_idx.get(src)
-        if idx is None:
-            continue
-        X.append(feat["X"][idx])
-        y.append(lab)
-    if len(set(y)) < 2:
-        print("[train] insufficient class variety after mapping seeds")
-        return None
-
-    X = np.array(X, dtype=float)
-    y = np.array(y)
-    classes = sorted(set(y))
+def _centroid_train(feats: dict, seeds: dict):
+    # collect per-class vectors from seeds
+    byc = {k: [] for k in SIDE_INDEX}
+    for src, side in seeds.items():
+        f = feats.get(src)
+        if not f: continue
+        byc[side].append(_vec(f))
+    # need at least two classes to be useful
+    classes = [c for c, arr in byc.items() if len(arr) >= 2]
+    if len(classes) < 2:
+        raise RuntimeError("need >=2 classes with >=2 seeds each")
     centroids = {}
-    for c in classes:
-        centroids[c] = np.mean(X[y == c], axis=0).tolist()
+    for c, arr in byc.items():
+        if arr:
+            cols = list(zip(*arr))
+            centroids[c] = [statistics.fmean(col) for col in cols]
+    return {
+        "type":"centroid",
+        "features": FEATURE_KEYS,
+        "centroids": centroids
+    }
 
-    model = {"type": "centroid", "classes": classes, "centroids": centroids}
-    save_model(out, model)
-    print(f"[train] wrote {out/'side_model.json'}")
-    return model
+def main(out_dir: str):
+    out = Path(out_dir)
+    feats = _load_feats(out)
+    seeds = _load_seeds(out)
+    if not seeds:
+        raise RuntimeError("no seed_labels.json; seed a few obvious clips first")
 
-
-# Keep old zero-arg entrypoint but make it call the new API
-def main(out_dir: str = "output"):
-    return train(out_dir)
-
+    model = _centroid_train(feats, seeds)
+    (out/"side_model.json").write_text(json.dumps(model))
+    print("[train] wrote", out/"side_model.json")
 
 if __name__ == "__main__":
-    out = sys.argv[1] if len(sys.argv) > 1 else "output"
-    main(out)
-
+    import sys
+    main(sys.argv[1] if len(sys.argv) > 1 else "output")
