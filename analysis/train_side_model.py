@@ -27,7 +27,6 @@ def train(out_dir: str | pathlib.Path = "output"):
         return None
 
     # very small/shallow model: per-class centroids in feature space
-    import numpy as np
     X = []
     y = []
     src_to_idx = {row["src"]: i for i, row in enumerate(feat["rows"])}

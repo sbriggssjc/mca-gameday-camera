@@ -18,7 +18,6 @@ def apply(out_dir: str | pathlib.Path = "output"):
     model = load_model(out)
     feat = load_feats(out)
 
-    import numpy as np, json
     rows = feat["rows"]
     X = np.array(feat["X"], dtype=float)
 

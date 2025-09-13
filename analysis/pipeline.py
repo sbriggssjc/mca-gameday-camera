@@ -1569,7 +1569,7 @@ def main(argv=None) -> None:
             feat_cache(args.out)                # and if it expects str in older versions
 
         from pathlib import Path
-        outp=Path(args.out)
+        outp = Path(args.out)
         if (outp/"seed_labels.json").exists():
             try:
                 from .train_side_model import main as train_model
