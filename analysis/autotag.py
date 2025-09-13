@@ -69,7 +69,21 @@ def guess_formation(row):
     return "unknown"
 
 
-def guess_run_dir(row, dir_guess, rp_guess):
+def guess_run_dir(row):
+    """Best-effort run direction guess.
+
+    Leverages optical-flow metrics stored in ``row['auto_flow']`` and
+    existing run/pass flags.  Returns ``left`` or ``right`` when a clear
+    horizontal bias is detected, ``middle`` for ambiguous runs, otherwise
+    ``unknown``.
+    """
+    flow = row.get("auto_flow", {})
+    dir_guess = infer_direction(flow.get("vx_med", 0))
+    rp_guess = infer_run_pass(
+        flow.get("mag_med", 0),
+        flow.get("vy_med", 0),
+        flow.get("vy_std", 0),
+    )
     if rp_guess == "run" or row.get("is_run"):
         if dir_guess in ("left", "right"):
             return dir_guess
@@ -77,7 +91,18 @@ def guess_run_dir(row, dir_guess, rp_guess):
     return "unknown"
 
 
-def guess_pass_family(row, rp_guess):
+def guess_pass_family(row):
+    """Categorise the pass family when applicable.
+
+    The routine checks explicit flags first, falling back to an optical-flow
+    based pass/run guess to avoid labelling non-passes.
+    """
+    flow = row.get("auto_flow", {})
+    rp_guess = infer_run_pass(
+        flow.get("mag_med", 0),
+        flow.get("vy_med", 0),
+        flow.get("vy_std", 0),
+    )
     if rp_guess != "pass" and not row.get("is_pass"):
         return "unknown"
     if row.get("play_action"):
@@ -130,8 +155,8 @@ def process_jsonl(out_dir):
         pl["auto_outcome"] = outc
         pl["auto_flow"] = feats
         pl["off_form"] = guess_formation(pl)
-        pl["run_dir"] = guess_run_dir(pl, dir_guess, rp_guess)
-        pl["pass_family"] = guess_pass_family(pl, rp_guess)
+        pl["run_dir"] = guess_run_dir(pl)
+        pl["pass_family"] = guess_pass_family(pl)
         pl["gained_yards"] = estimate_gain(pl)
         updated.append(pl)
         print(f"[autotag] {i}/{len(rows)} {pathlib.Path(src).name}: dir={pl['direction']} rp={rp_guess} outcome={outc}")
