@@ -13,8 +13,24 @@ def _heuristic_phase(row):
 
 
 def _load_model():
+    """Return a loaded phase classifier if available.
+
+    The real model implementation is still a work in progress, but we try to
+    eagerly load the checkpoint so that downstream code can switch over to
+    using it seamlessly once a model exists.  If loading fails for any reason
+    (missing file, missing torch dependency, corrupt checkpoint, ...), ``None``
+    is returned and heuristics will be used instead.
+    """
+
     p = pathlib.Path("models/phase_classifier/latest.pt")
-    return p if p.exists() else None
+    if not p.exists():
+        return None
+    try:  # pragma: no cover - optional dependency
+        import torch
+
+        return torch.jit.load(str(p))
+    except Exception:
+        return None
 
 
 def apply(out_dir: str | pathlib.Path = "output"):
@@ -22,15 +38,16 @@ def apply(out_dir: str | pathlib.Path = "output"):
     p = out/"plays.jsonl"
     lines = [json.loads(x) if x.strip().startswith("{") else x
              for x in p.read_text().splitlines()]
-    model_path = _load_model()
+    model = _load_model()
     new = []
     for line in lines:
         if isinstance(line, dict):
-            if model_path:
-                # TODO: replace with real model inference; for now mark unknown w/ low conf
-                ph, conf = "unknown", 0.40
-            else:
+            if model is None:
                 ph, conf = _heuristic_phase(line)
+            else:
+                # TODO: replace with real model inference once available;
+                # for now, model presence only influences the confidence.
+                ph, conf = "unknown", 0.40
             line["phase"] = ph
             line["phase_conf"] = round(conf, 2)
             new.append(json.dumps(line))
