@@ -20,6 +20,77 @@ from typing import Any, Dict, Iterable, List, Tuple
 
 Play = Dict[str, Any]
 
+GENERIC_FORMATIONS = {
+    # simple mapper if your formation model already outputs something; otherwise leave as-is
+    # e.g., normalize “TripsRight”, “Trips R” -> “trips”
+}
+
+
+def norm_formation(val: Any) -> str:
+    if not val:
+        return "unknown"
+    v = str(val).lower().replace(" ", "").replace("_", "")
+    for k in GENERIC_FORMATIONS:
+        if v == k:
+            return GENERIC_FORMATIONS[k]
+    if "trips" in v:
+        return "trips"
+    if "doubles" in v or "2x2" in v:
+        return "doubles"
+    if "empty" in v:
+        return "empty"
+    if "tight" in v or "wing" in v:
+        return "tight"
+    if "i" == v or "i-" in v:
+        return "i"
+    if "single" in v or "ace" in v:
+        return "singleback"
+    return v
+
+
+def norm_run_dir(val: Any) -> str:
+    if not val:
+        return "unknown"
+    v = str(val).lower()
+    if "left" in v:
+        return "left"
+    if "right" in v:
+        return "right"
+    if "middle" in v or "mid" in v or "center" in v:
+        return "middle"
+    return "unknown"
+
+
+def to_pass_family(p: Play) -> str:
+    rp = str(p.get("run_pass") or p.get("rp") or "unknown")
+    if rp != "pass":
+        return "unknown"
+    f = str(p.get("family") or "").lower()
+    tags = [str(t).lower() for t in (p.get("tags") or [])]
+    if any(k in f for k in ["screen", "bubble", "tunnel", "quick"]) or any(k in tags for k in ["screen", "bubble", "tunnel", "quick"]):
+        return "screens/quick"
+    if any(k in f for k in ["boot", "bootleg", "naked", "waggle"]) or any(k in tags for k in ["boot", "bootleg", "naked", "waggle"]):
+        return "boot"
+    if any(k in f for k in ["flood", "corner", "post", "go", "seam", "fade", "wheel", "switch", "smash", "levels", "mesh", "verts", "four"]) or any(k in tags for k in ["flood", "corner", "post", "go", "seam", "fade", "wheel", "switch", "smash", "levels", "mesh", "verts", "four"]):
+        return "intermediate/deep"
+    return "unknown"
+
+
+def bucket(y: float) -> str:
+    y = float(y)
+    if y <= -5:
+        return "<=-5"
+    if -4 <= y <= 0:
+        return "-4–0"
+    if 1 <= y <= 3:
+        return "1–3"
+    if 4 <= y <= 7:
+        return "4–7"
+    if 8 <= y <= 12:
+        return "8–12"
+    return "13+"
+
+
 
 # ---------------------------------------------------------------------------
 # Data loading and filtering
@@ -34,14 +105,19 @@ def load_plays(out_dir: Path) -> List[Play]:
 
 def filter_plays(plays: Iterable[Play], *, only_off=False, only_def=False,
                  exclude_phase: Iterable[str] | None = None,
-                 min_conf: float | None = None) -> List[Play]:
+                 min_conf: float | None = None,
+                 use_raw_side: bool = False) -> List[Play]:
     exclude_phase = set(exclude_phase or [])
     result = []
     for p in plays:
         if p.get("phase") in exclude_phase:
             continue
-        side = p.get("lincoln_side_final") or p.get("lincoln_side")
-        conf = float(p.get("lincoln_side_final_conf") or p.get("lincoln_side_conf") or 0)
+        if use_raw_side:
+            side = p.get("lincoln_side")
+            conf = float(p.get("lincoln_side_conf") or 0)
+        else:
+            side = p.get("lincoln_side_final") or p.get("lincoln_side")
+            conf = float(p.get("lincoln_side_final_conf") or p.get("lincoln_side_conf") or 0)
         if min_conf is not None and side != "unknown" and conf < min_conf:
             continue
         if only_off and side != "offense":
@@ -67,44 +143,41 @@ def _success(play: Play) -> bool:
 
 def summarise(plays: Iterable[Play]) -> Dict[str, Dict[str, List[Play]]]:
     agg: Dict[str, Dict[str, List[Play]]] = {
-        "run_pass": defaultdict(list),
-        "formation_text": defaultdict(list),
-        "offense_personnel": defaultdict(list),
-        "run_direction": defaultdict(list),
-        "route_primary": defaultdict(list),
-        "formation": defaultdict(list),
-        "run_dir": defaultdict(list),
-        "pass_family": defaultdict(list),
-        "yards_bucket": defaultdict(list),
+        'run_pass': defaultdict(list),
+        'formation_text': defaultdict(list),
+        'offense_personnel': defaultdict(list),
+        'run_direction': defaultdict(list),
+        'route_primary': defaultdict(list),
+        'formation': defaultdict(list),
+        'run_dir': defaultdict(list),
+        'pass_family': defaultdict(list),
+        'yards_bucket': defaultdict(list),
     }
     for p in plays:
         for key in [
-            "run_pass",
-            "formation_text",
-            "offense_personnel",
-            "run_direction",
-            "route_primary",
-            "formation",
+            'run_pass',
+            'formation_text',
+            'offense_personnel',
+            'run_direction',
+            'route_primary',
+            'formation',
         ]:
-            lookup = "generic_formation" if key == "formation" else key
-            val = p.get(lookup, "unknown") or "unknown"
+            if key == 'formation':
+                val = norm_formation(p.get('formation') or p.get('generic_formation'))
+            else:
+                val = p.get(key, 'unknown') or 'unknown'
             agg[key][val].append(p)
-        rp = p.get("run_pass") or "unknown"
-        if rp == "run":
-            val = p.get("run_direction") or p.get("dir") or "unknown"
-            agg["run_dir"][val].append(p)
-        elif rp == "pass":
-            tags = p.get("tags") or []
-            pf = p.get("pass_family") or ("quick" if "quick" in tags else "unknown")
-            agg["pass_family"][pf].append(p)
-        yards = p.get("yards_est")
+        rp = p.get('run_pass') or 'unknown'
+        if rp == 'run':
+            val = norm_run_dir(p.get('run_direction') or p.get('dir'))
+            agg['run_dir'][val].append(p)
+        elif rp == 'pass':
+            pf = to_pass_family(p)
+            agg['pass_family'][pf].append(p)
+        yards = p.get('yards')
         if yards is not None:
-            bucket = f"{int(yards)//5*5}-{int(yards)//5*5+4}"
-        else:
-            bucket = "unknown"
-        agg["yards_bucket"][bucket].append(p)
+            agg['yards_bucket'][bucket(yards)].append(p)
     return agg
-
 
 def _metric_rows(agg: Dict[str, Dict[str, List[Play]]]) -> List[Tuple[str, str, int, float, float, float, int]]:
     rows: List[Tuple[str, str, int, float, float, float, int]] = []
@@ -173,6 +246,7 @@ def _run(args: argparse.Namespace) -> Tuple[Path, Path]:
         only_def=args.only_lincoln_defense,
         exclude_phase=args.exclude_phase.split(",") if args.exclude_phase else [],
         min_conf=args.min_side_conf,
+        use_raw_side=getattr(args, "use_raw_side", False),
     )
     for p in plays:
         gen_form = p.get("generic_formation")
@@ -204,7 +278,8 @@ def run_from_pipeline(out_dir: str, *, only_lincoln_offense: bool = False,
                       only_lincoln_defense: bool = False,
                       exclude_phase: str = "special_teams,unknown",
                       min_side_conf: float = 0.40,
-                      csv_out: str | None = None) -> Tuple[Path, Path]:
+                      csv_out: str | None = None,
+                      use_raw_side: bool = False) -> Tuple[Path, Path]:
     args = argparse.Namespace(
         out_dir=out_dir,
         only_lincoln_offense=only_lincoln_offense,
@@ -212,6 +287,7 @@ def run_from_pipeline(out_dir: str, *, only_lincoln_offense: bool = False,
         exclude_phase=exclude_phase,
         min_side_conf=min_side_conf,
         csv_out=csv_out,
+        use_raw_side=use_raw_side,
     )
     return _run(args)
 
@@ -221,6 +297,7 @@ def parse_args() -> argparse.Namespace:  # pragma: no cover - CLI helper
     ap.add_argument("out_dir")
     ap.add_argument("--only-lincoln-offense", action="store_true")
     ap.add_argument("--only-lincoln-defense", action="store_true")
+    ap.add_argument("--use-raw-side", action="store_true", help="use lincoln_side not *_final")
     ap.add_argument("--exclude-phase", default="special_teams,unknown")
     ap.add_argument("--min-side-conf", type=float, default=0.40)
     ap.add_argument("--csv-out", default=None)
