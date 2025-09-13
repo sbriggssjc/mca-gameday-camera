@@ -57,6 +57,53 @@ def infer_outcome(mag_p95):
     if mag_p95 <= 0.25: return "negative"
     return "neutral"
 
+
+def guess_formation(row):
+    form = str(row.get("off_form", "")).lower()
+    known = {"under_center","pistol","shotgun","empty","heavy","twins","trips","bunch","tight"}
+    if form in known:
+        return form
+    qb = str(row.get("qb_align", "")).lower()
+    if qb in known:
+        return qb
+    return "unknown"
+
+
+def guess_run_dir(row, dir_guess, rp_guess):
+    if rp_guess == "run" or row.get("is_run"):
+        if dir_guess in ("left", "right"):
+            return dir_guess
+        return "middle"
+    return "unknown"
+
+
+def guess_pass_family(row, rp_guess):
+    if rp_guess != "pass" and not row.get("is_pass"):
+        return "unknown"
+    if row.get("play_action"):
+        return "play_action"
+    if row.get("screen_pass"):
+        return "screen"
+    if row.get("rollout"):
+        return "rollout"
+    if row.get("rpo"):
+        return "rpo"
+    if row.get("quick_game"):
+        return "quick"
+    return "dropback"
+
+
+def estimate_gain(row):
+    for k in ("gained_yards", "gain", "yards", "yards_gained"):
+        v = row.get(k)
+        if isinstance(v, (int, float)):
+            return float(v)
+    s = row.get("start_yd") or row.get("start_yardline")
+    e = row.get("end_yd") or row.get("end_yardline")
+    if isinstance(s, (int, float)) and isinstance(e, (int, float)):
+        return float(e) - float(s)
+    return 0.0
+
 def process_jsonl(out_dir):
     out = pathlib.Path(out_dir)
     p = out / "plays.jsonl"
@@ -82,6 +129,10 @@ def process_jsonl(out_dir):
             else: pl["is_run"]=None; pl["is_pass"]=None
         pl["auto_outcome"] = outc
         pl["auto_flow"] = feats
+        pl["off_form"] = guess_formation(pl)
+        pl["run_dir"] = guess_run_dir(pl, dir_guess, rp_guess)
+        pl["pass_family"] = guess_pass_family(pl, rp_guess)
+        pl["gained_yards"] = estimate_gain(pl)
         updated.append(pl)
         print(f"[autotag] {i}/{len(rows)} {pathlib.Path(src).name}: dir={pl['direction']} rp={rp_guess} outcome={outc}")
     # write back

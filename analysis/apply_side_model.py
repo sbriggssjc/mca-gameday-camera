@@ -1,56 +1,62 @@
 from __future__ import annotations
 import json, pathlib, numpy as np, sys
 
-def load_model(out):
-    m=json.loads((out/"side_model.json").read_text())
-    return m
 
-def load_feats(out):
+def load_model(out: pathlib.Path):
+    p = out/"side_model.json"
+    if not p.exists():
+        raise FileNotFoundError("side_model.json not found")
+    return json.loads(p.read_text())
+
+
+def load_feats(out: pathlib.Path):
     return json.loads((out/"features.json").read_text())
 
-def predict_one(f, M):
-    if not f or not f.get("ok"):
-        return "unknown", 0.25
-    x=np.array([float(f.get(k,0.0)) for k in M["feats"]], dtype=np.float32)
-    mu=np.array(M["mu"]); sigma=np.array(M["sigma"])
-    xn=(x-mu)/sigma
-    W=np.array(M["W"]); b=np.array(M["b"])
-    z = xn.dot(W)+b
-    z = z - z.max()
-    e=np.exp(z); p=e/np.sum(e)
-    idx=int(np.argmax(p)); return M["classes"][idx], float(p[idx])
 
-def apply(out_dir: pathlib.Path):
+def apply(out_dir: str | pathlib.Path = "output"):
     out = pathlib.Path(out_dir)
-    if not (out/"side_model.json").exists():
-        print("[apply_model] no side_model.json; skipping apply")
-        return
-    model=load_model(out); feat=load_feats(out)
-    p=out/"plays.jsonl"; rows=[json.loads(x) for x in p.read_text().splitlines() if x.strip()]
-    upd=[]
-    for r in rows:
-        src=r.get("src"); f=feat.get(src)
-        lab, conf = predict_one(f, model)
-        # precedence: manual override (seed_labels.json) will be picked up later by reclassifier
-        r["lincoln_side_model"]=lab; r["lincoln_side_model_conf"]=conf
-        upd.append(r)
-    with p.open("w") as w:
-        for r in upd: w.write(json.dumps(r, ensure_ascii=False)+"\n")
+    model = load_model(out)
+    feat = load_feats(out)
+
+    import numpy as np, json
+    rows = feat["rows"]
+    X = np.array(feat["X"], dtype=float)
+
+    # only centroid model right now
+    cents = {k: np.array(v, dtype=float) for k, v in model["centroids"].items()}
+    classes = list(cents.keys())
+
+    preds = []
+    for i in range(len(rows)):
+        dists = {c: float(np.linalg.norm(X[i] - cents[c])) for c in classes}
+        # smaller distance = higher confidence
+        best = min(dists, key=dists.get)
+        # normalize to a [0,1] proxy confidence
+        inv = {c: 1.0 / (d + 1e-6) for c, d in dists.items()}
+        total = sum(inv.values())
+        conf = inv[best] / total if total else 0.5
+        preds.append((best, conf))
+
+    # write back into plays.jsonl (lincoln_side_pred / _conf)
+    p = out/"plays.jsonl"
+    lines = [json.loads(x) if x.strip().startswith("{") else x
+             for x in p.read_text().splitlines()]
+    j = 0
+    new_lines = []
+    for line in lines:
+        if isinstance(line, dict):
+            if j < len(preds):
+                side, conf = preds[j]
+                line["lincoln_side_pred"] = side
+                line["lincoln_side_pred_conf"] = round(conf, 4)
+                j += 1
+            new_lines.append(json.dumps(line))
+        else:
+            new_lines.append(line if isinstance(line, str) else json.dumps(line))
+    p.write_text("\n".join(new_lines))
     print("[apply_model] wrote model predictions")
 
-def main():
-    out_arg = sys.argv[1] if len(sys.argv) > 1 else ""
-    out = pathlib.Path(out_arg) if out_arg else pathlib.Path("output")
 
-    plays_path = out / "plays.jsonl"
-    if not plays_path.exists():
-        raise SystemExit(
-            f"[apply_model] plays.jsonl not found at '{plays_path}'. "
-            "Tip: verify OUT matches your pipeline run (e.g., OUT=output/opponent_lincoln_20250912) "
-            "and call: python -m analysis.apply_side_model \"$OUT\""
-        )
+if __name__ == "__main__":
+    apply(sys.argv[1] if len(sys.argv) > 1 else "output")
 
-    apply(out)
-
-if __name__=="__main__":
-    main()
