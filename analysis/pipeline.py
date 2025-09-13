@@ -1571,11 +1571,11 @@ def main(argv=None) -> None:
         from pathlib import Path
         outp = Path(args.out)
         if (outp/"seed_labels.json").exists():
+            from .train_side_model import main as train_model
+            from .apply_side_model import apply as apply_model
             try:
-                from .train_side_model import main as train_model
-                train_model(args.out)
-                from .apply_side_model import apply as apply_model
-                apply_model(args.out)
+                train_model(str(args.out))
+                apply_model(str(args.out))
             except Exception as e:
                 print(f"[warn] side model failed: {e}")
         try:
