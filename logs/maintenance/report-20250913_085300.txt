@@ -1,0 +1,4 @@
+[report] Report time: Sat Sep 13 08:53:00 AM CDT 2025
+[report] Version: purge_and_upload.sh v1.0.0
+[report] CLI: purge_and_upload.sh --days 7 --dry-run 
+[purge] Selecting files older than 7 days
