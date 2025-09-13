@@ -1,72 +1,65 @@
 from __future__ import annotations
 import json, pathlib, numpy as np, sys
 
-CLASSES=["offense","defense","special_teams"]
-FEATS=["black_ratio","white_ratio","mag_med","mag_p90","vx_med","vy_med","vy_std","color_lead","n1","a1","n4","a4"]
 
-def load_feats(out):
-    feat=json.loads((out/"features.json").read_text())
-    return feat
+def load_feats(out: pathlib.Path):
+    return json.loads((out/"features.json").read_text())
 
-def load_seeds(out):
-    seeds=json.loads((out/"seed_labels.json").read_text())
-    return seeds
 
-def build_XY(feat, seeds):
-    X=[]; y=[]
-    for src,lab in seeds.items():
-        f=feat.get(src); 
-        if not f or not f.get("ok"): continue
-        X.append([float(f.get(k,0.0)) for k in FEATS])
-        y.append(CLASSES.index(lab))
-    X=np.array(X, dtype=np.float32); y=np.array(y, dtype=np.int64)
-    return X,y
+def load_seeds(out: pathlib.Path):
+    p = out/"seed_labels.json"
+    return {} if not p.exists() else json.loads(p.read_text())
 
-def normalize(X):
-    mu=X.mean(axis=0); sigma=X.std(axis=0)+1e-6
-    return (X-mu)/sigma, mu, sigma
 
-def softmax(z):
-    z=z - z.max(axis=1, keepdims=True)
-    e=np.exp(z); return e/np.sum(e,axis=1,keepdims=True)
+def save_model(out: pathlib.Path, model):
+    (out/"side_model.json").write_text(json.dumps(model))
 
-def train_softmax(X,y,lr=0.05,epochs=400,lam=1e-3):
-    N,D=X.shape; C=len(CLASSES)
-    W=np.zeros((D,C), dtype=np.float32); b=np.zeros((C,), dtype=np.float32)
-    Y=np.eye(C, dtype=np.float32)[y]
-    for _ in range(epochs):
-        S=X.dot(W)+b
-        P=softmax(S)
-        gradW = X.T.dot(P - Y)/N + lam*W
-        gradb = (P - Y).mean(axis=0)
-        W -= lr*gradW; b -= lr*gradb
-    return W,b
 
-def save_model(out, mu,sigma,W,b):
-    model={"mu":mu.tolist(),"sigma":sigma.tolist(),"W":W.tolist(),"b":b.tolist(),"classes":CLASSES,"feats":FEATS}
-    (out/"side_model.json").write_text(json.dumps(model, indent=2))
-    print("[train] wrote", out/"side_model.json")
+def train(out_dir: str | pathlib.Path = "output"):
+    out = pathlib.Path(out_dir)
+    feat = load_feats(out)
+    seeds = load_seeds(out)
 
-def main():
-    out_arg = sys.argv[1] if len(sys.argv) > 1 else ""
-    out = pathlib.Path(out_arg) if out_arg else pathlib.Path("output")
-
-    plays_path = out / "plays.jsonl"
-    if not plays_path.exists():
-        raise SystemExit(
-            f"[train] plays.jsonl not found at '{plays_path}'. "
-            "Tip: verify OUT matches your pipeline run (e.g., OUT=output/opponent_lincoln_20250912) "
-            "and call: python -m analysis.train_side_model \"$OUT\""
-        )
-
-    feat=load_feats(out); seeds=load_seeds(out)
-    X,y=build_XY(feat,seeds)
-    if len(y) < 3 or (len(set(y)) < 2):
+    # need seeds across >=2 classes
+    labels = set(seeds.values())
+    if len(seeds) < 3 or len(labels) < 2:
         print("[train] need >=3 total seed examples across >=2 classes")
-        return
-    Xn,mu,sigma=normalize(X)
-    W,b=train_softmax(Xn,y,lr=0.05,epochs=800,lam=1e-3)
-    save_model(out,mu,sigma,W,b)
+        return None
 
-if __name__=="__main__":
-    main()
+    # very small/shallow model: per-class centroids in feature space
+    import numpy as np
+    X = []
+    y = []
+    src_to_idx = {row["src"]: i for i, row in enumerate(feat["rows"])}
+    for src, lab in seeds.items():
+        idx = src_to_idx.get(src)
+        if idx is None:
+            continue
+        X.append(feat["X"][idx])
+        y.append(lab)
+    if len(set(y)) < 2:
+        print("[train] insufficient class variety after mapping seeds")
+        return None
+
+    X = np.array(X, dtype=float)
+    y = np.array(y)
+    classes = sorted(set(y))
+    centroids = {}
+    for c in classes:
+        centroids[c] = np.mean(X[y == c], axis=0).tolist()
+
+    model = {"type": "centroid", "classes": classes, "centroids": centroids}
+    save_model(out, model)
+    print(f"[train] wrote {out/'side_model.json'}")
+    return model
+
+
+# Keep old zero-arg entrypoint but make it call the new API
+def main(out_dir: str = "output"):
+    return train(out_dir)
+
+
+if __name__ == "__main__":
+    out = sys.argv[1] if len(sys.argv) > 1 else "output"
+    main(out)
+

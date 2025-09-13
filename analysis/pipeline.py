@@ -1589,10 +1589,10 @@ def main(argv=None) -> None:
         except Exception as e:
             print(f"[warn] autotag failed: {e}")
         try:
-            from .phase_classify import apply as phase_apply
+            from .phase import apply as phase_apply
             phase_apply(args.out)
         except Exception as e:
-            print(f"[warn] phase_classify failed: {e}")
+            print(f"[warn] phase step failed: {e}")
         try:
             from .sequence_smooth import smooth as seq_smooth
             seq_smooth(args.out)
