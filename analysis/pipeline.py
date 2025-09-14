@@ -7,7 +7,7 @@ values. Flag and value styles are mutually exclusive to avoid ambiguity.
 
 from __future__ import annotations
 
-import os, sys, json, pathlib, argparse, csv, subprocess, logging, re, types, io
+import os, sys, json, pathlib, argparse, csv, subprocess, logging, re, types, io, warnings
 from collections import Counter
 import html
 
@@ -61,6 +61,27 @@ def _probe_vidstab() -> bool:
         data = proc.stdout + proc.stderr
         _HAS_VIDSTAB = "vidstabdetect" in data and "vidstabtransform" in data
     return _HAS_VIDSTAB
+
+
+class _DeprecatedFlag(argparse.Action):
+    """argparse action that warns once when a deprecated flag is used."""
+
+    _warned: dict[str, bool] = {}
+
+    def __init__(self, option_strings, dest, *, new_flag: str, **kwargs):
+        super().__init__(option_strings, dest, nargs=0, **kwargs)
+        self.new_flag = new_flag
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        key = option_string or self.option_strings[0]
+        if not self._warned.get(key):
+            warnings.warn(
+                f"{key} is deprecated; use {self.new_flag}",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._warned[key] = True
+        setattr(namespace, self.dest, True)
 
 
 def _ffmpeg(*args: str) -> subprocess.CompletedProcess:
@@ -1505,7 +1526,8 @@ def main(argv=None) -> None:
     p.add_argument(
         "--report",
         dest="generate_report",
-        action="store_true",
+        action=_DeprecatedFlag,
+        new_flag="--generate-report",
         help=argparse.SUPPRESS,
     )
     p.add_argument(
@@ -1517,7 +1539,8 @@ def main(argv=None) -> None:
     p.add_argument(
         "--clips",
         dest="generate_clips",
-        action="store_true",
+        action=_DeprecatedFlag,
+        new_flag="--generate-clips",
         help=argparse.SUPPRESS,
     )
     p.add_argument(
