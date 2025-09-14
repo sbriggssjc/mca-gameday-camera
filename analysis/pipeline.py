@@ -1156,9 +1156,9 @@ def run_pipeline(
             # New aerial replay and enhancement pipeline
             src_mp4 = mp4
             if enhance_level != "none":
-                from .enhance import enhance_pipeline, PRESETS
+                from .enhance import enhance_pipeline, preset_from_level
 
-                steps = PRESETS.get(enhance_level, [])
+                steps = preset_from_level(enhance_level)
                 enh_mp4 = os.path.join(pdir, f"{pid}_enh.mp4")
                 enhance_pipeline(src_mp4, enh_mp4, steps)
                 r["enhanced_path"] = enh_mp4
