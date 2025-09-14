@@ -1,0 +1,20 @@
+detection:
+  model: yolov8n
+  conf: 0.35
+  stride: 1
+tracking:
+  method: bytetrack
+  max_lost: 20
+homography:
+  mode: auto
+  field:
+    width_yd: 53.3
+    length_yd: 120
+render:
+  fps: 30
+  theme: light
+  show_paths: true
+  show_numbers: true
+enhance:
+  fast: [stabilize, color_tune]
+  max: [stabilize, superres, deblur, color_tune]

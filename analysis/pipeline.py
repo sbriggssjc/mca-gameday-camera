@@ -705,6 +705,13 @@ def run_pipeline(
     zoom_margin: float = 0.15,
     zoom_smooth: float = 0.85,
     field_mask: str | None = "auto",
+    *,
+    aerial: bool = False,
+    aerial_mode: str = "auto",
+    aerial_theme: str = "light",
+    side_by_side: bool = True,
+    enhance_level: str = "none",
+    role_labeling: str = "basic",
 ) -> str:
     video = os.path.abspath(video)
     out_dir = os.path.abspath(out_dir)
@@ -1134,6 +1141,35 @@ def run_pipeline(
                 )
                 logging.info(f"[autozoom] {pid} -> {os.path.basename(zoom_mp4)}")
 
+            # New aerial replay and enhancement pipeline
+            src_mp4 = mp4
+            if enhance_level != "none":
+                from .enhance import enhance_pipeline, PRESETS
+
+                steps = PRESETS.get(enhance_level, [])
+                enh_mp4 = os.path.join(pdir, f"{pid}_enh.mp4")
+                enhance_pipeline(src_mp4, enh_mp4, steps)
+                r["enhanced_path"] = enh_mp4
+                src_mp4 = enh_mp4
+
+            if aerial:
+                from .aerial_renderer import FieldTrack, render
+                from .stack_side_by_side import stack
+
+                aerial_mp4 = os.path.join(pdir, f"{pid}_aerial.mp4")
+                # Minimal placeholder: render a single stationary point
+                track = FieldTrack(track_id="0", points=[(26.65, 60.0)])
+                render([track], aerial_mp4, theme=aerial_theme)
+                r["aerial_path"] = aerial_mp4
+
+                if side_by_side:
+                    stacked = os.path.join(pdir, f"{pid}_stacked.mp4")
+                    if stack(src_mp4, aerial_mp4, stacked):
+                        r["stacked_path"] = stacked
+                        src_mp4 = stacked
+                metrics = r.setdefault("metrics", {})
+                metrics["aerial_ok"] = True
+
             # Add a symlink with the predicted play name for easier review
             canon = r.get("clf_top1_canon") or r.get("play_family") or ""
             safe = _safe_name(canon).replace(" ", "_")
@@ -1485,26 +1521,53 @@ def main(argv=None) -> None:
     )
     p.add_argument("--debug-weak", action="store_true")
 
-    p.add_argument("--enhance", action="store_true", help="enhance exported clips")
+    # New aerial replay flags
     p.add_argument(
-        "--enhance-zoom", type=float, default=0.95, help="zoom factor for enhancement"
+        "--aerial",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=False,
+        help="generate 2D aerial replay alongside clips",
     )
     p.add_argument(
-        "--enhance-stabilize",
+        "--aerial-mode",
+        choices=["auto", "manual"],
+        default="auto",
+        help="homography estimation mode",
+    )
+    p.add_argument(
+        "--aerial-theme",
+        choices=["light", "dark"],
+        default="light",
+        help="color theme for aerial render",
+    )
+    p.add_argument(
+        "--side-by-side",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=None,
+        help="stack original/enhanced and aerial views",
+    )
+    p.add_argument(
+        "--enhance",
+        dest="enhance_level",
+        choices=["none", "fast", "max"],
+        default="none",
+        help="apply enhancement pipeline preset",
+    )
+    p.add_argument(
+        "--role-labeling",
+        choices=["off", "basic"],
+        default="basic",
+        help="role labelling strategy for aerial view",
+    )
+    p.add_argument(
+        "--auto-zoom",
         action="store_true",
-        help="apply stabilization if vid.stab filters are available",
+        help="auto crop/zoom clips",
     )
-    p.add_argument(
-        "--enhance-bitrate",
-        default="10M",
-        help="target bitrate for enhanced clips",
-    )
-    p.add_argument(
-        "--enhance-meta-zoom",
-        action="store_true",
-        help="set zoom from clip metadata if available",
-    )
-    p.add_argument("--auto-zoom", action="store_true", help="auto crop/zoom clips")
     p.add_argument("--zoom-max", type=float, default=1.8, help="max zoom factor")
     p.add_argument("--zoom-min", type=float, default=1.1, help="min zoom factor")
     p.add_argument(
@@ -1649,6 +1712,12 @@ def main(argv=None) -> None:
         zoom_margin=args.zoom_margin,
         zoom_smooth=args.zoom_smooth,
         field_mask=args.field_mask,
+        aerial=args.aerial,
+        aerial_mode=args.aerial_mode,
+        aerial_theme=args.aerial_theme,
+        side_by_side=args.side_by_side if args.side_by_side is not None else args.aerial,
+        enhance_level=args.enhance_level,
+        role_labeling=args.role_labeling,
     )
 
 
