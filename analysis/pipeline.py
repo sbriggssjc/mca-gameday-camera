@@ -1593,7 +1593,7 @@ def main(argv=None) -> None:
         "--enhance",
         choices=["none", "fast", "max"],
         default="none",
-        help="Video clarity pipeline: none (default), fast (stabilize+color), max (stabilize+superres+deblur+color).",
+        help="Video clarity: none, fast (stabilize+color), max (stabilize+superres+deblur+color).",
     )
     p.add_argument(
         "--role-labeling",
@@ -1642,6 +1642,24 @@ def main(argv=None) -> None:
     p.set_defaults(require_classifier=True)
     args = p.parse_args(argv)
 
+    # --- BEGIN legacy enhance flags shim ---
+    # Map the new single preset to old per-step booleans so older call sites keep working.
+    # fast  → stabilize + color
+    # max   → stabilize + superres + deblur + color
+    # none  → no steps
+
+    preset = getattr(args, "enhance", "none")
+
+    def _ensure_flag(name, value):
+        if not hasattr(args, name):
+            setattr(args, name, value)
+
+    _ensure_flag("enhance_stabilize", preset in ("fast", "max"))
+    _ensure_flag("enhance_color",     preset in ("fast", "max"))
+    _ensure_flag("enhance_superres",  preset == "max")
+    _ensure_flag("enhance_deblur",    preset == "max")
+    # --- END legacy enhance flags shim ---
+
     from .core.config import load_config
     from .core.log_utils import init_logger
 
@@ -1655,7 +1673,7 @@ def main(argv=None) -> None:
     logger.info("[pipeline] config: %s", json.dumps(cfg, sort_keys=True))
 
     cfg = dict(vars(args))
-    cfg["enhance_level"] = args.enhance
+    cfg["enhance_level"] = preset
     print(f"[pipeline] config: {json.dumps(cfg, sort_keys=True)}")
 
 
