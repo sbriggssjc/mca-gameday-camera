@@ -79,7 +79,15 @@ def main() -> None:
     p.add_argument("--headless", action="store_true", help="dump a calibration frame and exit")
     p.add_argument("--corners", help="comma-separated TLx,TLy,TRx,TRy,BRx,BRy,BLx,BLy")
     p.add_argument("--video", help="video file for headless snapshot")
-    p.add_argument("--source", default="/dev/video0", help="video device or file")
+    p.add_argument(
+        "--source",
+        type=str,
+        default=None,
+        help=(
+            "Path to a video file (preferred) or image to sample for "
+            "calibration UI."
+        ),
+    )
     p.add_argument(
         "--save-to",
         default=field_calibration.DEFAULT_CALIB_PATH,
@@ -131,6 +139,12 @@ def main() -> None:
 
     # ------------------------------------------------------------------
     # We need a frame from the source for interactive calibration
+    if args.source is None:
+        print(
+            "[calibrate_field] No --source provided; falling back to default "
+            "capture device or sample.",
+            flush=True,
+        )
     cam = FrameCapture(args.source)
     cam.warmup(0.5)
     frame, _ = cam.read()
