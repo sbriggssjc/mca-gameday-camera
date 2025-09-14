@@ -8,14 +8,14 @@ This project uses a single playbook at `playbooks/mca_5th_playbook.json`.
 
 ## First-time setup
 
-Run the field calibration once to generate a homography file:
+### Field calibration (once per field)
 
 ```bash
 python -m tools.calibrate_field
+# click the 4 corners → writes configs/field_homography.json
 ```
 
-Click the four field corners to save `configs/field_homography.json`,
-then start the system with:
+Then start the system with:
 
 ```bash
 ./scripts/gameday
@@ -55,9 +55,58 @@ python -m analysis.pipeline \
   --aerial true --enhance fast
 ```
 
+### Prereqs (Aerial/Enhance)
+
+```bash
+pip install -r requirements-aerial.txt
+```
+
+Optional tools:
+
+- `realesrgan-ncnn-vulkan` (if present → enables super-resolution)
+- `tesseract` (if present → jersey OCR)
+
+All optional tools are auto-detected; pipeline skips unavailable steps gracefully.
+
+**Key flags**
+
+- `--aerial` – render a 2‑D replay
+- `--aerial-mode auto|manual`
+- `--aerial-theme light|dark`
+- `--side-by-side` – export original/enhanced next to 2‑D
+- `--enhance none|fast|max`
+- `--role-labeling off|basic`
+
+### Windows example
+
+```powershell
+$OUT = "output\lincoln_christian_coachcut"
+py -m analysis.pipeline `
+  --video "C:\\Users\\scott\\OneDrive\\Desktop\\Personal\\Coaching\\Tackle Football\\Video Library\\Game 3 - Lincoln\\Clipped and Zoomed - Lincoln Christian.mp4" `
+  --team "MCA 5th (White)" `
+  --playbook "playbooks\\mca_5th_playbook.json" `
+  --out "$OUT" `
+  --generate-clips `
+  --aerial true --aerial-mode auto --side-by-side true `
+  --enhance fast
+```
+
 This writes `aerial_*.mp4` files next to each play clip and, when `--side-by-side`
 is enabled (the default when `--aerial` is true), produces a combined
-`stacked_*.mp4` for convenient viewing.
+`stacked_*.mp4` for convenient viewing. Additional outputs are listed below.
+
+### Outputs
+
+- `aerial_*.mp4` – 2‑D replay
+- `stacked_*.mp4` – side-by-side original/enhanced + 2‑D
+- `aerial_*.svg/png` – static paths for coach handouts
+- New fields in `plays.jsonl`: `aerial_path`, `enhanced_path`, `stacked_path`
+
+### Troubleshooting
+
+- If auto homography fails, run `python -m tools.calibrate_field` once and re-run.
+- If super-resolution is missing, the pipeline still runs (skips that step).
+- If YouTube still shows a **Go Live** button, see the Auto-start/Auto-stop notes above.
 * **STREAM_KEY format looks invalid** – verify the key matches the alphanumeric-with-dashes format provided by YouTube.
 
 ## YouTube auto-start/stop
