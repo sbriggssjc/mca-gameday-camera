@@ -7,8 +7,11 @@ matplotlib
 shapely
 filterpy
 lapx ; sys_platform != "win32"
+# alt: lapx @ git+https://github.com/erickw515/lapx.git
 norfair
-onnxruntime-gpu ; platform_system != "Darwin"
-onnxruntime ; platform_system == "Darwin"
+onnxruntime-gpu ; platform_system == "Linux" and platform_machine == "x86_64"
+onnxruntime     ; platform_system == "Linux" and platform_machine == "aarch64"
+onnxruntime     ; platform_system == "Darwin"
+# optional (jersey OCR; pipeline skips if not present)
 pytesseract
 tqdm
