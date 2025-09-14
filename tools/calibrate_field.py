@@ -2,8 +2,10 @@
 
 Grabs a 4K frame from the primary capture device, lets the user click
 four field corners, saves the homography JSON, and overlays yardline
-and hash mark guides for validation. It also supports a headless mode
-for remote servers.
+and hash mark guides for validation.
+
+When ``DISPLAY`` is unavailable, ``--headless`` can be used to dump a
+frame for manual corner entry via ``--corners``.
 """
 
 from __future__ import annotations
@@ -21,6 +23,8 @@ from analysis.camera.capture import FrameCapture
 from analysis.vision import field_calibration
 
 log = logging.getLogger(__name__)
+
+DEFAULT_SAMPLE = "out.flv"
 
 
 # ---------------------------------------------------------------------------
@@ -72,11 +76,9 @@ def _reprojection_error(
 # ---------------------------------------------------------------------------
 def main() -> None:
     p = argparse.ArgumentParser(description="Calibrate the field")
-    p.add_argument(
-        "--points",
-        help="space-separated pixel coords x1,y1 x2,y2 x3,y3 x4,y4",
-    )
-    p.add_argument("--headless", action="store_true", help="run without a GUI")
+    p.add_argument("--headless", action="store_true", help="dump a calibration frame and exit")
+    p.add_argument("--corners", help="comma-separated TLx,TLy,TRx,TRy,BRx,BRy,BLx,BLy")
+    p.add_argument("--video", help="video file for headless snapshot")
     p.add_argument("--source", default="/dev/video0", help="video device or file")
     p.add_argument(
         "--save-to",
@@ -86,12 +88,21 @@ def main() -> None:
     args = p.parse_args()
 
     # ------------------------------------------------------------------
-    # Calibration from provided points: avoid touching the camera
-    if args.points:
+    # Calibration from provided corners: avoid touching the camera
+    if args.corners:
+        parts = [p.strip() for p in args.corners.split(",") if p.strip()]
+        if len(parts) != 8:
+            raise SystemExit("--corners expects 8 comma-separated integers")
         try:
-            points = field_calibration.parse_points_str(args.points)
+            nums = [int(p) for p in parts]
         except ValueError as exc:
-            raise SystemExit(f"Invalid --points value: {exc}")
+            raise SystemExit(f"Invalid --corners value: {exc}")
+        points = [
+            (nums[0], nums[1]),
+            (nums[2], nums[3]),
+            (nums[4], nums[5]),
+            (nums[6], nums[7]),
+        ]
         result = field_calibration.calibrate_from_clicks(
             frame=None, headless=True, points=points, save_to=args.save_to
         )
@@ -103,7 +114,23 @@ def main() -> None:
         return
 
     # ------------------------------------------------------------------
-    # We need a frame from the source
+    if args.headless:
+        video = args.video or DEFAULT_SAMPLE
+        cap = cv2.VideoCapture(video)
+        ok, frame = cap.read()
+        cap.release()
+        if not ok or frame is None:
+            print(f"Failed to capture frame from {video}", file=sys.stderr)
+            raise SystemExit(1)
+        cv2.imwrite("calib_frame.png", frame)
+        print(
+            "Headless mode: open calib_frame.png on any machine, note the pixel coords of the 4 field corners (TL, TR, BR, BL), then re-run with:\n"
+            "python -m tools.calibrate_field --corners TLx,TLy,TRx,TRy,BRx,BRy,BLx,BLy"
+        )
+        return
+
+    # ------------------------------------------------------------------
+    # We need a frame from the source for interactive calibration
     cam = FrameCapture(args.source)
     cam.warmup(0.5)
     frame, _ = cam.read()
@@ -112,19 +139,9 @@ def main() -> None:
         print(f"Failed to capture frame from {args.source}", file=sys.stderr)
         raise SystemExit(1)
 
-    if args.headless:
-        snap_path = os.path.join("configs", "calib_frame.jpg")
-        os.makedirs(os.path.dirname(snap_path), exist_ok=True)
-        cv2.imwrite(snap_path, frame)
-        print(
-            f"Saved frame to {snap_path}. Use a pixel picker to collect points "
-            f"and re-run with --points 'x1,y1 x2,y2 x3,y3 x4,y4'."
-        )
-        return
-
     if not os.environ.get("DISPLAY"):
         raise RuntimeError(
-            "DISPLAY not set; OpenCV GUI not available. Use --headless or xvfb-run."
+            "DISPLAY not set; run with --headless to save a frame or use xvfb-run."
         )
     try:
         cv2.namedWindow("calibration", cv2.WINDOW_NORMAL)
