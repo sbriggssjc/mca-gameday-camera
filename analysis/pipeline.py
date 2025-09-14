@@ -679,6 +679,8 @@ def run_pipeline(
     team: str,
     playbook_path: str,
     out_dir: str,
+    *,
+    force: bool = False,
     play_ckpt: str | None = None,
     play_labels: str | None = None,
     formation_ckpt: str | None = None,
@@ -705,7 +707,6 @@ def run_pipeline(
     zoom_margin: float = 0.15,
     zoom_smooth: float = 0.85,
     field_mask: str | None = "auto",
-    *,
     aerial: bool = False,
     aerial_mode: str = "auto",
     aerial_theme: str = "light",
@@ -713,8 +714,19 @@ def run_pipeline(
     enhance_level: str = "none",
     role_labeling: str = "basic",
 ) -> str:
+    from .core.io_utils import job_dir
+
     video = os.path.abspath(video)
-    out_dir = os.path.abspath(out_dir)
+    jdir = job_dir(out_dir, create=False)
+    if jdir.exists():
+        if force:
+            import shutil
+
+            shutil.rmtree(jdir)
+            jdir = job_dir(out_dir, create=True)
+    else:
+        jdir = job_dir(out_dir, create=True)
+    out_dir = str(jdir)
 
     play_ckpt = os.path.abspath(
         play_ckpt
@@ -1464,6 +1476,10 @@ def main(argv=None) -> None:
     p.add_argument("--team", required=True)
     p.add_argument("--playbook", required=True)
     p.add_argument("--out", required=True)
+    p.add_argument("--config", default=None, help="optional YAML config file")
+    p.add_argument("--force", action="store_true", help="overwrite existing output")
+    p.add_argument("--log-level", default="INFO", help="logging level")
+    p.add_argument("--log-file", default=None, help="path to log file")
     p.add_argument("--play-ckpt", default="models/play_classifier/latest.pt")
     p.add_argument("--play-labels", default="models/play_classifier/labels.txt")
     p.add_argument("--formation-ckpt", default="models/formation/latest.pt")
@@ -1602,9 +1618,23 @@ def main(argv=None) -> None:
     )
     p.set_defaults(require_classifier=True)
     args = p.parse_args(argv)
+
+    from .core.config import load_config
+    from .core.log_utils import init_logger
+
+    cfg = load_config(vars(args))
+    global logger
+    logger = init_logger(
+        "pipeline",
+        level=getattr(logging, args.log_level.upper(), logging.INFO),
+        log_file=args.log_file,
+    )
+    logger.info("[pipeline] config: %s", json.dumps(cfg, sort_keys=True))
+
     cfg = dict(vars(args))
     cfg["enhance_level"] = args.enhance
     print(f"[pipeline] config: {json.dumps(cfg, sort_keys=True)}")
+
 
     if args.input_dir:
         from .ingest_dir import (
@@ -1687,6 +1717,7 @@ def main(argv=None) -> None:
         team=args.team,
         playbook_path=args.playbook,
         out_dir=args.out,
+        force=args.force,
         play_ckpt=args.play_ckpt,
         play_labels=args.play_labels,
         formation_ckpt=args.formation_ckpt,

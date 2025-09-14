@@ -1,61 +1,31 @@
+"""Deprecated configuration helpers.
+
+Use :mod:`analysis.core.config` instead.
+"""
 from __future__ import annotations
 
-import dataclasses
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
 import argparse
+import warnings
+from typing import Any, Dict
 
-try:
-    import yaml
-except Exception:  # pragma: no cover - fallback if YAML not installed
-    yaml = None  # type: ignore
-
-
-@dataclass
-class StreamConfig:
-    """Central configuration for streaming parameters."""
-
-    resolution: str = "640x480"
-    fps: int = 30
-    mic_device: str = "hw:1,0"
-    gain_boost: float = 3.0
-    stream_key: str = ""
-    encoder: str = "auto"
-    preset: str = "veryfast"
-    maxrate: str = "3000k"
-    bitrate: str = "2500k"
-    bufsize: str = "4000k"
-    camera: int = 0
-    model: str = "models/play_classifier/latest.pt"
-    train: bool = False
-    label: bool = False
-    force_ipv4: bool = False
+from analysis.core.config import load_config as _load_config, get_cfg as _get_cfg
 
 
-def load_config(path: str | None, args: argparse.Namespace) -> StreamConfig:
-    """Load configuration from YAML and apply CLI overrides.
+def load_config(path: str | None, args: argparse.Namespace) -> Dict[str, Any]:
+    """Compatibility wrapper for the new configuration loader."""
+    warnings.warn(
+        "Deprecated, use analysis.core.config.load_config",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    cli = vars(args) if args else {}
+    return _load_config(cli)
 
-    Parameters
-    ----------
-    path: str | None
-        Location of the YAML configuration file. If ``None`` or the file does
-        not exist, defaults are used.
-    args: argparse.Namespace
-        Parsed CLI arguments whose attributes override config values when set.
-    """
 
-    data: dict[str, Any] = {}
-    if path and yaml and Path(path).exists():
-        with open(path, "r", encoding="utf-8") as fp:
-            loaded = yaml.safe_load(fp) or {}
-            if isinstance(loaded, dict):
-                data.update(loaded)
-
-    config = StreamConfig(**data)
-
-    for field in dataclasses.fields(StreamConfig):
-        cli_val = getattr(args, field.name, None)
-        if cli_val is not None:
-            setattr(config, field.name, cli_val)
-    return config
+def get_config() -> Dict[str, Any]:
+    warnings.warn(
+        "Deprecated, use analysis.core.config.get_cfg",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _get_cfg()
