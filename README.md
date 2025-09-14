@@ -271,13 +271,17 @@ full game video, performs lightweight play recognition and writes summary
 artefacts. Run it with:
 
 ```bash
-python -m analysis.pipeline --video path/to/game.mp4 --team WHITE --playbook playbooks/mca_5th_playbook.json --out output/ --generate-report
+python -m analysis.pipeline --config config/defaults.yaml \
+    --video path/to/game.mp4 --team WHITE \
+    --playbook playbooks/mca_5th_playbook.json \
+    --out myjob --generate-report
 ```
 
 For a side-by-side 2-D aerial replay and optional clarity enhancements, see [Aerial replay pipeline](#aerial-replay-pipeline) and run with `--aerial true --enhance fast`.
 
-The command creates JSON lines files and, when `--generate-report` is used, a
-coach report under `output/reports/`.
+Results are written under `output/myjob/` with subdirectories such as
+`clips/` and `reports/`.  A legacy `outputs/` symlink is created
+automatically for older scripts.
 
 The coach summary report includes per-play tables and player grades. A
 sample output is generated during tests under `tests/data`.
@@ -1130,6 +1134,15 @@ python generate_hudl_csv.py --week 3 --opponent "Victory Christian"
 ```
 
 Use `--player 23` to limit rows to a specific jersey number.
+
+## Running tests
+
+The project includes a small smoke test for the analysis pipeline. Run all
+tests locally with:
+
+```bash
+pytest
+```
 
 ## MCA Film Analysis Pipeline
 

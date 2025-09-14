@@ -1,0 +1,6 @@
+# Default configuration values used by analysis.core.config
+output_root: output
+zoom_max: 1.8
+zoom_min: 1.1
+min_play_length: 3.0
+max_play_length: 12.0

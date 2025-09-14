@@ -1,18 +1,20 @@
 import os
 import json
 import subprocess
+import warnings
 from pathlib import Path
+
+from analysis.core import config as _core_config
 
 
 def load_env(dotenv_path: str = ".env") -> None:
-    p = Path(dotenv_path)
-    if p.exists():
-        for line in p.read_text().splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())
+    """Deprecated; configuration is now handled by ``analysis.core.config``."""
+    warnings.warn(
+        "Deprecated, use analysis.core.config.load_config",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    _core_config.load_config()
 
 
 def require(names):

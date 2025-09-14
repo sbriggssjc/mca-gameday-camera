@@ -4,8 +4,34 @@ import threading
 import os
 import shlex
 import time
+import warnings
 from datetime import datetime
 from typing import List, Optional, Tuple
+
+from analysis.core.media_utils import (
+    ffprobe_json as _core_ffprobe_json,
+    ffmpeg_cut as _core_ffmpeg_cut,
+)
+
+
+def ffprobe_json(path: str | os.PathLike[str]):
+    """Deprecated shim for :func:`analysis.core.media_utils.ffprobe_json`."""
+    warnings.warn(
+        "Deprecated, use analysis.core.media_utils.ffprobe_json",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _core_ffprobe_json(path)
+
+
+def ffmpeg_cut(src, start, end, dst, prefer_copy: bool = True):
+    """Deprecated shim for :func:`analysis.core.media_utils.ffmpeg_cut`."""
+    warnings.warn(
+        "Deprecated, use analysis.core.media_utils.ffmpeg_cut",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _core_ffmpeg_cut(src, start, end, dst, prefer_copy=prefer_copy)
 
 
 def _sanity_probe(name: str) -> bool:

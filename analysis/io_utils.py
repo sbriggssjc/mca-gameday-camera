@@ -1,40 +1,44 @@
 from __future__ import annotations
 
+"""Backward compatible wrappers for I/O helpers.
+
+Legacy modules import from :mod:`analysis.io_utils`.  The real
+implementations now live in :mod:`analysis.core.io_utils`.
+"""
+
 import hashlib
 import json
 import shutil
+import warnings
 from pathlib import Path
 from typing import Any, Dict
 from datetime import datetime
 from tools.json_io import load_json_safe
 
+from .core import io_utils as _core
+
 
 def ensure_dir(path: Path) -> None:
-    """Create ``path`` if it doesn't already exist."""
-    path.mkdir(parents=True, exist_ok=True)
+    warnings.warn("Deprecated, use analysis.core.io_utils.ensure_dir", DeprecationWarning)
+    _core.ensure_dir(path)
 
 
 def write_json(path: Path, obj: Dict[str, Any]) -> None:
-    """Write ``obj`` as formatted JSON to ``path``."""
-    ensure_dir(path.parent)
-    path.write_text(json.dumps(obj, indent=2))
+    warnings.warn("Deprecated, use analysis.core.io_utils.write_json", DeprecationWarning)
+    _core.write_json(path, obj)
 
 
 def append_jsonl(path: Path, obj: Dict[str, Any]) -> None:
-    """Append ``obj`` as a JSON line to ``path``."""
-    ensure_dir(path.parent)
-    with path.open("a", encoding="utf8") as f:
-        f.write(json.dumps(obj) + "\n")
+    warnings.warn("Deprecated, use analysis.core.io_utils.append_jsonl", DeprecationWarning)
+    _core.append_jsonl(path, obj)
 
 
 # ---------------------------------------------------------------------------
-# New helpers for stable output directories and metadata
+# Existing helpers kept here until migrated fully
 # ---------------------------------------------------------------------------
-
 
 def video_fingerprint(video_path: str) -> str:
     p = Path(video_path)
-    # Stable by content if cheap; fallback: name+size+mtime
     try:
         stat = p.stat()
         raw = f"{p.name}|{stat.st_size}|{int(stat.st_mtime)}"
@@ -44,7 +48,6 @@ def video_fingerprint(video_path: str) -> str:
 
 
 def canonical_outdir(base_out: str, video_path: str) -> Path:
-    # games/<basename-without-ext>__<sha>
     stem = Path(video_path).stem
     fp = video_fingerprint(video_path)
     return Path(base_out) / "games" / f"{stem}__{fp}"
@@ -76,4 +79,3 @@ __all__ = [
     "write_metadata",
     "load_metadata",
 ]
-
