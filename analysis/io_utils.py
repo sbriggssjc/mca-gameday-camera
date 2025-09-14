@@ -12,24 +12,37 @@ import shutil
 import warnings
 from pathlib import Path
 from typing import Any, Dict
-from datetime import datetime
 from tools.json_io import load_json_safe
 
 from .core import io_utils as _core
 
+_WARNED = False
+
+
+def _warn() -> None:
+    """Emit a deprecation warning once per process."""
+    global _WARNED
+    if not _WARNED:
+        warnings.warn(
+            "analysis.io_utils is deprecated; use analysis.core.io_utils",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        _WARNED = True
+
 
 def ensure_dir(path: Path) -> None:
-    warnings.warn("Deprecated, use analysis.core.io_utils.ensure_dir", DeprecationWarning)
+    _warn()
     _core.ensure_dir(path)
 
 
 def write_json(path: Path, obj: Dict[str, Any]) -> None:
-    warnings.warn("Deprecated, use analysis.core.io_utils.write_json", DeprecationWarning)
+    _warn()
     _core.write_json(path, obj)
 
 
 def append_jsonl(path: Path, obj: Dict[str, Any]) -> None:
-    warnings.warn("Deprecated, use analysis.core.io_utils.append_jsonl", DeprecationWarning)
+    _warn()
     _core.append_jsonl(path, obj)
 
 

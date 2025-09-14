@@ -1,11 +1,10 @@
 import logging
-import subprocess
-import threading
 import os
 import shlex
+import subprocess
+import threading
 import time
 import warnings
-from datetime import datetime
 from typing import List, Optional, Tuple
 
 from analysis.core.media_utils import (
@@ -13,24 +12,29 @@ from analysis.core.media_utils import (
     ffmpeg_cut as _core_ffmpeg_cut,
 )
 
+_WARNED = False
+
+
+def _warn() -> None:
+    global _WARNED
+    if not _WARNED:
+        warnings.warn(
+            "ffmpeg_utils is deprecated; use analysis.core.media_utils",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        _WARNED = True
+
 
 def ffprobe_json(path: str | os.PathLike[str]):
     """Deprecated shim for :func:`analysis.core.media_utils.ffprobe_json`."""
-    warnings.warn(
-        "Deprecated, use analysis.core.media_utils.ffprobe_json",
-        DeprecationWarning,
-        stacklevel=2,
-    )
+    _warn()
     return _core_ffprobe_json(path)
 
 
 def ffmpeg_cut(src, start, end, dst, prefer_copy: bool = True):
     """Deprecated shim for :func:`analysis.core.media_utils.ffmpeg_cut`."""
-    warnings.warn(
-        "Deprecated, use analysis.core.media_utils.ffmpeg_cut",
-        DeprecationWarning,
-        stacklevel=2,
-    )
+    _warn()
     return _core_ffmpeg_cut(src, start, end, dst, prefer_copy=prefer_copy)
 
 

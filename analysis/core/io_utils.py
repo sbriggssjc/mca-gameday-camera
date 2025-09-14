@@ -10,8 +10,22 @@ import json
 import os
 import shutil
 import tempfile
+import warnings
 from pathlib import Path
 from typing import Any, Iterable
+
+_OUTPUT_WARNED = False
+
+
+def _warn_outputs() -> None:
+    global _OUTPUT_WARNED
+    if not _OUTPUT_WARNED:
+        warnings.warn(
+            "'outputs/' is deprecated; use 'output/'",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        _OUTPUT_WARNED = True
 
 
 def ensure_dir(path: Path | str) -> Path:
@@ -63,13 +77,22 @@ def append_jsonl(path: Path | str, obj: Any) -> None:
         fh.write(json.dumps(obj) + "\n")
 
 
-def job_dir(job_name: str, create: bool = True) -> Path:
+def job_dir(job_name: str | os.PathLike[str], create: bool = True) -> Path:
     """Return the canonical output directory for ``job_name``.
 
-    Output directories live under ``output/<job_name>``.  A legacy
-    ``outputs`` directory is supported via symlink for backward
-    compatibility.
+    ``job_name`` may be a bare job identifier or a path under ``output`` or
+    ``outputs``.  Using ``outputs`` triggers a deprecation warning and is
+    redirected to ``output``.  A legacy ``outputs`` symlink is ensured for
+    external consumers.
     """
+    p = Path(job_name)
+    parts = p.parts
+    if parts and parts[0] == "outputs":
+        _warn_outputs()
+        p = Path(*parts[1:])
+    elif parts and parts[0] == "output":
+        p = Path(*parts[1:])
+
     root = Path("output")
     legacy = Path("outputs")
     if legacy.exists() and not root.exists():
@@ -81,12 +104,12 @@ def job_dir(job_name: str, create: bool = True) -> Path:
                 shutil.rmtree(legacy)
             legacy.symlink_to(root, target_is_directory=True)
     elif root.exists() and not legacy.exists():
-        # create legacy alias if required by external scripts
         try:
             legacy.symlink_to(root, target_is_directory=True)
         except FileExistsError:
             pass
-    jdir = root / job_name
+
+    jdir = root / p
     if create:
         ensure_dir(jdir)
         for sub in ("clips", "frames", "reports", "artifacts", "logs"):

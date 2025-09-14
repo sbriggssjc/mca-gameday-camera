@@ -6,14 +6,23 @@ from pathlib import Path
 
 from analysis.core import config as _core_config
 
+_WARNED = False
+
+
+def _warn() -> None:
+    global _WARNED
+    if not _WARNED:
+        warnings.warn(
+            "env_loader.load_env is deprecated; use analysis.core.config.load_config",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        _WARNED = True
+
 
 def load_env(dotenv_path: str = ".env") -> None:
     """Deprecated; configuration is now handled by ``analysis.core.config``."""
-    warnings.warn(
-        "Deprecated, use analysis.core.config.load_config",
-        DeprecationWarning,
-        stacklevel=2,
-    )
+    _warn()
     _core_config.load_config()
 
 
