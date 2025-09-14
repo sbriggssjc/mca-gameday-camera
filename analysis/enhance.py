@@ -7,6 +7,11 @@ import subprocess
 from typing import Iterable, List
 
 
+def is_tool_on_path(name: str) -> bool:
+    """Return ``True`` when ``name`` resolves via ``PATH``."""
+    return shutil.which(name) is not None
+
+
 def _run_ffmpeg(args: List[str]) -> int:
     return subprocess.run(["ffmpeg", "-y", *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode
 
@@ -26,13 +31,17 @@ def stabilize_ffmpeg(inp: str, out: str) -> bool:
     return True
 
 
+
 def superres_realesrgan(inp: str, out: str, scale: int = 2) -> bool:
     """Invoke ``realesrgan-ncnn-vulkan`` if available."""
 
-    exe = shutil.which("realesrgan-ncnn-vulkan")
-    if exe is None:
+    if not is_tool_on_path("realesrgan-ncnn-vulkan"):
         return False
-    ret = subprocess.run([exe, "-i", inp, "-o", out, f"-s{scale}"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    ret = subprocess.run(
+        ["realesrgan-ncnn-vulkan", "-i", inp, "-o", out, f"-s{scale}"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
     return ret.returncode == 0
 
 

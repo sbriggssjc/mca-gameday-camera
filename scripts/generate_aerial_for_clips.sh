@@ -1,11 +1,15 @@
 #!/bin/bash
-# Batch wrapper to generate aerial replays for a directory of clips.
-DIR="$1"
-shift
-if [ -z "$DIR" ]; then
-  echo "usage: $0 CLIP_DIR [--enhance fast|max]" >&2
-  exit 1
+# Generate aerial replays for clips under out/clips. No-op on Windows.
+case "$(uname -s)" in
+  *MINGW*|*MSYS*|*CYGWIN*|*Windows*) exit 0;;
+ esac
+
+ENHANCE=""
+if [[ "$1" == "--enhance" ]]; then
+  ENHANCE="--enhance fast"
 fi
-for clip in $(find "$DIR" -type f -name '*.mp4'); do
-  python -m analysis.pipeline --video "$clip" --team "" --playbook "" --out "$(dirname "$clip")" --aerial true "$@"
+
+shopt -s globstar nullglob
+for clip in out/clips/**/*.mp4; do
+  python -m analysis.pipeline --video "$clip" --team "" --playbook "" --out "$(dirname "$clip")" --aerial true $ENHANCE
 done
