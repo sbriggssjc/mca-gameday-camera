@@ -736,8 +736,18 @@ def run_pipeline(
     role_labeling: str = "basic",
 ) -> str:
     from .core.io_utils import job_dir
+    import logging, cv2
 
     video = os.path.abspath(video)
+    logging.info("[stage] open_video: %s", video)
+    cap = cv2.VideoCapture(video)
+    if not cap.isOpened():
+        logging.error("[stage] open_video FAILED: %s", video)
+        return ""
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    nframes = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    logging.info("[stage] video_opened fps=%.2f frames=%d", fps, nframes)
+    cap.release()
     jdir = job_dir(out_dir, create=False)
     if jdir.exists():
         if force:
@@ -867,6 +877,7 @@ def run_pipeline(
                 "[classifier] disabled (--require-classifier=false)"
             )
 
+        logging.info("[stage] clip_finder:start")
         segments = segment_video(
             video,
             min_play_length=min_play_length,
@@ -1005,6 +1016,9 @@ def run_pipeline(
         root_logger.removeHandler(pre_log_handler)
         pre_log_lines = pre_log_stream.getvalue().splitlines()
 
+    logging.info("[stage] clip_finder:found %d clips", len(rows))
+    clips = rows
+
     # Only create output paths after classifier init succeeds
     run_dir = os.path.join(out_dir, "games", f"{_safe_name(tag)}__{short}")
     report_dir = os.path.join(run_dir, "report")
@@ -1097,7 +1111,9 @@ def run_pipeline(
     _write_warnings(report_dir, torch_info, device_info, model_paths, unmapped_counts, all_warnings)
 
     if generate_clips:
-        for r in rows:
+        for i, r in enumerate(clips):
+            logging.info("[stage] clip[%d]: %s", i, r.get("play_id"))
+            logging.info("[stage] detect:start clip[%d]", i)
             pid = r["play_id"]
             pdir = os.path.join(run_dir, "clips", pid)
             os.makedirs(pdir, exist_ok=True)
@@ -1134,7 +1150,9 @@ def run_pipeline(
                     mp4,
                 )
             r["clip_path"] = mp4
+            logging.info("[stage] detect:done clip[%d]", i)
 
+            logging.info("[stage] enhance:%s clip[%d]", "on" if enhance_flag else "off", i)
             if enhance_flag:
                 if do_enhance:
                     zoom_val = enhance
@@ -1159,6 +1177,7 @@ def run_pipeline(
                     )
                     r["enhanced_path"] = enh_mp4
                     src_mp4 = enh_mp4
+            logging.info("[stage] enhance:done clip[%d]", i)
 
             if auto_zoom:
                 from .autozoom import enhance_clip as autozoom_clip
@@ -1180,6 +1199,7 @@ def run_pipeline(
             src_mp4 = mp4
 
             if aerial:
+                logging.info("[stage] aerial:start clip[%d]", i)
                 from .aerial_renderer import FieldTrack, render
                 from .stack_side_by_side import stack
 
@@ -1190,12 +1210,15 @@ def run_pipeline(
                 r["aerial_path"] = aerial_mp4
 
                 if side_by_side:
+                    logging.info("[stage] stacker:start clip[%d]", i)
                     stacked = os.path.join(pdir, f"{pid}_stacked.mp4")
                     if stack(src_mp4, aerial_mp4, stacked):
                         r["stacked_path"] = stacked
                         src_mp4 = stacked
+                    logging.info("[stage] stacker:done clip[%d]", i)
                 metrics = r.setdefault("metrics", {})
                 metrics["aerial_ok"] = True
+                logging.info("[stage] aerial:done clip[%d]", i)
 
             # Add a symlink with the predicted play name for easier review
             canon = r.get("clf_top1_canon") or r.get("play_family") or ""
@@ -1214,6 +1237,8 @@ def run_pipeline(
             w.writeheader()
             for r in rows:
                 w.writerow(r)
+
+    logging.info("[stage] pipeline:complete total_clips=%d", len(clips))
 
     # Optional debug frames for weak segments
     if debug_weak:
@@ -1433,7 +1458,7 @@ def run_pipeline(
     return run_dir
 
 
-def main(argv=None) -> None:
+def _main(argv=None) -> None:
     if argv is None:
         argv = sys.argv[1:]
     if "--source" in argv:
@@ -1782,6 +1807,13 @@ def main(argv=None) -> None:
         side_by_side=args.side_by_side if args.side_by_side is not None else args.aerial,
         role_labeling=args.role_labeling,
     )
+
+def main(argv=None) -> None:
+    try:
+        _main(argv)
+    except Exception as e:
+        logging.exception("[pipeline] unhandled exception: %s", e)
+        raise
 
 
 if __name__ == "__main__":

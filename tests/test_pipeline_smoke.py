@@ -1,4 +1,4 @@
-import csv, json, os, pathlib, torch
+import csv, json, os, pathlib, torch, subprocess, shutil, pytest
 from analysis import pipeline
 
 
@@ -7,7 +7,23 @@ def test_pipeline_smoke(tmp_path):
     playbook_path = tmp_path / "playbook.json"
     playbook_path.write_text(json.dumps(playbook))
 
-    video = "dummy.mp4"
+    video = tmp_path / "dummy.mp4"
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=160x120:d=1",
+            str(video),
+            "-y",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
     out_dir = tmp_path / "out"
 
     ckpt = tmp_path / "model.pt"
@@ -21,7 +37,7 @@ def test_pipeline_smoke(tmp_path):
     f_labels.write_text("Rit\n")
 
     run_dir = pipeline.run_pipeline(
-        video=video,
+        video=str(video),
         team="WHITE",
         playbook_path=str(playbook_path),
         out_dir=str(out_dir),

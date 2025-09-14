@@ -1,6 +1,9 @@
 import os
 import pathlib
 import types
+import subprocess
+import shutil
+import pytest
 from analysis import pipeline
 
 def test_clip_symlink(tmp_path, monkeypatch):
@@ -19,8 +22,21 @@ def test_clip_symlink(tmp_path, monkeypatch):
     monkeypatch.setattr(pipeline, "classify_plays", fake_classify)
     monkeypatch.setattr(pipeline, "_ffmpeg", lambda *a, **k: types.SimpleNamespace(returncode=0))
 
+    video = tmp_path / "dummy.mp4"
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    subprocess.run([
+        "ffmpeg",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s=160x120:d=1",
+        str(video),
+        "-y",
+    ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
     run_dir = pipeline.run_pipeline(
-        video="dummy.mp4",
+        video=str(video),
         team="WHITE",
         playbook_path=str(pb),
         out_dir=str(tmp_path),

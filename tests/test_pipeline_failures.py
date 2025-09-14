@@ -1,4 +1,4 @@
-import csv, json, os, pathlib, pytest, sys, types
+import csv, json, os, pathlib, pytest, sys, types, subprocess, shutil
 
 def _dummy_save(obj, path):
     import pickle
@@ -47,9 +47,22 @@ def test_pipeline_no_run_dir_on_load_failure(tmp_path):
     f_labels = tmp_path / "formation_labels.txt"
     f_labels.write_text("Rit\n")
 
+    video = tmp_path / "dummy.mp4"
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    subprocess.run([
+        "ffmpeg",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s=160x120:d=1",
+        str(video),
+        "-y",
+    ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
     with pytest.raises(FileNotFoundError):
         pipeline.run_pipeline(
-            video="dummy.mp4",
+            video=str(video),
             team="WHITE",
             playbook_path=str(playbook_path),
             out_dir=str(out_dir),
@@ -108,9 +121,22 @@ def test_pipeline_marks_failed_run(tmp_path, monkeypatch):
         ],
     )
 
+    video = tmp_path / "dummy.mp4"
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    subprocess.run([
+        "ffmpeg",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s=160x120:d=1",
+        str(video),
+        "-y",
+    ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
     with pytest.raises(RuntimeError):
         pipeline.run_pipeline(
-            video="dummy.mp4",
+            video=str(video),
             team="WHITE",
             playbook_path=str(pb_path),
             out_dir=str(out_dir),
