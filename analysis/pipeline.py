@@ -1568,10 +1568,9 @@ def main(argv=None) -> None:
     )
     p.add_argument(
         "--enhance",
-        dest="enhance_level",
         choices=["none", "fast", "max"],
         default="none",
-        help="apply enhancement pipeline preset",
+        help="Video clarity pipeline: none (default), fast (stabilize+color), max (stabilize+superres+deblur+color).",
     )
     p.add_argument(
         "--role-labeling",
@@ -1619,6 +1618,7 @@ def main(argv=None) -> None:
     )
     p.set_defaults(require_classifier=True)
     args = p.parse_args(argv)
+
     from .core.config import load_config
     from .core.log_utils import init_logger
 
@@ -1630,6 +1630,11 @@ def main(argv=None) -> None:
         log_file=args.log_file,
     )
     logger.info("[pipeline] config: %s", json.dumps(cfg, sort_keys=True))
+
+    cfg = dict(vars(args))
+    cfg["enhance_level"] = args.enhance
+    print(f"[pipeline] config: {json.dumps(cfg, sort_keys=True)}")
+
 
     if args.input_dir:
         from .ingest_dir import (
@@ -1728,7 +1733,7 @@ def main(argv=None) -> None:
         generate_clips=args.generate_clips,
         debug_weak=args.debug_weak,
         require_classifier=args.require_classifier,
-        enhance=args.enhance,
+        enhance=args.enhance != "none",
         enhance_zoom=args.enhance_zoom,
         enhance_stabilize=args.enhance_stabilize,
         enhance_bitrate=args.enhance_bitrate,
@@ -1743,7 +1748,7 @@ def main(argv=None) -> None:
         aerial_mode=args.aerial_mode,
         aerial_theme=args.aerial_theme,
         side_by_side=args.side_by_side if args.side_by_side is not None else args.aerial,
-        enhance_level=args.enhance_level,
+        enhance_level=cfg["enhance_level"],
         role_labeling=args.role_labeling,
     )
 
