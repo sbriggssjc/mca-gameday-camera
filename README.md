@@ -274,6 +274,8 @@ artefacts. Run it with:
 python -m analysis.pipeline --video path/to/game.mp4 --team WHITE --playbook playbooks/mca_5th_playbook.json --out output/ --generate-report
 ```
 
+For a side-by-side 2-D aerial replay and optional clarity enhancements, see [Aerial replay pipeline](#aerial-replay-pipeline) and run with `--aerial true --enhance fast`.
+
 The command creates JSON lines files and, when `--generate-report` is used, a
 coach report under `output/reports/`.
 
@@ -659,6 +661,8 @@ artefacts. Run it with:
 ```bash
 python -m analysis.pipeline --video path/to/game.mp4 --team WHITE --playbook playbooks/mca_5th_playbook.json --out output/ --generate-report
 ```
+
+For a side-by-side 2-D aerial replay and optional clarity enhancements, see [Aerial replay pipeline](#aerial-replay-pipeline) and run with `--aerial true --enhance fast`.
 
 The command creates JSON lines files and, when `--generate-report` is used, a
 coach report under `output/reports/`.
