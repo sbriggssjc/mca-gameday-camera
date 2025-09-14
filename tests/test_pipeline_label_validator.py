@@ -1,4 +1,4 @@
-import json, os, pathlib
+import json, os, pathlib, subprocess, shutil, pytest
 import torch
 from analysis import pipeline
 
@@ -18,8 +18,21 @@ def test_pipeline_label_mismatch(tmp_path, monkeypatch):
     f_labels = tmp_path / "formation_labels.txt"
     f_labels.write_text("Rit\n")
 
+    video = tmp_path / "dummy.mp4"
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    subprocess.run([
+        "ffmpeg",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s=160x120:d=1",
+        str(video),
+        "-y",
+    ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
     run_dir = pipeline.run_pipeline(
-        video="dummy.mp4",
+        video=str(video),
         team="WHITE",
         playbook_path=str(pb_path),
         out_dir=str(tmp_path / "out"),

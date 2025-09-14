@@ -1,4 +1,4 @@
-import json, pathlib, pytest, sys, types
+import json, pathlib, pytest, sys, types, subprocess, shutil
 
 sys.modules.setdefault("numpy", types.SimpleNamespace())
 sys.modules.setdefault(
@@ -21,10 +21,23 @@ def test_require_classifier_missing_ckpt(tmp_path):
     pb_path = tmp_path / "playbook.json"
     pb_path.write_text(json.dumps(pb))
 
+    video = tmp_path / "dummy.mp4"
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    subprocess.run([
+        "ffmpeg",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s=160x120:d=1",
+        str(video),
+        "-y",
+    ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
     out_dir = tmp_path / "out"
     with pytest.raises(FileNotFoundError):
         pipeline.run_pipeline(
-            video="dummy.mp4",
+            video=str(video),
             team="WHITE",
             playbook_path=str(pb_path),
             out_dir=str(out_dir),
@@ -41,12 +54,25 @@ def test_disabled_classifier_writes_warning(tmp_path, monkeypatch):
     pb_path = tmp_path / "playbook.json"
     pb_path.write_text(json.dumps(pb))
 
+    video = tmp_path / "dummy.mp4"
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    subprocess.run([
+        "ffmpeg",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s=160x120:d=1",
+        str(video),
+        "-y",
+    ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
     out_dir = tmp_path / "out"
 
     monkeypatch.setattr(pipeline, "segment_video", lambda *a, **k: [])
 
     run_dir = pipeline.run_pipeline(
-        video="dummy.mp4",
+        video=str(video),
         team="WHITE",
         playbook_path=str(pb_path),
         out_dir=str(out_dir),
