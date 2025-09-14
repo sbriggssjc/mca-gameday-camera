@@ -733,7 +733,6 @@ def run_pipeline(
     aerial_mode: str = "auto",
     aerial_theme: str = "light",
     side_by_side: bool = True,
-    enhance_level: str = "none",
     role_labeling: str = "basic",
 ) -> str:
     from .core.io_utils import job_dir
@@ -1137,28 +1136,29 @@ def run_pipeline(
             r["clip_path"] = mp4
 
             if enhance_flag:
-            if do_enhance:
-
-                zoom_val = enhance
-                if enhance_meta_zoom:
-                    pf = (r.get("play_family") or "").lower()
-                    if pf == "run":
-                        zoom_val = 0.90
-                    elif pf in {"pass", "punt", "kick"}:
-                        zoom_val = 0.98
-                    else:
-                        zoom_val = 0.95
-                enh_mp4 = os.path.join(pdir, f"{pid}_enh1080p.mp4")
-                enhance_clip(
-                    mp4,
-                    enh_mp4,
-                    zoom=zoom_val,
-                    stabilize=enhance_stabilize,
-                    bitrate=enhance_bitrate,
-                )
-                logging.info(
-                    f"[enhance] {pid} zoom={zoom_val:.2f} -> {os.path.basename(enh_mp4)}"
-                )
+                if do_enhance:
+                    zoom_val = enhance
+                    if enhance_meta_zoom:
+                        pf = (r.get("play_family") or "").lower()
+                        if pf == "run":
+                            zoom_val = 0.90
+                        elif pf in {"pass", "punt", "kick"}:
+                            zoom_val = 0.98
+                        else:
+                            zoom_val = 0.95
+                    enh_mp4 = os.path.join(pdir, f"{pid}_enh1080p.mp4")
+                    enhance_clip(
+                        mp4,
+                        enh_mp4,
+                        zoom=zoom_val,
+                        stabilize=enhance_stabilize,
+                        bitrate=enhance_bitrate,
+                    )
+                    logging.info(
+                        f"[enhance] {pid} zoom={zoom_val:.2f} -> {os.path.basename(enh_mp4)}"
+                    )
+                    r["enhanced_path"] = enh_mp4
+                    src_mp4 = enh_mp4
 
             if auto_zoom:
                 from .autozoom import enhance_clip as autozoom_clip
@@ -1177,16 +1177,7 @@ def run_pipeline(
                 )
                 logging.info(f"[autozoom] {pid} -> {os.path.basename(zoom_mp4)}")
 
-            # New aerial replay and enhancement pipeline
             src_mp4 = mp4
-            if enhance_level != "none":
-                from .enhance import enhance_pipeline, preset_from_level
-
-                steps = preset_from_level(enhance_level)
-                enh_mp4 = os.path.join(pdir, f"{pid}_enh.mp4")
-                enhance_pipeline(src_mp4, enh_mp4, steps)
-                r["enhanced_path"] = enh_mp4
-                src_mp4 = enh_mp4
 
             if aerial:
                 from .aerial_renderer import FieldTrack, render
@@ -1594,9 +1585,9 @@ def main(argv=None) -> None:
     )
     p.add_argument(
         "--enhance",
-        choices=["none", "fast", "max"],
-        default="none",
-        help="Video clarity: none, fast (stabilize+color), max (stabilize+superres+deblur+color).",
+        choices=["off", "fast", "max"],
+        default="off",
+        help="Enhancement level: off, fast (stabilize+zoom), max (stabilize+zoom+superres)",
     )
     p.add_argument(
         "--role-labeling",
@@ -1645,23 +1636,21 @@ def main(argv=None) -> None:
     p.set_defaults(require_classifier=True)
     args = p.parse_args(argv)
 
-    # --- BEGIN legacy enhance flags shim ---
-    # Map the new single preset to old per-step booleans so older call sites keep working.
-    # fast  → stabilize + color
-    # max   → stabilize + superres + deblur + color
-    # none  → no steps
+    if args.enhance == "off":
+        args.enhance_stabilize = False
+        args.enhance_zoom = False
+        args.enhance_superres = False
+    elif args.enhance == "fast":
+        args.enhance_stabilize = True
+        args.enhance_zoom = True
+        args.enhance_superres = False
+    elif args.enhance == "max":
+        args.enhance_stabilize = True
+        args.enhance_zoom = True
+        args.enhance_superres = True
 
-    preset = getattr(args, "enhance", "none")
-
-    def _ensure_flag(name, value):
-        if not hasattr(args, name):
-            setattr(args, name, value)
-
-    _ensure_flag("enhance_stabilize", preset in ("fast", "max"))
-    _ensure_flag("enhance_color",     preset in ("fast", "max"))
-    _ensure_flag("enhance_superres",  preset == "max")
-    _ensure_flag("enhance_deblur",    preset == "max")
-    # --- END legacy enhance flags shim ---
+    if not hasattr(args, "enhance_bitrate"):
+        args.enhance_bitrate = "10M"
 
     from .core.config import load_config
     from .core.log_utils import init_logger
@@ -1676,7 +1665,6 @@ def main(argv=None) -> None:
     logger.info("[pipeline] config: %s", json.dumps(cfg, sort_keys=True))
 
     cfg = dict(vars(args))
-    cfg["enhance_level"] = preset
     print(f"[pipeline] config: {json.dumps(cfg, sort_keys=True)}")
 
 
@@ -1777,12 +1765,11 @@ def main(argv=None) -> None:
         generate_clips=args.generate_clips,
         debug_weak=args.debug_weak,
         require_classifier=args.require_classifier,
-        enhance_flag=args.enhance != "none",
-        do_enhance=args.enhance != "none",
-        enhance=args.enhance,
+        enhance_flag=args.enhance != "off",
+        do_enhance=args.enhance != "off",
         enhance_stabilize=args.enhance_stabilize,
         enhance_bitrate=args.enhance_bitrate,
-        enhance_meta_zoom=args.enhance_meta_zoom,
+        enhance_meta_zoom=args.enhance_zoom,
         auto_zoom=args.auto_zoom,
         zoom_max=args.zoom_max,
         zoom_min=args.zoom_min,
@@ -1793,7 +1780,6 @@ def main(argv=None) -> None:
         aerial_mode=args.aerial_mode,
         aerial_theme=args.aerial_theme,
         side_by_side=args.side_by_side if args.side_by_side is not None else args.aerial,
-        enhance_level=cfg["enhance_level"],
         role_labeling=args.role_labeling,
     )
 
