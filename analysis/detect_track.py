@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Dict, Any
+from typing import Iterable, Iterator, List, Dict, Any, Tuple
 
 import logging
 
@@ -44,6 +44,20 @@ class Track:
             "role_hint": self.role_hint,
             "detection_source": self.detection_source,
         }
+
+
+@dataclass
+class Det:
+    """Lightweight detection used by :func:`detect_players`.
+
+    The real implementation would expose additional attributes such as class
+    labels and per-team colour information.  For the purposes of this patch we
+    store the bounding box and a confidence score only.
+    """
+
+    xyxy: List[int]
+    conf: float
+    team_color: str | None = None
 
 
 def run(
@@ -81,6 +95,52 @@ def run(
         frames.append(frame)
     cap.release()
     return track_from_frames(frames, team=team, settings=settings)
+
+
+# ---------------------------------------------------------------------------
+# New generator-style APIs used by the aerial replay pipeline
+
+
+def detect_players(video_path: str, stride: int = 1, conf: float = 0.35) -> Iterator[Tuple[int, List[Det], None]]:
+    """Yield detections for ``video_path``.
+
+    The implementation is intentionally minimal: when OpenCV or the video file is
+    unavailable a single dummy detection is produced.  When frames are available
+    a trivial bounding box is returned every ``stride`` frames.
+    """
+
+    if cv2 is None or np is None or not Path(video_path).exists():
+        yield 0, [Det([0, 0, 10, 10], conf, team_color="unknown")], None
+        return
+
+    cap = cv2.VideoCapture(video_path)
+    idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if idx % stride == 0:
+            h, w = frame.shape[:2]
+            det = Det([0, 0, int(w * 0.1), int(h * 0.1)], conf, team_color="unknown")
+            yield idx, [det], None
+        idx += 1
+    cap.release()
+
+
+def track_players(detections: Iterable[Tuple[int, List[Det], None]], method: str = "bytetrack") -> Iterator[Tuple[int, List[Track]]]:
+    """Convert ``detections`` into a stream of :class:`Track` objects.
+
+    ``method`` exists for API compatibility; no actual multi-object tracking is
+    performed.  Each detection results in a track whose ``player_id`` is derived
+    from enumeration order.
+    """
+
+    for frame_idx, dets, _ in detections:
+        tracks = [
+            Track(frame=frame_idx, player_id=str(i), team="UNK", jersey_number="", bbox=d.xyxy)
+            for i, d in enumerate(dets)
+        ]
+        yield frame_idx, tracks
 
 
 def _motion_blob_fallback(prev: np.ndarray, cur: np.ndarray, min_area: int) -> tuple[List[List[int]], float]:

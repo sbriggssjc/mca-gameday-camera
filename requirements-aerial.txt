@@ -1,0 +1,16 @@
+ultralytics
+lapx
+norfair
+bytetrack
+opencv-python
+numpy
+scipy
+matplotlib
+shapely
+filterpy
+onnxruntime-gpu
+pydub
+tqdm
+pytesseract
+vidstab
+realesrgan

@@ -38,6 +38,26 @@ The application reads `STREAM_KEY` automatically and masks it in logs.
 ### Troubleshooting
 
 * **STREAM_KEY not found** – ensure the variable is set in your environment or `.env`.
+
+## Aerial replay pipeline
+
+The analysis pipeline can optionally generate a side-by-side export combining the
+original clip with a simple 2‑D bird's‑eye animation.  The feature is still
+experimental but provides a foundation for future tactical review tools.
+
+```bash
+python -m analysis.pipeline \
+  --video input.mp4 \
+  --team "MCA" \
+  --playbook playbooks/mca_5th_playbook.json \
+  --out output_dir \
+  --generate-clips \
+  --aerial true --enhance fast
+```
+
+This writes `aerial_*.mp4` files next to each play clip and, when `--side-by-side`
+is enabled (the default when `--aerial` is true), produces a combined
+`stacked_*.mp4` for convenient viewing.
 * **STREAM_KEY format looks invalid** – verify the key matches the alphanumeric-with-dashes format provided by YouTube.
 
 ## YouTube auto-start/stop
