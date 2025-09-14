@@ -717,8 +717,8 @@ def run_pipeline(
     generate_clips: bool = False,
     debug_weak: bool = False,
     require_classifier: bool = True,
-    enhance: bool = False,
-    enhance_zoom: float = 0.95,
+    enhance_flag: bool = False,
+    enhance: float = 0.95,
     enhance_stabilize: bool = False,
     enhance_bitrate: str = "10M",
     enhance_meta_zoom: bool = False,
@@ -1135,8 +1135,8 @@ def run_pipeline(
                 )
             r["clip_path"] = mp4
 
-            if enhance:
-                zoom_val = enhance_zoom
+            if enhance_flag:
+                zoom_val = enhance
                 if enhance_meta_zoom:
                     pf = (r.get("play_family") or "").lower()
                     if pf == "run":
@@ -1756,8 +1756,8 @@ def main(argv=None) -> None:
         generate_clips=args.generate_clips,
         debug_weak=args.debug_weak,
         require_classifier=args.require_classifier,
-        enhance=args.enhance != "none",
-        enhance_zoom=args.enhance_zoom,
+        enhance_flag=args.enhance != "none",
+        enhance=args.enhance,
         enhance_stabilize=args.enhance_stabilize,
         enhance_bitrate=args.enhance_bitrate,
         enhance_meta_zoom=args.enhance_meta_zoom,
