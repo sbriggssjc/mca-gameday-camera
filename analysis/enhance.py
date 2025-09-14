@@ -71,6 +71,11 @@ STEP_FUNCS = {
 }
 
 
+def preset_from_level(level: str) -> list[str]:
+    """Return enhancement steps for the given ``level``."""
+    return PRESETS.get(level, [])
+
+
 def enhance_pipeline(inp: str, out: str, steps: Iterable[str]) -> str:
     """Run enhancement ``steps`` sequentially writing result to ``out``.
 
