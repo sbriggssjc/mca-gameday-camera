@@ -11,17 +11,6 @@ pipeline module.  A command line interface is also provided for ad‑hoc runs.
 from __future__ import annotations
 
 import argparse
-
-def _get_yards(play):
-    # Prefer explicit 'yards', else fall back to 'gained_yards'
-    y = _get_yards(play)
-    if y is None:
-        y = play.get("gained_yards")
-    try:
-        return float(y)
-    except:
-        return None
-
 import csv
 import json
 import statistics
