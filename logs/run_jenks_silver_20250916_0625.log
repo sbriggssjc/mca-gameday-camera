@@ -1,0 +1,41 @@
+[info] Verifying rclone remotes:
+gdrive:
+[info] Trying to list candidate paths (may be empty if wrong remote/path):
+Gamefilm/
+Gamefilm/BHYF - Jenks Silver/
+Gamefilm/Lincoln/
+Gamefilm/Game 1 - Catoosa/
+Gamefilm/BHYF - Jenks Silver/BHYF vs. Jenks Silver 09-13-2025 (8898300)/
+Gamefilm/Lincoln/Bixby White vs. Lincoln Christian 9-7-2025 (8884756)/
+           0 2023-06-28 14:06:57        -1 1408 Fort Crook Road
+           0 2025-06-10 10:12:46        -1 CREAIPRO Content (Landing Page)
+[info] Attempting copy from: gdrive:GameFilm/BHYF - Jenks Silver/BHYF vs. Jenks Silver 09-13-2025 (8898300)
+
+2025/09/16 06:25:48 ERROR : Google drive root 'GameFilm/BHYF - Jenks Silver/BHYF vs. Jenks Silver 09-13-2025 (8898300)': error reading source root directory: directory not found
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Elapsed time:         0.1s
+2025/09/16 06:25:48 ERROR : Attempt 1/3 failed with 1 errors and: directory not found
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Errors:                 1 (retrying may help)
+Elapsed time:         0.1s
+2025/09/16 06:25:49 ERROR : Google drive root 'GameFilm/BHYF - Jenks Silver/BHYF vs. Jenks Silver 09-13-2025 (8898300)': error reading source root directory: directory not found
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Elapsed time:         0.3s
+2025/09/16 06:25:49 ERROR : Attempt 2/3 failed with 1 errors and: directory not found
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Errors:                 1 (retrying may help)
+Elapsed time:         0.3s
+2025/09/16 06:25:49 ERROR : Google drive root 'GameFilm/BHYF - Jenks Silver/BHYF vs. Jenks Silver 09-13-2025 (8898300)': error reading source root directory: directory not found
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Elapsed time:         0.4s
+2025/09/16 06:25:49 ERROR : Attempt 3/3 failed with 1 errors and: directory not found
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Errors:                 1 (retrying may help)
+Elapsed time:         0.4sTransferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Errors:                 1 (retrying may help)
+Elapsed time:         0.4s
+[warn] Direct path failed.
+[hint] Use one of these to discover the real path, then update SRC_REMOTE:
+  rclone lsf -R gdrive: --dirs-only | grep -Ei 'gamefilm|bhyf|jenks|silver' | head -100
+  rclone lsd gdrive: --drive-shared-with-me
+  rclone lsd 'gdrive:Shared drives'

@@ -1,0 +1,26 @@
+[info] Listing remote for path check (non-fatal if empty)
+[info] Copying opponent folder -> /home/scott/mca-gameday-camera/recordings/raw/jenks_silver_20250913
+
+2025/09/16 06:20:47 ERROR : Google drive root 'GameFilm/BHYF - Jenks Silver/BHYF vs. Jenks Silver 09-13-2025 (8898300)': error reading source root directory: directory not found
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Elapsed time:         0.1s
+2025/09/16 06:20:47 ERROR : Attempt 1/3 failed with 1 errors and: directory not found
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Errors:                 1 (retrying may help)
+Elapsed time:         0.1s
+2025/09/16 06:20:47 ERROR : Google drive root 'GameFilm/BHYF - Jenks Silver/BHYF vs. Jenks Silver 09-13-2025 (8898300)': error reading source root directory: directory not found
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Elapsed time:         0.2s
+2025/09/16 06:20:47 ERROR : Attempt 2/3 failed with 1 errors and: directory not found
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Errors:                 1 (retrying may help)
+Elapsed time:         0.2s
+2025/09/16 06:20:47 ERROR : Google drive root 'GameFilm/BHYF - Jenks Silver/BHYF vs. Jenks Silver 09-13-2025 (8898300)': error reading source root directory: directory not found
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Elapsed time:         0.4s
+2025/09/16 06:20:47 ERROR : Attempt 3/3 failed with 1 errors and: directory not found
+Transferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Errors:                 1 (retrying may help)
+Elapsed time:         0.4sTransferred:   	          0 B / 0 B, -, 0 B/s, ETA -
+Errors:                 1 (retrying may help)
+Elapsed time:         0.4s
