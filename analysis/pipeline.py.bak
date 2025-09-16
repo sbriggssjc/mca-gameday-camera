@@ -1750,7 +1750,7 @@ def _main(argv=None) -> None:
         except Exception as e:
             print(f"[warn] sequence_smooth failed: {e}")
         from .reclassify2 import main as reclass2
-        reclass2(args.out, 0.40)
+        reclass2(args.out, min_side_conf=0.40)
         if args.scout_generic:
             try:
                 _generic_scout_pipeline(
