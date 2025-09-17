@@ -2,6 +2,7 @@ cat > scripts/build_audit_views.py <<'PY'
 from pathlib import Path
 import sys, json, csv, collections, re
 
+# Plays that never count in analytics
 ST_EXCLUDE = {"xp","kickoff","kick","punt","return","kneel","spike"}
 
 def keep_for_analytics(p):
@@ -10,6 +11,7 @@ def keep_for_analytics(p):
     if st in ST_EXCLUDE: return False, [f"st:{st}"]
     if p.get("special_teams"): return False, ["special_teams"]
     ph = (p.get("phase") or "").strip().lower()
+    # keep unknown/empty; only drop explicit dead phases
     if ph in {"dead","deadball","pre","presnap","post","postplay","timeout","halftime","setup"}:
         return False, [f"phase:{ph}"]
     if p.get("side") not in {"offense","defense"}: return False, [f"side:{p.get('side')}"]
@@ -64,7 +66,8 @@ def load_quick_counts(out_dir: Path):
     quick = {}
     for fname in ("quick_tendencies_offense.csv","quick_tendencies_defense.csv"):
         p = out_dir/fname
-        if not p.exists(): return None
+        if not p.exists():
+            return None
         for r in csv.DictReader(p.open()):
             quick[(r["side"], r["bucket"], r["value"])] = int(r["count"])
     return quick
@@ -92,7 +95,7 @@ def main():
 
         if keep:
             kept.append((idx, p))
-            kept_counts[p["side"]] += 1
+            kept_counts[p.get("side","")] += 1
 
         debug_rows.append({
             "index": idx,
@@ -114,6 +117,7 @@ def main():
             "title": p.get("title",""),
         })
 
+        # disagreements (model flags vs final)
         if keep and (rp_f != "unknown") and (rp_fl != "unknown") and rp_f != rp_fl:
             disagree_rows.append([idx,"true","",p.get("side",""),rp_f,rp_fl,d_f,
                                   p.get("run_dir",""),p.get("direction",""),
@@ -127,14 +131,14 @@ def main():
                                   str(bool(p.get("exclude_from_analytics"))).lower(),
                                   p.get("src",""),p.get("title","")])
 
-    # --- Summary: prefer exactly what quick_* CSVs say (authoritative for analytics) ---
+    # Summary: pull EXACTLY from quick_* if present (authoritative for analytics)
     quick_counts = load_quick_counts(out)
     rows_summary = []
     if quick_counts:
         for (side,bucket,value), c in sorted(quick_counts.items()):
             rows_summary.append([side,bucket,value,c])
     else:
-        # Fallback: recompute from plays
+        # Fallback: recompute from kept plays
         cnt = collections.Counter()
         for _, p in kept:
             side = p["side"]
@@ -145,7 +149,7 @@ def main():
         for (side,bucket,value), c in sorted(cnt.items()):
             rows_summary.append([side,bucket,value,c])
 
-    # --- write files ---
+    # write files
     with (audit_dir/"audit_kept_debug.csv").open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(debug_rows[0].keys()))
         w.writeheader(); w.writerows(debug_rows)
