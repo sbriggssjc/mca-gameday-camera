@@ -44,7 +44,8 @@ with CSVIN.open() as f:
     for row in r:
         if not row.get("index","").isdigit(): continue
         idx=int(row["index"])
-        p=by_idx.get(idx); if p is None: continue
+        p=by_idx.get(idx)
+        if p is None: continue
         # side
         a=side_auto(p); b=row.get("side_fix","").lower()
         if b in ("offense","defense") and b!=a:
