@@ -1,5 +1,5 @@
 from pathlib import Path
-import sys, json, csv, collections
+import sys, json, csv, collections, re
 
 ST_EXCLUDE = {"xp","kickoff","kick","punt","return","kneel","spike"}
 
@@ -30,34 +30,52 @@ def rp_from_flags(p):
     if p.get("is_pass"): return "pass"
     return "unknown"
 
+def parse_rp_dir_field(s):
+    """Parse strings like 'run:left' / 'pass:right' into (rp, dir)."""
+    s = (s or "").strip().lower()
+    m = re.match(r'^(run|pass)\s*:\s*(left|right|unknown)\b', s)
+    if m:
+        return m.group(1), m.group(2)
+    return None, None
+
 def rp_final(p):
-    # Prefer the same final label analytics uses, with a few safe fallbacks
+    # Prefer rp_dir if present and parseable
+    rp, _ = parse_rp_dir_field(p.get("rp_dir"))
+    if rp in {"run","pass"}:
+        return rp
+    # Then prefer final/normalized rp fields
     for k in ("rp","rp_fix","rp_used","rp_final"):
         v = (p.get(k) or "").strip().lower()
         if v in {"run","pass"}:
             return v
+    # Fallback to flags
     return rp_from_flags(p)
 
 def norm_dir(v: str):
     s = (v or "").strip().lower()
-    if s.startswith("l") or "left"  in s: return "left"
-    if s.startswith("r") or "right" in s: return "right"
+    if s in {"l","left"} or "left" in s:   return "left"
+    if s in {"r","right"} or "right" in s: return "right"
     return "unknown"
 
 def dir_final(p, rp):
-    # Use the best-available source per RP, then normalize
+    # If rp_dir exists, trust it first
+    rp2, d2 = parse_rp_dir_field(p.get("rp_dir"))
+    if rp2 == rp and d2 in {"left","right","unknown"}:
+        return d2
+
+    # Otherwise use best-available per-RP, then normalize
     if rp == "run":
-        for k in ("run_dir","dir_fix","dir","direction"):
+        for k in ("run_dir","dir_fix","dir","direction","flow_dir","off_dir"):
             d = p.get(k)
             if d: return norm_dir(d)
         return "unknown"
     elif rp == "pass":
-        for k in ("direction","dir_fix","dir"):
+        for k in ("direction","dir_fix","dir","flow_dir","pass_dir"):
             d = p.get(k)
             if d: return norm_dir(d)
         return "unknown"
     else:
-        for k in ("direction","dir_fix","dir","run_dir"):
+        for k in ("direction","dir_fix","dir","run_dir","flow_dir"):
             d = p.get(k)
             if d: return norm_dir(d)
         return "unknown"
@@ -96,6 +114,7 @@ def main():
             "exclude_reasons": ";".join(reasons) if reasons else "",
             "side": p.get("side",""),
             "rp": rp_f,
+            "rp_dir": p.get("rp_dir",""),
             "is_run": str(bool(p.get("is_run"))).lower(),
             "is_pass": str(bool(p.get("is_pass"))).lower(),
             "run_dir": p.get("run_dir",""),
@@ -104,6 +123,7 @@ def main():
             "dir_fix": p.get("dir_fix",""),
             "phase": p.get("phase",""),
             "st_fix": p.get("st_fix",""),
+            "exclude_from_analytics": str(bool(p.get("exclude_from_analytics"))).lower(),
             "src": p.get("src",""),
             "title": p.get("title",""),
         })
@@ -115,7 +135,8 @@ def main():
                 p.get("side",""),
                 rp_f, rp_fl,
                 d_f, p.get("run_dir",""), p.get("direction",""),
-                p.get("phase",""), p.get("st_fix",""), str(bool(p.get("exclude_from_analytics"))).lower(),
+                p.get("phase",""), p.get("st_fix",""),
+                str(bool(p.get("exclude_from_analytics"))).lower(),
                 p.get("src",""), p.get("title","")
             ])
         elif not keep:
@@ -124,11 +145,12 @@ def main():
                 p.get("side",""),
                 rp_f, rp_fl,
                 d_f, p.get("run_dir",""), p.get("direction",""),
-                p.get("phase",""), p.get("st_fix",""), str(bool(p.get("exclude_from_analytics"))).lower(),
+                p.get("phase",""), p.get("st_fix",""),
+                str(bool(p.get("exclude_from_analytics"))).lower(),
                 p.get("src",""), p.get("title","")
             ])
 
-    # Summary (mirror quick_* CSVs) – counts by side and (rp / rp_dir)
+    # Summary (mirror quick_*) – counts by side and (rp / rp_dir)
     cnt = collections.Counter()
     for _, p in kept:
         side = p["side"]
