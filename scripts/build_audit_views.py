@@ -26,8 +26,9 @@ def keep_for_analytics(p):
 
 # ---------- RP & Direction helpers ----------
 def rp_from_flags(p):
-    if p.get("is_run"):  return "run"
+    # Prefer pass if both are accidentally true
     if p.get("is_pass"): return "pass"
+    if p.get("is_run"):  return "run"
     return "unknown"
 
 def parse_rp_dir_field(s):
@@ -38,20 +39,17 @@ def parse_rp_dir_field(s):
     return None, None
 
 def rp_final(p):
-    # 1) Trust audited flags (this is what quick_* uses)
-    rp = rp_from_flags(p)
-    if rp != "unknown":
-        return rp
+    # 1) Trust the resolved field from audit/sync (this is what quick_* uses)
+    for k in ("rp_used","rp_fix","rp"):
+        v = (p.get(k) or "").strip().lower()
+        if v in {"run","pass"}:
+            return v
     # 2) Try rp_dir string
     rp2, _ = parse_rp_dir_field(p.get("rp_dir"))
     if rp2 in {"run","pass"}:
         return rp2
-    # 3) Try any normalized fields
-    for k in ("rp","rp_fix","rp_used","rp_final"):
-        v = (p.get(k) or "").strip().lower()
-        if v in {"run","pass"}:
-            return v
-    return "unknown"
+    # 3) Fall back to flags
+    return rp_from_flags(p)
 
 def norm_dir(v: str):
     s = (v or "").strip().lower()
@@ -60,12 +58,17 @@ def norm_dir(v: str):
     return "unknown"
 
 def dir_final(p, rp):
-    # Prefer rp_dir if it matches this RP
+    # 1) Trust the resolved field from audit/sync if present
+    d_used = (p.get("dir_used") or "").strip().lower()
+    if d_used in {"left","right","unknown"}:
+        return d_used
+
+    # 2) If rp_dir encodes both and RP matches, use it
     rp2, d2 = parse_rp_dir_field(p.get("rp_dir"))
     if rp2 == rp and d2 in {"left","right","unknown"}:
         return d2
 
-    # Otherwise use best-available per RP
+    # 3) Otherwise best-available per RP
     if rp == "run":
         for k in ("run_dir","dir_fix","dir","direction","flow_dir","off_dir"):
             d = p.get(k)
@@ -115,10 +118,10 @@ def main():
             "kept": str(bool(keep)).lower(),
             "exclude_reasons": ";".join(reasons) if reasons else "",
             "side": p.get("side",""),
-            "rp": rp_f,
-            "rp_dir": p.get("rp_dir",""),
-            "is_run": str(bool(p.get("is_run"))).lower(),
-            "is_pass": str(bool(p.get("is_pass"))).lower(),
+            "rp_used": (p.get("rp_used") or ""),
+            "rp_flags": rp_fl,
+            "rp_final": rp_f,
+            "dir_used": (p.get("dir_used") or ""),
             "run_dir": p.get("run_dir",""),
             "direction": p.get("direction",""),
             "dir": p.get("dir",""),
