@@ -172,4 +172,3 @@ def main():
 if __name__ == "__main__":
     main()
 PY
-chmod +x scripts/build_audit_views.py
