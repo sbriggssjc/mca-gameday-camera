@@ -83,6 +83,20 @@ def main(out_dir: str):
     assert plays_p.exists(), f"not found: {plays_p}"
     plays = read_jsonl(plays_p)
 
+    # normalize side using fallbacks and persist it
+    def get_side(p):
+        for k in ("side", "lincoln_side_final", "lincoln_side", "lincoln_side_smoothed"):
+            v = safe_lower(p.get(k))
+            if v in ("offense", "defense"):
+                return v
+        return "unknown"
+
+    for p in plays:
+        if safe_lower(p.get("side")) not in ("offense", "defense"):
+            s = get_side(p)
+            if s in ("offense", "defense"):
+                p["side"] = s
+
     # read audits if present
     audits = []
     for fname in ("audit_runs.txt","audit_passes.txt"):
@@ -152,7 +166,7 @@ def main(out_dir: str):
 
     # ---------------- recompute analytics -----------------------------------
     def side_filter(side):
-        return [p for p in plays if safe_lower(p.get("side")) == side]
+        return [p for p in plays if get_side(p) == side]
 
     def compile_quick(rows, side_label):
         # rp + rp:dir counts
