@@ -2,7 +2,6 @@ cat > scripts/build_audit_views.py <<'PY'
 from pathlib import Path
 import sys, json, csv, collections, re
 
-# Plays that never count in analytics
 ST_EXCLUDE = {"xp","kickoff","kick","punt","return","kneel","spike"}
 
 def keep_for_analytics(p):
@@ -11,7 +10,7 @@ def keep_for_analytics(p):
     if st in ST_EXCLUDE: return False, [f"st:{st}"]
     if p.get("special_teams"): return False, ["special_teams"]
     ph = (p.get("phase") or "").strip().lower()
-    # keep unknown/empty; only drop explicit dead phases
+    # keep unknown/empty; only exclude explicit non-live phases
     if ph in {"dead","deadball","pre","presnap","post","postplay","timeout","halftime","setup"}:
         return False, [f"phase:{ph}"]
     if p.get("side") not in {"offense","defense"}: return False, [f"side:{p.get('side')}"]
@@ -131,14 +130,14 @@ def main():
                                   str(bool(p.get("exclude_from_analytics"))).lower(),
                                   p.get("src",""),p.get("title","")])
 
-    # Summary: pull EXACTLY from quick_* if present (authoritative for analytics)
+    # Summary: prefer quick_* if present (authoritative for analytics)
     quick_counts = load_quick_counts(out)
     rows_summary = []
     if quick_counts:
         for (side,bucket,value), c in sorted(quick_counts.items()):
             rows_summary.append([side,bucket,value,c])
     else:
-        # Fallback: recompute from kept plays
+        # Fallback: compute from kept
         cnt = collections.Counter()
         for _, p in kept:
             side = p["side"]
