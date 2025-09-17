@@ -3,6 +3,27 @@ import csv, json, sys, re
 from pathlib import Path
 from collections import Counter, defaultdict
 
+# Accept lots of human phrasing and map to a canonical tag
+ST_ALIASES = {
+    "xp": {"xp", "pat", "extra point", "point after", "p.a.t."},
+    "kickoff": {"kickoff", "ko", "kick off"},
+    "kick": {"kick", "field goal", "fg"},
+    "punt": {"punt", "punting"},
+    "return": {"return", "kick return", "punt return", "kr", "pr"},
+    "kneel": {"kneel", "kneeldown", "kneel down", "victory", "victory formation", "kneeling out the clock"},
+    "spike": {"spike", "clock", "clock it"},
+}
+
+
+def canonicalize_st(s):
+    t = re.sub(r"\s+", " ", str(s or "").strip().lower())
+    if not t:
+        return ""
+    for canon, synonyms in ST_ALIASES.items():
+        if t in synonyms:
+            return canon
+    return None  # signal "unknown ST value"
+
 OUT = Path(sys.argv[1]).resolve()
 CSVIN = Path(sys.argv[2]).resolve() if len(sys.argv)>2 else OUT/"audit"/"audit_template.csv"
 PL  = OUT/"plays.jsonl"
@@ -11,8 +32,10 @@ BAK = OUT/"plays.audit_backup.jsonl"
 ALLOWED_SIDE = {"offense","defense","unknown",""}
 ALLOWED_RP   = {"run","pass","unknown",""}
 ALLOWED_DIR  = {"left","right","unknown",""}
-ALLOWED_ST   = {"xp","kickoff","kick","punt","return",""}
+ALLOWED_ST   = {"xp","kickoff","kick","punt","return","kneel","spike",""}
 YESNO = {"y","n",""}
+
+bad=[]
 
 def read_jsonl(p):
     rows=[]
@@ -62,7 +85,8 @@ def apply_row(p, r):
     sf = str(r.get("side_fix","")).lower()
     rpf= str(r.get("rp_fix","")).lower()
     df = str(r.get("dir_fix","")).lower()
-    stf= str(r.get("st_fix","")).lower()
+    st_raw = r.get("st_fix", "")
+    stf = canonicalize_st(st_raw)
     ex = str(r.get("exclude","")).lower()
     dnf= r.get("down_fix","")
     dif= r.get("distance_fix","")
@@ -73,9 +97,11 @@ def apply_row(p, r):
     if sf not in ALLOWED_SIDE: errs.append(f"side_fix={sf}")
     if rpf not in ALLOWED_RP: errs.append(f"rp_fix={rpf}")
     if df not in ALLOWED_DIR: errs.append(f"dir_fix={df}")
-    if stf not in ALLOWED_ST: errs.append(f"st_fix={stf}")
+    if stf is None: errs.append(f"st_fix={st_raw}")
     if ex not in YESNO: errs.append(f"exclude={ex}")
-    if errs: raise ValueError("invalid: "+", ".join(errs))
+    if errs:
+        bad.append((r.get("index","?"), errs))
+        return
 
     if sf in ("offense","defense"): p["side"]=sf
     if rpf in ("run","pass","unknown"):
@@ -89,6 +115,9 @@ def apply_row(p, r):
         if stf:
             p["special_teams"]=True
             p["special_teams_type"]=stf
+            # kneel/spike usually shouldn’t count in analytics
+            if stf in {"kneel","spike"}:
+                p["exclude_from_analytics"]=True
         else:
             for k in ("special_teams","special_teams_type"): p.pop(k, None)
     if dnf!="": 
@@ -147,6 +176,7 @@ def write_csv(path, rows, header):
 
 def main():
     if not PL.exists(): sys.exit(f"[err] missing {PL}")
+    bad.clear()
     plays=read_jsonl(PL)
     by_idx={int(p.get("index", -1)):p for p in plays}
 
@@ -161,10 +191,16 @@ def main():
             if not idx.isdigit(): continue
             idx=int(idx)
             p=by_idx.get(idx)
-            if not p: 
+            if not p:
                 print(f"[warn] index {idx} not found; skipping")
                 continue
             apply_row(p, row)
+
+    if bad:
+        print("[audit] found invalid values in CSV:")
+        for idx, errs in bad:
+            print(f"  - index {idx}: {', '.join(errs)}")
+        sys.exit(2)
 
     # persist updated plays
     plays_sorted=sorted(by_idx.values(), key=lambda x:int(x.get("index",0)))
