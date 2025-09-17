@@ -14,7 +14,7 @@ def keep_for_analytics(p):
     if p.get("special_teams"):
         return False, ["special_teams"]
 
-    # Allow "", "unknown"; drop only explicit non-live phases
+    # Allow "", "unknown"; only drop explicit non-live phases
     ph = (p.get("phase") or "").strip().lower()
     if ph in {"dead","deadball","pre","presnap","post","postplay","timeout","halftime","setup"}:
         return False, [f"phase:{ph}"]
@@ -31,7 +31,6 @@ def rp_from_flags(p):
     return "unknown"
 
 def parse_rp_dir_field(s):
-    """Parse strings like 'run:left' / 'pass:right' into (rp, dir)."""
     s = (s or "").strip().lower()
     m = re.match(r'^(run|pass)\s*:\s*(left|right|unknown)\b', s)
     if m:
@@ -39,17 +38,20 @@ def parse_rp_dir_field(s):
     return None, None
 
 def rp_final(p):
-    # Prefer rp_dir if present and parseable
-    rp, _ = parse_rp_dir_field(p.get("rp_dir"))
-    if rp in {"run","pass"}:
+    # 1) Trust audited flags (this is what quick_* uses)
+    rp = rp_from_flags(p)
+    if rp != "unknown":
         return rp
-    # Then prefer final/normalized rp fields
+    # 2) Try rp_dir string
+    rp2, _ = parse_rp_dir_field(p.get("rp_dir"))
+    if rp2 in {"run","pass"}:
+        return rp2
+    # 3) Try any normalized fields
     for k in ("rp","rp_fix","rp_used","rp_final"):
         v = (p.get(k) or "").strip().lower()
         if v in {"run","pass"}:
             return v
-    # Fallback to flags
-    return rp_from_flags(p)
+    return "unknown"
 
 def norm_dir(v: str):
     s = (v or "").strip().lower()
@@ -58,12 +60,12 @@ def norm_dir(v: str):
     return "unknown"
 
 def dir_final(p, rp):
-    # If rp_dir exists, trust it first
+    # Prefer rp_dir if it matches this RP
     rp2, d2 = parse_rp_dir_field(p.get("rp_dir"))
     if rp2 == rp and d2 in {"left","right","unknown"}:
         return d2
 
-    # Otherwise use best-available per-RP, then normalize
+    # Otherwise use best-available per RP
     if rp == "run":
         for k in ("run_dir","dir_fix","dir","direction","flow_dir","off_dir"):
             d = p.get(k)
@@ -159,7 +161,6 @@ def main():
         cnt[(side,"rp",rp)] += 1
         cnt[(side,"rp_dir",f"{rp}:{d}")] += 1
 
-    # Write files
     with (audit_dir/"audit_kept_debug.csv").open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(debug_rows[0].keys()))
         w.writeheader(); w.writerows(debug_rows)
