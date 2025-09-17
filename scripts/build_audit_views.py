@@ -12,10 +12,11 @@ def main():
 
     plays = [json.loads(l) for l in plays_path.read_text().splitlines() if l.strip()]
 
-    # Same exclusions as analytics
+    # Same exclusions as your analytics
     ST_EXCLUDE = {"xp","kickoff","punt","return","kneel","spike"}
 
     def keep(p):
+        # Mirror analytics filters
         if p.get("exclude_from_analytics"):
             return False, ["exclude_flag"]
         st = (p.get("st_fix") or p.get("st") or "").lower()
@@ -31,9 +32,9 @@ def main():
         return True, []
 
     def rp_dir(p):
-        # precedence: *_fix > high-level auto > flags
+        # rp precedence: manual fix > auto label > flags
         rp = (p.get("rp_fix") or p.get("rp") or
-              ("run" if p.get("is_run") else "pass" if p.get("is_pass") else "unknown")).lower()
+              ("run" if p.get("is_run") else ("pass" if p.get("is_pass") else "unknown"))).lower()
 
         if rp == "run":
             d = (p.get("run_dir_fix") or p.get("run_dir") or "unknown").lower()
@@ -42,7 +43,7 @@ def main():
         else:
             d = (p.get("dir_fix") or p.get("direction") or p.get("run_dir") or "unknown").lower()
 
-        # normalize direction a bit
+        # normalize direction
         if d not in {"left","right","middle","unknown"}:
             d = ("left" if "left" in d else
                  "right" if "right" in d else
@@ -57,6 +58,7 @@ def main():
         kept, reasons = keep(p)
         rp_used, dir_used = rp_dir(p)
         rp_flags = "run" if p.get("is_run") else ("pass" if p.get("is_pass") else "unknown")
+
         debug_rows.append([
             p.get("index"), p.get("side"), p.get("phase"),
             p.get("st"), p.get("st_fix"),
@@ -67,10 +69,11 @@ def main():
             rp_used, dir_used, kept, "|".join(reasons),
             p.get("src") or p.get("clip") or "", p.get("title") or ""
         ])
+
         if kept and p.get("side") in by_side:
             by_side[p["side"]].append((rp_used, dir_used))
 
-    # Debug CSV: why each play was/wasn't kept + which labels were used
+    # Debug CSV
     with (audit/"audit_kept_debug.csv").open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow([
@@ -81,7 +84,7 @@ def main():
         ])
         w.writerows(debug_rows)
 
-    # Summary CSV: counts by side/rp and side/rp_dir (should match quick_* CSVs)
+    # Summary (should mirror quick_* CSVs)
     with (audit/"audit_summary.csv").open("w", newline="") as f:
         w = csv.writer(f); w.writerow(["side","bucket","value","count"])
         for side, vals in by_side.items():
@@ -92,7 +95,7 @@ def main():
             for (bucket, value), n in sorted(cnt.items()):
                 w.writerow([side, bucket, value, n])
 
-    # Disagreements CSV: useful training pairs (final rp_used vs flags)
+    # Disagreements (final rp_used vs flag-based rp)
     with (audit/"audit_disagreements.csv").open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["index","side","rp_used","rp_flags","dir_used","run_dir","direction","phase","st_fix","exclude_flag","src","title"])
