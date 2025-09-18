@@ -3,7 +3,16 @@ import csv, json, sys, pathlib, re
 
 out = pathlib.Path(sys.argv[1] if len(sys.argv)>1 else "output/opponent_jenks_silver_20250913")
 plays_path = out/"plays.jsonl"
-audit_csv  = out/"audit"/"audit_template.csv"
+audit_dir  = out/"audit"
+
+# Find a usable audit CSV (template or kept_debug etc.)
+candidates = [
+    audit_dir/"audit_template.csv",
+    audit_dir/"audit_kept_debug.csv",
+    audit_dir/"audit_kept.csv",
+    audit_dir/"audit_disagreements.csv",
+]
+audit_csv = next((p for p in candidates if p.exists()), None)
 
 def _as_int(x):
     if x is None: return None
@@ -12,66 +21,122 @@ def _as_int(x):
     m = re.search(r'-?\d+', s)
     return int(m.group(0)) if m else None
 
-def parse_yards(row):
-    # Prefer common names; then fall back to any header with 'yard' or 'gain'
-    for k in ("yards_gained","yards","yds","gained","gain"):
-        if k in row and str(row[k]).strip():
-            m = re.search(r'-?\d+(\.\d+)?', str(row[k]))
-            if m: return float(m.group(0))
-    for k,v in row.items():
-        if re.search(r'yard|gain', str(k), re.I) and str(v).strip():
-            m = re.search(r'-?\d+(\.\d+)?', str(v))
-            if m: return float(m.group(0))
+def _as_float(x):
+    if x is None: return None
+    s = str(x).strip()
+    if not s: return None
+    m = re.search(r'-?\d+(\.\d+)?', s)
+    return float(m.group(0)) if m else None
+
+def _clip_id_from_val(v):
+    if v is None: return None
+    m = re.search(r'(\d{1,4})', str(v))
+    return int(m.group(1)) if m else None
+
+def clip_id_from_row(row):
+    for k in ("clip","src","name","file","id","idx"):
+        if k in row:
+            cid = _clip_id_from_val(row[k])
+            if cid is not None:
+                return cid
     return None
 
-def parse_dd(row):
-    down, to_go = None, None
-    # Try specific keys first
-    for k in row:
-        if re.fullmatch(r'(?i)(down|dn)', k):
-            d = _as_int(row[k]);  down = max(1, min(4, d)) if d else down
-        if re.fullmatch(r'(?i)(to_go|distance|yards_to_go|ytg|togo)', k):
-            g = _as_int(row[k]);  to_go = max(0, g) if g is not None else to_go
-    # Try combined strings like "3rd & 7" from any field if needed
-    if down is None or to_go is None:
-        for v in row.values():
-            s = str(v)
-            m = re.search(r'(?i)\b(1st|2nd|3rd|4th|\d)\b\D+(\d+)\b', s)
-            if m:
-                d = m.group(1)
-                d = {"1st":1,"2nd":2,"3rd":3,"4th":4}.get(d.lower(), _as_int(d))
-                g = _as_int(m.group(2))
-                if down is None and d:     down  = max(1, min(4, d))
-                if to_go is None and g is not None: to_go = max(0, g)
-                if down is not None and to_go is not None:
-                    break
-    return down, to_go
+def clip_id_from_play(p):
+    for k in ("src","clip","name","file","id","idx"):
+        cid = _clip_id_from_val(p.get(k))
+        if cid is not None:
+            return cid
+    return None
 
-# --- load
-if not plays_path.exists(): sys.exit(f"[err] missing {plays_path}")
-if not audit_csv.exists(): sys.exit(f"[err] missing {audit_csv}")
+def parse_down(row):
+    for k in ("down","dn","d"):
+        v = _as_int(row.get(k))
+        if v is not None:
+            return max(1, min(4, v))
+    return None
 
-plays = [json.loads(l) for l in plays_path.read_text().splitlines() if l.strip()]
-by_idx = {}
-for r in csv.DictReader(audit_csv.open()):
-    idx = (r.get("index") or "").strip()
-    if idx.isdigit():
-        by_idx[int(idx)] = r
+def parse_togo(row):
+    for k in ("to_go","to-go","distance","yards_to_go","ytg","togo"):
+        v = _as_int(row.get(k))
+        if v is not None:
+            return max(0, v)
+    return None
 
-# --- enrich
-updates = 0
-for p in plays:
-    idx = p.get("index")
-    if isinstance(idx, str) and idx.isdigit():
-        idx = int(idx)
-    if isinstance(idx, int) and idx in by_idx:
-        row = by_idx[idx]
-        y = parse_yards(row)
-        d, g = parse_dd(row)
-        if y is not None: p["yards_gained"] = y; updates += 1
-        if d is not None: p["down"] = int(d);   updates += 1
-        if g is not None: p["to_go"] = int(g);  updates += 1
+def parse_yards(row):
+    # Prefer common names; then any header mentioning yard/gain
+    for k in ("yards_gained","yards","yds","gained","gain","result","result_yards"):
+        v = _as_float(row.get(k))
+        if v is not None:
+            return v
+    for k,v in row.items():
+        if re.search(r'yard|gain', str(k), re.I):
+            fv = _as_float(v)
+            if fv is not None:
+                return fv
+    return None
 
-# --- save
-plays_path.write_text("\n".join(json.dumps(p, ensure_ascii=False) for p in plays) + "\n")
-print(f"[enriched] applied yards/down&distance to {updates} fields across {len(plays)} plays")
+def needs_update(curr, new):
+    if new is None: return False
+    if curr is None: return True
+    if isinstance(curr, (int, float)) and float(curr) == 0.0: return True
+    if isinstance(curr, str) and not curr.strip(): return True
+    return False
+
+def load_csv_rows(p):
+    with p.open(newline='') as f:
+        rdr = csv.DictReader(f)
+        rows = {}
+        for row in rdr:
+            cid = clip_id_from_row(row)
+            if cid is not None:
+                rows[cid] = row
+        return rows
+
+def load_plays(p):
+    return [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+
+def write_plays(p, plays):
+    p_backup = p.with_suffix('.audit_backup.jsonl')
+    p.replace(p_backup)
+    with p.open('w') as f:
+        for pl in plays:
+            f.write(json.dumps(pl, ensure_ascii=False) + '\n')
+
+def main():
+    if not plays_path.exists():
+        print(f"[warn] missing {plays_path}; nothing to enrich")
+        return
+
+    if not audit_csv:
+        print(f"[warn] no audit CSV found in {audit_dir}; nothing to enrich")
+        return
+
+    rows = load_csv_rows(audit_csv)
+    plays = load_plays(plays_path)
+
+    updates = 0
+    matched = 0
+    for p in plays:
+        cid = clip_id_from_play(p)
+        if cid is None or cid not in rows:
+            continue
+        matched += 1
+        row = rows[cid]
+        d  = parse_down(row)
+        tg = parse_togo(row)
+        yg = parse_yards(row)
+
+        if needs_update(p.get('down'), d):           p['down'] = d; updates += 1
+        if needs_update(p.get('to_go'), tg):         p['to_go'] = tg; updates += 1
+        if needs_update(p.get('yards_gained'), yg):  p['yards_gained'] = yg; updates += 1
+        # Write common synonyms used by other scripts
+        if needs_update(p.get('yards'), yg):         p['yards'] = yg; updates += 1
+        if needs_update(p.get('yg'), yg):            p['yg'] = yg; updates += 1
+
+    if updates:
+        write_plays(plays_path, plays)
+
+    print(f"[enriched] matched {matched} plays; applied {updates} field updates across {len(plays)} plays")
+
+if __name__ == "__main__":
+    main()
