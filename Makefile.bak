@@ -9,9 +9,9 @@ OUT ?= output/opponent_jenks_silver_20250913
 
 ensure-out:
 	@if [[ ! -f "$(OUT)/plays.jsonl" ]]; then \\
-		echo "[err] missing $(OUT)/plays.jsonl"; \\
-		echo "Try: make audit-sync OUT=$$(dirname $$(find output/opponent_* -type f -name plays.jsonl | head -n1))"; \\
-		exit 1; \\
+		echo "[err] missing $(OUT)/plays.jsonl"; \
+		echo "Try: make audit-sync OUT=$$(dirname $$(find output/opponent_* -type f -name plays.jsonl | head -n1))"; \
+		exit 1; \
 	fi
 
 audit-sync: ensure-out
@@ -26,8 +26,8 @@ audit-check: ensure-out
 import csv, os, sys
 out = os.environ["OUT"]
 def L(p):
-    with open(p, newline="") as f:
-        return {(r["side"], r["bucket"], r["value"]): int(r["count"]) for r in csv.DictReader(f)}
+    with open(p, newline='') as f:
+        return {(r['side'], r['bucket'], r['value']): int(r['count']) for r in csv.DictReader(f)}
 a  = L(f"{out}/audit/audit_summary.csv")
 qo = L(f"{out}/quick_tendencies_offense.csv")
 qd = L(f"{out}/quick_tendencies_defense.csv")
