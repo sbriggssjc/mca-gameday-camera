@@ -1,8 +1,3 @@
-# From repo root
-cd ~/mca-gameday-camera
-
-# Overwrite with a clean script
-cat > scripts/build_audit_views.py <<'PY'
 #!/usr/bin/env python3
 from pathlib import Path
 import sys, json, csv, collections, re
@@ -10,7 +5,7 @@ import sys, json, csv, collections, re
 ST_EXCLUDE = {"xp","kickoff","kick","punt","return","kneel","spike"}
 
 def keep(p):
-    # match analytics keep rules: explicit excludes + special teams; allow unknown/empty phase
+    # match analytics rules: explicit excludes + ST; allow unknown/empty phase
     if p.get("exclude_from_analytics"):
         return False, ["exclude_flag"]
     st = (p.get("st_fix") or p.get("st") or "").strip().lower()
@@ -30,28 +25,22 @@ def rp_flags_of(p):
     return "run" if p.get("is_run") else ("pass" if p.get("is_pass") else "unknown")
 
 def rp_used_of(p):
+    # prefer final label, fall back to flags
     rp_final = (p.get("rp") or "").strip().lower()
     if rp_final not in {"run","pass"}:
         rp_final = rp_flags_of(p)
     return rp_final
 
 def guess_index(p, fallback):
-    # Prefer an explicit index if present
+    # Prefer explicit index
     if "index" in p and isinstance(p["index"], int):
         return p["index"]
-    # Try to parse "...Clip 061" -> 61 -> 60 (0-based)
-    title = (p.get("title") or "")
-    m = re.search(r'\b[Cc]lip[ _-]*0*(\d+)\b', title)
-    if m:
-        try:
-            return int(m.group(1)) - 1
-        except: pass
-    src = (p.get("src") or "")
-    m = re.search(r'\b[Cc]lip[ _-]*0*(\d+)\b', src)
-    if m:
-        try:
-            return int(m.group(1)) - 1
-        except: pass
+    # Try "...Clip 061" -> 60 (0-based)
+    for field in (p.get("title") or "", p.get("src") or ""):
+        m = re.search(r'\b[Cc]lip[ _-]*0*(\d+)\b', field)
+        if m:
+            try: return int(m.group(1)) - 1
+            except: pass
     return fallback
 
 def main():
@@ -147,13 +136,12 @@ def main():
         w.writeheader(); w.writerows(sorted(dis_rows, key=lambda r: int(r["index"])))
     print(f"[wrote] {dis_path}")
 
-    # --- Summary: mirror your quick_* CSVs exactly (so they must match)
+    # --- Summary: mirror your quick_* CSVs exactly
     sum_path = audit_dir / "audit_summary.csv"
     rows = []
     for quick in (out/"quick_tendencies_offense.csv", out/"quick_tendencies_defense.csv"):
         if quick.exists():
             rows.extend(list(csv.DictReader(quick.open())))
-    # Normalize and write
     with sum_path.open("w", newline="") as f:
         hdr = ["side","bucket","value","count"]
         w = csv.DictWriter(f, fieldnames=hdr)
@@ -169,6 +157,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-PY
-
-chmod +x scripts/build_audit_views.py
