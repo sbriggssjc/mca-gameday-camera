@@ -1,42 +1,66 @@
-SHELL := /bin/bash
-.ONESHELL:
-.DEFAULT_GOAL := audit-sync
+.RECIPEPREFIX := >
+.PHONY: deps diag preflight audit fix-logging run testsrc audio fmt prune-runs
+deps:
+>scripts/install_deps.sh
+diag:
+>scripts/diag_gameday.sh
+preflight:
+>python -m tools.preflight_gameday
+audit:
+>python -m tools.audit_gameday --repo-root .
+fix-logging:
+>python -m tools.auto_instrument_logging
 
-# Default opponent folder (override with: make audit-sync OUT=output/your_folder_here)
-OUT ?= output/opponent_jenks_silver_20250913
 
-.PHONY: ensure-out audit-sync audit-check
+probe-detector:
+>PYTHONPATH=. python3 tools/probe_detector.py
 
-ensure-out:
-	@if [[ ! -f "$(OUT)/plays.jsonl" ]]; then \\
-		echo "[err] missing $(OUT)/plays.jsonl"; \\
-		echo "Try: make audit-sync OUT=$$(dirname $$(find output/opponent_* -type f -name plays.jsonl | head -n1))"; \\
-		exit 1; \\
-	fi
+run-pipeline:
+>OUT=output/$$(basename -s .MP4 video/manual_uploads/IMG_4129)_$$(date +%Y%m%d_%H%M); \
+>mkdir -p $$OUT; \
+>python3 -m analysis.pipeline \
+>  --video video/manual_uploads/IMG_4129.MP4 \
+>  --team WHITE \
+>  --playbook playbooks/mca_5th_playbook.json \
+>  --out $$OUT \
+>  --make-overlay \
+>  --debug-summary \
+>  --debug-detections \
+>  --max-debug-frames 12 \
+>  --conf-thresh $${MCA_DET_CONF:-0.22} \
+>  --nms-thresh $${MCA_DET_NMS:-0.55}
 
-audit-sync: ensure-out
-	@echo "OUT=$(OUT)"
-	python3 scripts/audit_apply_csv.py "$(OUT)"
-	python3 scripts/sync_audit_to_analytics.py "$(OUT)"
-	python3 scripts/build_audit_views.py "$(OUT)"
+# Build tracking.jsonl and features.jsonl from an existing plays.jsonl
+# Defaults can be overridden on invocation.
+VIDEO ?= video/manual_uploads/IMG_4129.MP4
+OUT   ?= $(shell ls -td output/IMG_4129_* 2>/dev/null | head -n1)
+PLAYS ?= $(OUT)/plays.jsonl
+STRIDE ?= 4
+MAXPER ?= 48
 
-audit-check: ensure-out
-	@echo "OUT=$(OUT)"
-	@env OUT="$(OUT)" python3 - <<'PY2'
-import csv, os, sys
-out = os.environ["OUT"]
-def L(p):
-    with open(p, newline="") as f:
-        return {(r["side"], r["bucket"], r["value"]): int(r["count"]) for r in csv.DictReader(f)}
-a  = L(f"{out}/audit/audit_summary.csv")
-qo = L(f"{out}/quick_tendencies_offense.csv")
-qd = L(f"{out}/quick_tendencies_defense.csv")
-quick = {**qo, **qd}
-diff = [(k, a.get(k,0), quick.get(k,0)) for k in sorted(set(a)|set(quick)) if a.get(k,0) != quick.get(k,0)]
-if diff:
-    print("Mismatch:")
-    for k,x,y in diff:
-        print(f"{k}: summary={x} quick={y}")
-    sys.exit(1)
-print("✅ summary matches quick CSVs")
-PY2
+.PHONY: build-features
+build-features:
+> @test -n "$(OUT)" || (echo "OUT is empty; run the pipeline first to create an output dir."; exit 1)
+> @test -f "$(PLAYS)" || (echo "Missing $(PLAYS)"; exit 1)
+> PYTHONPATH=. python3 tools/build_features.py \
+>   --video "$(VIDEO)" \
+>   --plays "$(PLAYS)" \
+>   --outdir "$(OUT)" \
+>   --stride $(STRIDE) \
+>   --max-per-seg $(MAXPER) \
+>   --verbose
+
+run:
+>./gameday
+
+testsrc:
+>TESTSRC=1 ./gameday
+
+audio:
+>PYTHONPATH=. python3 -m tools.list_audio
+
+prune-runs:
+>PYTHONPATH=. python3 tools/prune_runs.py --games-dir output/games --keep 3
+
+fmt:
+>@echo "no-op"
