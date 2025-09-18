@@ -24,6 +24,34 @@ ORDINAL_MAP = {
 }
 GOAL_WORDS = ('goal','g','gtg','goal-to-go','goal to go','goal-to go','goal to-go')
 
+WORD_NUMS = {
+    'zero':0,'none':0,'no gain':0,'nogain':0,
+    'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10,
+    'eleven':11,'twelve':12,'thirteen':13,'fourteen':14,'fifteen':15,'sixteen':16,'seventeen':17,'eighteen':18,'nineteen':19,'twenty':20,
+    'minus one':-1,'minus two':-2,'minus three':-3,'minus four':-4,'minus five':-5,
+}
+def _as_number_any(x, allow_goal=False):
+    if x is None: return None
+    s = str(x).strip().lower()
+    # normalize spaces/hyphens
+    s2 = re.sub(r'\s+', ' ', s.replace('-', ' '))
+    # digits first
+    m = re.search(r'-?\d+(?:\.\d+)?', s)
+    if m:
+        v = float(m.group(0))
+        return int(v) if v.is_integer() else v
+    # goal-to-go => 10 if allowed
+    if allow_goal and any(g in s2 for g in GOAL_WORDS):
+        return 10
+    # direct lookup
+    if s2 in WORD_NUMS: return WORD_NUMS[s2]
+    # split pairs like "twenty five" (basic)
+    parts = s2.split()
+    if len(parts)==2 and parts[0] in ('twenty',) and parts[1] in WORD_NUMS:
+        base = 20
+        return base + WORD_NUMS[parts[1]]
+    return None
+
 def _as_int(x):
     if x is None: return None
     s = str(x).strip()
@@ -75,6 +103,17 @@ def parse_down_exact(row):
 
 def parse_togo_exact(row):
     if not row: return None
+    for k in row.keys():
+        nk = _norm_hdr(k)
+        if nk in ("to go fix","distance fix","yards to go fix","ytg fix","togo fix"):
+            v = _as_number_any(row.get(k), allow_goal=True)
+            if v is not None: return max(0, int(v))
+    for k in row.keys():
+        nk = _norm_hdr(k)
+        if nk in ("to go","distance","yards to go","ytg","togo","to-go"):
+            v = _as_number_any(row.get(k), allow_goal=True)
+            if v is not None: return max(0, int(v))
+    return None
     for k in row.keys():
         nk = _norm_hdr(k)
         if nk in ("to go fix","distance fix","yards to go fix","ytg fix","togo fix"):
