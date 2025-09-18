@@ -250,6 +250,10 @@ def main():
         if needs_update(p.get('yards_gained'), yg):  p['yards_gained'] = yg; updates += 1
         if needs_update(p.get('yards'), yg):         p['yards'] = yg; updates += 1
         if needs_update(p.get('yg'), yg):            p['yg'] = yg; updates += 1
+        if needs_update(p.get('gained_yards'), yg):  p['gained_yards'] = yg; updates += 1
+        if needs_update(p.get('gain'), yg):          p['gain'] = yg; updates += 1
+        if needs_update(p.get('gained'), yg):        p['gained'] = yg; updates += 1
+        if needs_update(p.get('result_yards'), yg):  p['result_yards'] = yg; updates += 1
 
     if updates: write_plays(plays_path, plays)
     print(f"[enriched] matched {matched} plays; applied {updates} field updates across {len(plays)} plays (dn_exact={dn_exact_hits}, row_combo={row_combo_hits}, play_combo={play_combo_hits})")
