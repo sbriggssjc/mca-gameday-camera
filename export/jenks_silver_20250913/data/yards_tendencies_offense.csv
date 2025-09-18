@@ -1,0 +1,7 @@
+side,metric,value,count,avg_gained,median_gained,success_rate,explosive_rate
+offense,rp,pass,19,2.684,0.0,0.316,0.105
+offense,rp,run,14,2.143,1.0,0.643,0.0
+offense,rp_dir,pass:left,10,4.6,0.0,0.4,0.2
+offense,rp_dir,pass:right,9,0.556,0.0,0.222,0.0
+offense,rp_dir,run:left,9,2.333,1.0,0.667,0.0
+offense,rp_dir,run:right,5,1.8,3.0,0.6,0.0
