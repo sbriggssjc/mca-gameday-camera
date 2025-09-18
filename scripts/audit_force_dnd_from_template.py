@@ -36,6 +36,7 @@ def as_int_or_word(s, allow_goal=False):
 
 def clip_id_from_str(s):
     return _clip_id_from_pathish(s)
+    return _clip_id_from_pathish(s)
     m = re.search(r'(\d{1,4})', str(s))
     return int(m.group(1)) if m else None
 
@@ -101,3 +102,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def _clip_id_from_val(v):
+    return _clip_id_from_pathish(v)

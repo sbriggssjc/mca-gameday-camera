@@ -68,6 +68,7 @@ def _as_float(x):
 
 def _clip_id_from_val(v):
     return _clip_id_from_pathish(v)
+    return _clip_id_from_pathish(v)
     m = re.search(r'(\d{1,4})', str(v))
     return int(m.group(1)) if m else None
 
@@ -255,3 +256,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def clip_id_from_str(s):
+    return _clip_id_from_pathish(s)
