@@ -22,21 +22,4 @@ audit-sync: ensure-out
 
 audit-check: ensure-out
 	@echo "OUT=$(OUT)"
-	@env OUT="$(OUT)" python3 - <<'PY2'
-import csv, os, sys
-out = os.environ["OUT"]
-def L(p):
-    with open(p, newline="") as f:
-        return {(r["side"], r["bucket"], r["value"]): int(r["count"]) for r in csv.DictReader(f)}
-a  = L(f"{out}/audit/audit_summary.csv")
-qo = L(f"{out}/quick_tendencies_offense.csv")
-qd = L(f"{out}/quick_tendencies_defense.csv")
-quick = {**qo, **qd}
-diff = [(k, a.get(k,0), quick.get(k,0)) for k in sorted(set(a)|set(quick)) if a.get(k,0) != quick.get(k,0)]
-if diff:
-    print("Mismatch:")
-    for k,x,y in diff:
-        print(f"{k}: summary={x} quick={y}")
-    sys.exit(1)
-print("✅ summary matches quick CSVs")
-PY2
+	python3 scripts/audit_check.py "$(OUT)"
