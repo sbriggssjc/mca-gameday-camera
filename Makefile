@@ -26,3 +26,18 @@ audit-check: ensure-out
 
 .PHONY: all
 all: audit-sync audit-check
+
+.PHONY: all
+all: audit-sync audit-check
+
+.PHONY: open
+over:
+	xdg-open "$(OUT)/index.html" >/dev/null 2>&1 || true
+
+.PHONY: audit-diff
+audit-diff:
+	python3 scripts/audit_check.py "$(OUT)" || true
+
+.PHONY: snapshot
+snapshot:
+	python3 scripts/build_snapshot.py "$(OUT)"
