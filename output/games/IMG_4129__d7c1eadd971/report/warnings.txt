@@ -1,8 +1,0 @@
-torch: MISSING (No module named 'torch')
-device: N/A
-play_ckpt: /home/scott/mca-gameday-camera/models/play_classifier/latest.pt
-play_labels: /home/scott/mca-gameday-camera/models/play_classifier/labels.txt
-formation_ckpt: /home/scott/mca-gameday-camera/models/formation/latest.pt
-formation_labels: /home/scott/mca-gameday-camera/models/formation/labels.txt
-warnings:
-  torch import failed: No module named 'torch'
