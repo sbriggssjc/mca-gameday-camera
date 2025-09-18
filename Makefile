@@ -23,3 +23,6 @@ audit-sync: ensure-out
 audit-check: ensure-out
 	@echo "OUT=$(OUT)"
 	python3 scripts/audit_check.py "$(OUT)"
+
+.PHONY: all
+all: audit-sync audit-check
