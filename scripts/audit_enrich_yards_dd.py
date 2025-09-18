@@ -13,6 +13,10 @@ candidates = [
 ]
 audit_csv = next((p for p in candidates if p.exists()), None)
 
+def _norm_hdr(k):
+    import re
+    return re.sub(r'\s+',' ', str(k).strip().lower().replace('_',' ').replace('-',' '))
+
 ORDINAL_MAP = {
     '1':1,'2':2,'3':3,'4':4,
     '1st':1,'2nd':2,'3rd':3,'4th':4,
@@ -53,19 +57,32 @@ def clip_id_from_play(p):
     return None
 
 def parse_down_exact(row):
-    for k in ("down","dn","d"):
-        v = _as_int(row.get(k))
-        if v is not None: return max(1, min(4, v))
-    # word ordinals like "First"
-    for k in ("down","dn","d"):
-        v = str(row.get(k) or "").strip().lower()
-        if v in ORDINAL_MAP: return ORDINAL_MAP[v]
+    if not row: return None
+    # prefer *_fix
+    for k in row.keys():
+        nk = _norm_hdr(k)
+        if nk in ("down fix","dn fix","d fix"):
+            v = _as_int(row.get(k))
+            if v is not None: return max(1, min(4, v))
+        if nk in ("down","dn","d"):
+            # accept word ordinals too (First/Second...)
+            vv = row.get(k)
+            v = _as_int(vv)
+            if v is not None: return max(1, min(4, v))
+            vv_str = str(vv or "").strip().lower()
+            if vv_str in ORDINAL_MAP: return ORDINAL_MAP[vv_str]
     return None
 
 def parse_togo_exact(row):
-    for k in ("to_go","to-go","distance","yards_to_go","ytg","togo"):
-        v = _as_int(row.get(k))
-        if v is not None: return max(0, v)
+    if not row: return None
+    for k in row.keys():
+        nk = _norm_hdr(k)
+        if nk in ("to go fix","distance fix","yards to go fix","ytg fix","togo fix"):
+            v = _as_int(row.get(k))
+            if v is not None: return max(0, v)
+        if nk in ("to go","distance","yards to go","ytg","togo","to-go"):
+            v = _as_int(row.get(k))
+            if v is not None: return max(0, v)
     return None
 
 # Try to parse a combined "down & distance" string from ANY column
@@ -111,8 +128,9 @@ def parse_dn_togo_combo(row):
     return None, None
 
 def parse_yards(row):
+    def norm(k): return _norm_hdr(k)
     # Prefer common names; then any header mentioning yard/gain
-    for k in ("yards_gained","yards","yds","gained","gain","result","result_yards"):
+    for k in ("yards_gained","yards","yds","gained_yards","gained","gain","result","result_yards"):
         v = _as_float(row.get(k))
         if v is not None:
             return v
@@ -158,6 +176,7 @@ def main():
         print(f"[warn] no audit CSV found in {audit_dir}; nothing to enrich")
         return
 
+    print(f"[csv] using {audit_csv}")
     rows = load_csv_rows(audit_csv)
     plays = load_plays(plays_path)
 
