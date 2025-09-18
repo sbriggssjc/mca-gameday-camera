@@ -67,7 +67,7 @@ def _as_float(x):
     return float(m.group(0)) if m else None
 
 def _clip_id_from_val(v):
-    if v is None: return None
+    return _clip_id_from_pathish(v)
     m = re.search(r'(\d{1,4})', str(v))
     return int(m.group(1)) if m else None
 

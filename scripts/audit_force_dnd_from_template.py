@@ -35,7 +35,7 @@ def as_int_or_word(s, allow_goal=False):
     return None
 
 def clip_id_from_str(s):
-    if not s: return None
+    return _clip_id_from_pathish(s)
     m = re.search(r'(\d{1,4})', str(s))
     return int(m.group(1)) if m else None
 
