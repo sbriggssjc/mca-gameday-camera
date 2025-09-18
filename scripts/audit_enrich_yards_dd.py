@@ -5,7 +5,6 @@ out = pathlib.Path(sys.argv[1] if len(sys.argv)>1 else "output/opponent_jenks_si
 plays_path = out/"plays.jsonl"
 audit_dir  = out/"audit"
 
-# Find a usable audit CSV (template or kept_debug etc.)
 candidates = [
     audit_dir/"audit_template.csv",
     audit_dir/"audit_kept_debug.csv",
@@ -13,6 +12,13 @@ candidates = [
     audit_dir/"audit_disagreements.csv",
 ]
 audit_csv = next((p for p in candidates if p.exists()), None)
+
+ORDINAL_MAP = {
+    '1':1,'2':2,'3':3,'4':4,
+    '1st':1,'2nd':2,'3rd':3,'4th':4,
+    'first':1,'second':2,'third':3,'fourth':4,
+}
+GOAL_WORDS = ('goal','g','gtg','goal-to-go','goal to go','goal-to go','goal to-go')
 
 def _as_int(x):
     if x is None: return None
@@ -37,30 +43,72 @@ def clip_id_from_row(row):
     for k in ("clip","src","name","file","id","idx"):
         if k in row:
             cid = _clip_id_from_val(row[k])
-            if cid is not None:
-                return cid
+            if cid is not None: return cid
     return None
 
 def clip_id_from_play(p):
     for k in ("src","clip","name","file","id","idx"):
         cid = _clip_id_from_val(p.get(k))
-        if cid is not None:
-            return cid
+        if cid is not None: return cid
     return None
 
-def parse_down(row):
+def parse_down_exact(row):
     for k in ("down","dn","d"):
         v = _as_int(row.get(k))
-        if v is not None:
-            return max(1, min(4, v))
+        if v is not None: return max(1, min(4, v))
+    # word ordinals like "First"
+    for k in ("down","dn","d"):
+        v = str(row.get(k) or "").strip().lower()
+        if v in ORDINAL_MAP: return ORDINAL_MAP[v]
     return None
 
-def parse_togo(row):
+def parse_togo_exact(row):
     for k in ("to_go","to-go","distance","yards_to_go","ytg","togo"):
         v = _as_int(row.get(k))
-        if v is not None:
-            return max(0, v)
+        if v is not None: return max(0, v)
     return None
+
+# Try to parse a combined "down & distance" string from ANY column
+def parse_dn_togo_combo(row):
+    def norm(s): return re.sub(r'\s+', ' ', s).strip().lower()
+
+    # search all text fields for patterns like "1st & 10", "3rd and 7", "Second-5", "1st & Goal"
+    for k,v in row.items():
+        s = str(v or "")
+        if not s.strip(): continue
+        sn = norm(s)
+
+        # Pattern A: <ordinal> [and|&|-] <number|goal>
+        m = re.search(r'\b(1st|2nd|3rd|4th|first|second|third|fourth|[1234])\b[^0-9a-zA-Z]{0,5}(?:and|&|-)?[^0-9a-zA-Z]{0,5}(\d+|goal|g|gtg)\b', sn)
+        if m:
+            down_raw, dist_raw = m.groups()
+            down = ORDINAL_MAP.get(down_raw, _as_int(down_raw))
+            if dist_raw in GOAL_WORDS or dist_raw in ('goal','g','gtg'):
+                # If only "Goal" given, assume 10 yards to go if no number is present
+                to_go = 10
+            else:
+                to_go = _as_int(dist_raw)
+            if down in (1,2,3,4) and to_go is not None:
+                return down, max(0, to_go)
+
+        # Pattern B: "<ordinal> & goal-to-go" without a number
+        m = re.search(r'\b(1st|2nd|3rd|4th|first|second|third|fourth|[1234])\b.*?\b(goal(?:\s*-\s*to\s*-\s*go)?|goal\s*to\s*go|gtg|g)\b', sn)
+        if m:
+            down_raw = m.group(1)
+            down = ORDINAL_MAP.get(down_raw, _as_int(down_raw))
+            if down in (1,2,3,4):
+                return down, 10
+
+        # Pattern C: compact "3rd-7" or "2nd&5"
+        m = re.search(r'\b(1st|2nd|3rd|4th|[1234])\b[^0-9a-zA-Z]{0,2}(\d{1,2})\b', sn)
+        if m:
+            down_raw, dist_num = m.groups()
+            down = ORDINAL_MAP.get(down_raw, _as_int(down_raw))
+            to_go = _as_int(dist_num)
+            if down in (1,2,3,4) and to_go is not None:
+                return down, max(0, to_go)
+
+    return None, None
 
 def parse_yards(row):
     # Prefer common names; then any header mentioning yard/gain
@@ -106,7 +154,6 @@ def main():
     if not plays_path.exists():
         print(f"[warn] missing {plays_path}; nothing to enrich")
         return
-
     if not audit_csv:
         print(f"[warn] no audit CSV found in {audit_dir}; nothing to enrich")
         return
@@ -114,29 +161,39 @@ def main():
     rows = load_csv_rows(audit_csv)
     plays = load_plays(plays_path)
 
-    updates = 0
-    matched = 0
+    updates = matched = dn_hits = combo_hits = 0
     for p in plays:
         cid = clip_id_from_play(p)
         if cid is None or cid not in rows:
             continue
         matched += 1
         row = rows[cid]
-        d  = parse_down(row)
-        tg = parse_togo(row)
+
+        # yards
         yg = parse_yards(row)
+
+        # down & to-go (try exact, then combo)
+        d  = parse_down_exact(row)
+        tg = parse_togo_exact(row)
+        if d is None or tg is None:
+            d2, tg2 = parse_dn_togo_combo(row)
+            if d is None and d2 is not None: d = d2
+            if tg is None and tg2 is not None: tg = tg2
+            if d2 is not None or tg2 is not None: combo_hits += 1
+        else:
+            dn_hits += 1
 
         if needs_update(p.get('down'), d):           p['down'] = d; updates += 1
         if needs_update(p.get('to_go'), tg):         p['to_go'] = tg; updates += 1
         if needs_update(p.get('yards_gained'), yg):  p['yards_gained'] = yg; updates += 1
-        # Write common synonyms used by other scripts
+        # synonyms for downstream scripts
         if needs_update(p.get('yards'), yg):         p['yards'] = yg; updates += 1
         if needs_update(p.get('yg'), yg):            p['yg'] = yg; updates += 1
 
     if updates:
         write_plays(plays_path, plays)
 
-    print(f"[enriched] matched {matched} plays; applied {updates} field updates across {len(plays)} plays")
+    print(f"[enriched] matched {matched} plays; applied {updates} field updates across {len(plays)} plays (dn_exact={dn_hits}, dn_combo={combo_hits})")
 
 if __name__ == "__main__":
     main()
