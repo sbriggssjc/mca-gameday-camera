@@ -53,6 +53,7 @@ by_idx = {int(r["index"]): r for r in csv.DictReader(audit_csv.open()) if (r.get
 updates = 0
 for p in plays:
     idx = p.get("index")
+    if isinstance(idx, str) and idx.isdigit(): idx = int(idx)
     if idx in by_idx:
         row = by_idx[idx]
         y   = parse_yards(row)

@@ -17,6 +17,7 @@ ensure-out:
 audit-sync: ensure-out
 	@echo "OUT=$(OUT)"
 	python3 scripts/audit_apply_csv.py "$(OUT)"
+	python3 scripts/audit_enrich_yards_dd.py "$(OUT)"
 	python3 scripts/sync_audit_to_analytics.py "$(OUT)"
 	python3 scripts/build_audit_views.py "$(OUT)"
 
