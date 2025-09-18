@@ -1,24 +1,15 @@
 # Jenks Silver – Film & Data Export
 
-_Open this in a browser after starting a simple server (see below) to use the clickable links._
-
-## How to share links
-From repo root, run:
+Start a local server in this folder so links are clickable:
 
 ```bash
-cd /home/scott/mca-gameday-camera/export/jenks_silver_20250913
 python3 -m http.server 8000
 ```
-Then share:  **http://<your-ip>:8000/**
 
-## Clips (click to view)
-
-| Clip | Dn & Dist | Yards | RP/Dir | Notes | Link |
+| Clip | Dn&Dist | Yds | RP/Dir | Notes | Link |
 |---:|---|---:|---|---|---|
-| 1 |  | 0 | pass/right | junk | [open](./clips/clip_001.mp4) |
 | 2 |  | 0 | pass/right |  | [open](./clips/clip_002.mp4) |
 | 3 | 1&10 | 3 | run/right |  | [open](./clips/clip_003.mp4) |
-| 4 |  | 0 | pass/left | presnap penalty | [open](./clips/clip_004.mp4) |
 | 5 | 3&5 | 0 | pass/right | incomplete pass; go route right to #27 | [open](./clips/clip_005.mp4) |
 | 6 | 4&5 | 3 | pass/right |  | [open](./clips/clip_006.mp4) |
 | 7 | 1&10 | 27 | run/right | tailback c gap with receiver in motion lead blocking | [open](./clips/clip_007.mp4) |
@@ -29,7 +20,6 @@ Then share:  **http://<your-ip>:8000/**
 | 12 | 3&13 | 8 | run/left | inside right receiver jet sweep; block in the back | [open](./clips/clip_012.mp4) |
 | 13 | 4&10 | 3 | run/right | tailback b gap | [open](./clips/clip_013.mp4) |
 | 14 | 1&10 | 2 | pass/right | QB sneak a gap | [open](./clips/clip_014.mp4) |
-| 15 | 2&10 | 0 | pass/right | presnap penalty | [open](./clips/clip_015.mp4) |
 | 16 | 2&3 | 6 | pass/right | inside receiver ran 5 yard out, complete | [open](./clips/clip_016.mp4) |
 | 17 | 1&10 | 1 | run/left | QB keeper | [open](./clips/clip_017.mp4) |
 | 18 | 2&9 | 1 | run/left | tailback b gap | [open](./clips/clip_018.mp4) |
@@ -79,4 +69,3 @@ Then share:  **http://<your-ip>:8000/**
 | 62 | 2&15 | 0 | pass/right | inside right receiver 5 yard out, incomplete | [open](./clips/clip_062.mp4) |
 | 63 | 3&15 | 0 | run/right | tailback b gap | [open](./clips/clip_063.mp4) |
 | 64 | 4&15 | 0 | pass/right | outside right receiver quick screen, incomplete | [open](./clips/clip_064.mp4) |
-| 65 |  | 0 | pass/right |  | [open](./clips/clip_065.mp4) |

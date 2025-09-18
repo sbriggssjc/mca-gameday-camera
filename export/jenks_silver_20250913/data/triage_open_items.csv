@@ -1,0 +1,13 @@
+clip,down,to_go,yards,rp,dir,notes,http_rel_link
+2,,,0,pass,right,,./clips/clip_002.mp4
+22,,,0,pass,left,good,./clips/clip_022.mp4
+23,,,0,pass,right,,./clips/clip_023.mp4
+32,,,0,run,unknown,good,./clips/clip_032.mp4
+33,,,0,pass,unknown,,./clips/clip_033.mp4
+35,,,0,run,unknown,,./clips/clip_035.mp4
+41,,,0,run,left,no good,./clips/clip_041.mp4
+42,,,0,pass,unknown,,./clips/clip_042.mp4
+51,,,0,pass,left,good,./clips/clip_051.mp4
+52,,,0,pass,right,,./clips/clip_052.mp4
+59,,,0,run,right,"inside left receiver jet sweep, no good",./clips/clip_059.mp4
+60,,,0,run,left,,./clips/clip_060.mp4
