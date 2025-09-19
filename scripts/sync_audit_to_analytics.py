@@ -5,6 +5,8 @@ import re
 import statistics as stats
 from pathlib import Path
 
+from side_utils import side_for
+
 # ----- helpers ---------------------------------------------------------------
 
 
@@ -69,6 +71,10 @@ def idx_from_src(src: str):
 
 
 def get_side(p):
+    preferred = side_for("jenks", p)
+    pref_norm = safe_lower(preferred, "")
+    if pref_norm in ("offense", "defense"):
+        return pref_norm
     for key in ("side", "lincoln_side_final", "lincoln_side", "lincoln_side_smoothed"):
         v = safe_lower(p.get(key))
         if v in ("offense", "defense"):
@@ -223,6 +229,8 @@ def main(out_dir: str):
         s = get_side(p)
         if s in ("offense", "defense"):
             p["side"] = s
+            p["jenks_side"] = s
+            p["metro_side"] = "defense" if s == "offense" else "offense"
 
     # read audits if present
     audits = []
@@ -279,6 +287,8 @@ def main(out_dir: str):
         side_val = safe_lower(a.get("side"), "")
         if side_val in ("offense", "defense"):
             target["side"] = side_val
+            target["jenks_side"] = side_val
+            target["metro_side"] = "defense" if side_val == "offense" else "offense"
 
         # rp -> is_run/is_pass
         rp = safe_lower(a.get("rp"), "")
@@ -332,6 +342,8 @@ def main(out_dir: str):
         s = get_side(p)
         if s in ("offense", "defense"):
             p["side"] = s
+            p["jenks_side"] = s
+            p["metro_side"] = "defense" if s == "offense" else "offense"
 
     # write back
     bak = out / "plays.audit_sync_backup.jsonl"

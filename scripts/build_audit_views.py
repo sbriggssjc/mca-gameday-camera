@@ -2,6 +2,8 @@
 from pathlib import Path
 import sys, json, csv, collections, re
 
+from side_utils import side_for
+
 ST_EXCLUDE = {"xp","kickoff","kick","punt","return","kneel","spike"}
 
 def keep(p):
@@ -16,7 +18,7 @@ def keep(p):
     ph = (p.get("phase") or "").strip().lower()
     if ph in {"dead","deadball","pre","presnap","post","postplay","timeout","halftime","setup"}:
         return False, [f"phase:{ph}"]
-    side = p.get("side")
+    side = side_for("jenks", p)
     if side not in {"offense","defense"}:
         return False, [f"side:{side}"]
     return True, []
@@ -59,7 +61,7 @@ def main():
     off_cnt = def_cnt = 0
     for i, p in enumerate(plays):
         ok, reasons = keep(p)
-        side = p.get("side") or ""
+        side = side_for("jenks", p) or ""
         rp_used  = rp_used_of(p)
         rp_flags = rp_flags_of(p)
         if rp_used == "run":
@@ -116,7 +118,7 @@ def main():
                 "index": idx,
                 "kept": "true",
                 "exclude_reasons": "",
-                "side": p.get("side") or "",
+                "side": side_for("jenks", p) or "",
                 "rp_used": rp_u,
                 "rp_flags": rp_f,
                 "dir_used": (p.get("run_dir") if rp_u=="run" else (p.get("direction") or "unknown")) if rp_u in {"run","pass"} else "unknown",
