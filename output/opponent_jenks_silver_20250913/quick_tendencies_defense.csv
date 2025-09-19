@@ -1,7 +1,7 @@
 side,bucket,value,count
-defense,rp,pass,4
-defense,rp,run,14
+defense,rp,pass,6
+defense,rp,run,10
 defense,rp_dir,pass:left,3
-defense,rp_dir,pass:right,1
-defense,rp_dir,run:left,4
-defense,rp_dir,run:right,10
+defense,rp_dir,pass:right,3
+defense,rp_dir,run:left,3
+defense,rp_dir,run:right,7

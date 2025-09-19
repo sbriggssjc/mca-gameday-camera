@@ -1,12 +1,12 @@
 ## Opponent Offense
-- Run/Pass split: run 14, pass 19
-- Top directions: pass:left (10); pass:right (9); run:left (9)
-- Success rate: run 0.64 | pass 0.32
+- Run/Pass split: run 12, pass 12
+- Top directions: pass:left (8); run:left (7); run:right (5)
+- Success rate: run 0.67 | pass 0.42
 
 ## Opponent Defense (what offenses did vs them)
-- Run/Pass split: run 14, pass 4
-- Top directions: run:right (10); run:left (4); pass:left (3)
-- Success rate: run 0.93 | pass 0.50
+- Run/Pass split: run 10, pass 6
+- Top directions: run:right (7); pass:left (3); pass:right (3)
+- Success rate: run 0.90 | pass 0.33
 
 ## Quick coaching notes
 - Offense: lean run—higher success than pass.
