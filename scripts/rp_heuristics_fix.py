@@ -71,7 +71,19 @@ plays_path.write_text("\n".join(json.dumps(p, ensure_ascii=False) for p in plays
 
 # quick_tendencies.csv
 from collections import Counter
-off = [p for p in plays if str(p.get("lincoln_side_final","")).lower()=="offense" or str(p.get("lincoln_side","")).lower()=="offense" or str(p.get("side","")).lower()=="offense"]
+VALID_SIDES = {"offense", "defense"}
+
+def _resolve_side(play):
+    js = str(play.get("jenks_side") or "").strip().lower()
+    if js:
+        return js if js in VALID_SIDES else ""
+    for key in ("lincoln_side_final", "lincoln_side", "side"):
+        val = str(play.get(key) or "").strip().lower()
+        if val in VALID_SIDES:
+            return val
+    return ""
+
+off = [p for p in plays if _resolve_side(p) == "offense"]
 cnt_rp = Counter(p.get("rp","unknown") for p in off)
 cnt_rpdir = Counter(p.get("rp_dir","unknown") for p in off)
 

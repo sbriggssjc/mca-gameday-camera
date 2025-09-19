@@ -3,6 +3,8 @@ import csv, json, sys, re
 from pathlib import Path
 from collections import Counter, defaultdict
 
+from side_utils import side_for
+
 # Accept lots of human phrasing and map to a canonical tag
 ST_ALIASES = {
     "xp": {"xp", "pat", "extra point", "point after", "p.a.t."},
@@ -50,9 +52,9 @@ def write_jsonl(p, rows):
     p.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows)+"\n")
 
 def side_of(p):
-    for k in ("side","lincoln_side_final","lincoln_side","lincoln_side_smoothed"):
-        v=str(p.get(k,"")).lower()
-        if v in ("offense","defense"): return v
+    s = side_for("jenks", p)
+    if s in ("offense", "defense"):
+        return s
     return "unknown"
 
 def rp_of(p):
@@ -213,8 +215,26 @@ def main():
         if is_special(p): return False
         return True
 
-    off=[p for p in plays_sorted if str(p.get("side","")).lower()=="offense" and keep_for_analytics(p)]
-    deff=[p for p in plays_sorted if str(p.get("side","")).lower()=="defense" and keep_for_analytics(p)]
+    valid = {"offense", "defense"}
+    off = []
+    deff = []
+    for p in plays_sorted:
+        if not keep_for_analytics(p):
+            continue
+        explicit = str(p.get("jenks_side") or "").strip().lower()
+        if explicit:
+            if explicit not in valid:
+                continue
+            side = explicit
+        else:
+            inferred = str(side_for("jenks", p) or "").strip().lower()
+            if inferred not in valid:
+                continue
+            side = inferred
+        if side == "offense":
+            off.append(p)
+        else:
+            deff.append(p)
 
     # ensure rp/dir defaults
     for p in off+deff:

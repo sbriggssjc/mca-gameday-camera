@@ -1,124 +1,323 @@
 #!/usr/bin/env python3
-import os, sys, json, csv, re, shutil
-from pathlib import Path
+"""Normalize Jenks/Metro side of ball based on the audited CSV template."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import os
+import re
+import shutil
+import sys
 from collections import Counter
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-def die(msg, code=2):
-    print(f"[fix_jenks_side] ERROR: {msg}", file=sys.stderr); sys.exit(code)
+Row = Dict[str, Any]
+Play = Dict[str, Any]
 
-SIDE_TRUE = {"o","off","offense","offence","d","def","defense","defence"}
+ROW_KEY_PREFERENCES: Sequence[str] = (
+    "play_id",
+    "idx",
+    "index",
+    "play_index",
+    "row_id",
+    "play_number",
+)
 
-def norm(v): 
-    return str(v or "").strip()
+OFFENSE_RE = re.compile(r"\boff(?:en[cs]e)?\b|\boff_?team\b", re.IGNORECASE)
+DEFENSE_RE = re.compile(r"\bdef(?:en[cs]e)?\b|\bdef_?team\b", re.IGNORECASE)
+SIDE_HINT_RE = re.compile(r"(side|offen|defen)", re.IGNORECASE)
+TEAM_RE = re.compile(r"(team|opponent|opp|school|home|away|vs|versus|against)", re.IGNORECASE)
+JENKS_RE = re.compile(r"jenks", re.IGNORECASE)
 
-def norm_side(v):
-    s = norm(v).lower()
-    if   s in {"o","off","offense","offence"}: return "offense"
-    elif s in {"d","def","defense","defence"}: return "defense"
-    return ""
+SIDE_VALUE_MAP = {
+    "o": "offense",
+    "off": "offense",
+    "offense": "offense",
+    "offence": "offense",
+    "offensive": "offense",
+    "d": "defense",
+    "def": "defense",
+    "defense": "defense",
+    "defence": "defense",
+    "defensive": "defense",
+}
 
-def is_special(row):
-    # Treat any non-empty st_* as special teams
-    return bool(norm(row.get("st_fix")) or norm(row.get("st_auto")))
+CLIP_FIELDS = ("clip", "src", "name", "title", "file")
 
-def load_audit(csv_path):
-    with open(csv_path, newline="", encoding="utf-8-sig") as f:
-        rows = list(csv.DictReader(f))
-    if not rows:
-        return "index", {}
 
-    # key = 'index' (present in your header)
-    key = "index" if "index" in [c.lower() for c in rows[0].keys()] else None
-    if not key:
-        # fallbacks if needed
-        for k in rows[0].keys():
-            if k.lower() in ("idx","row_id","play_index","play_id","index"):
-                key = k; break
-        if not key:
-            # synthesize
-            for i, r in enumerate(rows): r["row_index"] = str(i)
-            key = "row_index"
+def _norm_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
 
-    # precompute side per row
-    side_map = {}
-    for r in rows:
-        # ignore special teams entirely
-        if is_special(r):
-            side_map[str(r.get(key,""))] = "unknown"
-            continue
 
-        # prefer manual fix, fallback to auto
-        s = norm_side(r.get("side_fix"))
-        if not s:
-            s = norm_side(r.get("side_auto"))
+def _preferred_column(fieldnames: Iterable[str], candidates: Sequence[str]) -> Optional[str]:
+    normalized = { _norm_name(field): field for field in fieldnames if field }
+    for cand in candidates:
+        key = _norm_name(cand)
+        if key in normalized:
+            return normalized[key]
+    return None
 
-        side_map[str(r.get(key,""))] = s or "unknown"
 
-    return key, side_map
+def _collect_columns(fieldnames: Iterable[str], pattern: re.Pattern[str]) -> List[str]:
+    cols: List[str] = []
+    for name in fieldnames:
+        if name and pattern.search(name):
+            cols.append(name)
+    return cols
 
-def main():
-    out = Path(os.environ.get("OUT") or (sys.argv[1] if len(sys.argv)>1 else ""))
-    if not out: die("Provide OUT via env or 1st arg")
-    plays_path = out/"plays.jsonl"
-    if not plays_path.exists(): die(f"Missing {plays_path}")
 
-    # audit CSV
-    audit_csv = None
-    for i,a in enumerate(sys.argv):
-        if a == "--audit" and i+1 < len(sys.argv):
-            audit_csv = Path(sys.argv[i+1])
-            break
-    if audit_csv is None:
-        audit_csv = out/"audit"/"audit_template.csv"
-    if not audit_csv.exists(): die(f"Missing audit CSV at {audit_csv}")
+def _clip_number(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    text = str(value)
+    match = re.search(r"clip\s*[-_ ]?\s*(\d{1,4})", text, re.IGNORECASE)
+    if match:
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return None
+    digits = re.findall(r"\d{1,4}", text)
+    if digits:
+        try:
+            return int(digits[-1])
+        except ValueError:
+            return None
+    return None
 
-    key, side_map = load_audit(audit_csv)
 
-    bak = plays_path.with_suffix(".jsonl.bak")
-    shutil.copy2(plays_path, bak)
+def _row_mentions_jenks(row: Row, candidate_cols: Sequence[str]) -> bool:
+    if candidate_cols:
+        values = [row.get(col, "") for col in candidate_cols]
+    else:
+        values = list(row.values())
+    for val in values:
+        if JENKS_RE.search(str(val or "")):
+            return True
+    return False
 
-    fixed = []
-    with open(plays_path, encoding="utf-8") as f:
-        for i, line in enumerate(f):
-            if not line.strip():
-                fixed.append(line); continue
-            try:
-                p = json.loads(line)
-            except Exception:
-                fixed.append(line); continue
 
-            # figure the row key
-            play_key = None
-            for cand in (key,"index","idx","row_id","play_index","play_id","row_index"):
-                if cand in p:
-                    play_key = str(p[cand]); break
-            if play_key is None:
-                play_key = str(i)
+def _side_from_tokens(tokens: Iterable[str]) -> Optional[str]:
+    for tok in tokens:
+        key = SIDE_VALUE_MAP.get(tok)
+        if key:
+            return key
+    return None
 
-            js = side_map.get(play_key, "unknown")
-            if js in ("offense","defense"):
-                p["jenks_side"] = js
-                p["metro_side"] = "defense" if js=="offense" else "offense"
-            else:
-                p["jenks_side"] = "unknown"
-                p.pop("metro_side", None)
 
-            fixed.append(json.dumps(p, ensure_ascii=False) + "\n")
+def _tokenize(value: Any) -> List[str]:
+    if value is None:
+        return []
+    text = str(value).strip().lower()
+    if not text:
+        return []
+    tokens = [t for t in re.split(r"[^a-z]+", text) if t]
+    # include exact string for single-letter cases like "O" or "D"
+    if len(text) == 1 and text in {"o", "d"}:
+        tokens.append(text)
+    if text in {"off", "def"}:
+        tokens.append(text)
+    return tokens
 
-    with open(plays_path, "w", encoding="utf-8") as w:
-        w.writelines(fixed)
 
-    ctr = Counter()
-    with open(plays_path, encoding="utf-8") as f:
+def determine_row_side(row: Row, offense_cols: Sequence[str], defense_cols: Sequence[str],
+                        hint_cols: Sequence[str], jenks_cols: Sequence[str]) -> str:
+    offense_hit = any(JENKS_RE.search(str(row.get(col, ""))) for col in offense_cols)
+    defense_hit = any(JENKS_RE.search(str(row.get(col, ""))) for col in defense_cols)
+    if offense_hit and defense_hit:
+        return "conflict"
+    if offense_hit:
+        return "offense"
+    if defense_hit:
+        return "defense"
+
+    if not _row_mentions_jenks(row, jenks_cols):
+        return "unknown"
+
+    for col in hint_cols:
+        tokens = _tokenize(row.get(col))
+        side = _side_from_tokens(tokens)
+        if side:
+            return side
+    return "unknown"
+
+
+def load_audit_rows(audit_path: Path) -> Tuple[List[Row], List[str]]:
+    if not audit_path.exists():
+        raise SystemExit(f"[error] audit file not found: {audit_path}")
+    with audit_path.open(newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames or []
+        rows: List[Row] = list(reader)
+    return rows, fieldnames
+
+
+def load_plays(plays_path: Path) -> List[Tuple[str, Optional[Play]]]:
+    entries: List[Tuple[str, Optional[Play]]] = []
+    if not plays_path.exists():
+        raise SystemExit(f"[error] plays file not found: {plays_path}")
+    with plays_path.open(encoding="utf-8") as f:
         for line in f:
-            if not line.strip(): continue
-            try: p = json.loads(line)
-            except: continue
-            ctr[p.get("jenks_side","(none)")] += 1
+            raw = line.rstrip("\n")
+            stripped = line.strip()
+            if not stripped:
+                entries.append((raw, None))
+                continue
+            try:
+                obj = json.loads(stripped)
+            except json.JSONDecodeError:
+                entries.append((raw, None))
+                continue
+            entries.append((raw, obj))
+    return entries
 
-    print("[fix_jenks_side] Done")
-    print("Backup:", bak)
-    print("Counts:", dict(ctr))
 
-if __name__ == "__main__":
+def build_row_index(rows: List[Row], fieldnames: List[str]) -> Tuple[List[Dict[str, Any]], Dict[str, str], Dict[str, str], Dict[int, str]]:
+    key_col = _preferred_column(fieldnames, ROW_KEY_PREFERENCES)
+    if key_col is None:
+        key_col = "row_index"
+        for idx, row in enumerate(rows):
+            row[key_col] = str(idx)
+    offense_cols = _collect_columns(fieldnames, OFFENSE_RE)
+    defense_cols = _collect_columns(fieldnames, DEFENSE_RE)
+    hint_cols = _collect_columns(fieldnames, SIDE_HINT_RE)
+
+    jenks_cols = list(dict.fromkeys(_collect_columns(fieldnames, TEAM_RE) + offense_cols + defense_cols))
+    if not jenks_cols:
+        for fallback in ("clip", "src", "title"):
+            col = _preferred_column(fieldnames, (fallback,))
+            if col:
+                jenks_cols.append(col)
+
+    side_by_key: Dict[str, str] = {}
+    side_by_row: Dict[str, str] = {}
+    side_by_clip: Dict[int, str] = {}
+    ordered: List[Dict[str, Any]] = []
+
+    for idx, row in enumerate(rows):
+        side = determine_row_side(row, offense_cols, defense_cols, hint_cols, jenks_cols)
+        key_val = str(row.get(key_col, "")).strip()
+        if not key_val:
+            key_val = str(idx)
+        clip_num = None
+        for field in CLIP_FIELDS:
+            clip_num = _clip_number(row.get(field))
+            if clip_num is not None:
+                break
+        info = {
+            "key": key_val,
+            "row_index": str(idx),
+            "side": side,
+            "clip": clip_num,
+        }
+        ordered.append(info)
+        if side in {"offense", "defense"}:
+            side_by_key.setdefault(key_val, side)
+            side_by_row.setdefault(str(idx), side)
+            if clip_num is not None:
+                side_by_clip.setdefault(clip_num, side)
+    return ordered, side_by_key, side_by_row, side_by_clip
+
+
+def match_side(play: Play, idx: int, key_map: Dict[str, str], row_map: Dict[str, str], clip_map: Dict[int, str],
+               candidate_fields: Sequence[str]) -> Optional[str]:
+    for field in candidate_fields:
+        if field not in play:
+            continue
+        val = play.get(field)
+        if val is None:
+            continue
+        key = str(val).strip()
+        if key and key in key_map:
+            return key_map[key]
+    clip_num = None
+    for field in CLIP_FIELDS:
+        clip_num = _clip_number(play.get(field))
+        if clip_num is not None:
+            break
+    if clip_num is not None and clip_num in clip_map:
+        return clip_map[clip_num]
+    row_key = str(idx)
+    if row_key in row_map:
+        return row_map[row_key]
+    return None
+
+
+def write_plays(plays_path: Path, entries: List[Tuple[str, Optional[Play]]]) -> None:
+    text = "\n".join(
+        json.dumps(obj, ensure_ascii=False) if obj is not None else raw
+        for raw, obj in entries
+    )
+    plays_path.write_text(text + "\n", encoding="utf-8")
+
+
+def main(argv: Optional[Sequence[str]] = None) -> None:
+    parser = argparse.ArgumentParser(description="Set jenks_side/metro_side based on audit CSV")
+    default_out = os.environ.get("OUT")
+    parser.add_argument("out", nargs="?", default=default_out, help="Output directory containing plays.jsonl")
+    parser.add_argument("--audit", help="Path to audit_template.csv", default=None)
+    args = parser.parse_args(argv)
+
+    if not args.out:
+        parser.error("OUT directory not provided")
+    out_dir = Path(args.out)
+    plays_path = out_dir / "plays.jsonl"
+    audit_path = Path(args.audit) if args.audit else out_dir / "audit" / "audit_template.csv"
+
+    rows, fieldnames = load_audit_rows(audit_path)
+    if not rows:
+        print("[warn] audit CSV empty; no side updates applied")
+        return
+    _, side_by_key, side_by_row, side_by_clip = build_row_index(rows, fieldnames)
+
+    entries = load_plays(plays_path)
+    candidate_fields: List[str] = []
+    seen_fields = set()
+    for pref in ROW_KEY_PREFERENCES:
+        norm_pref = _norm_name(pref)
+        for _, obj in entries:
+            if obj is None:
+                continue
+            for field in obj.keys():
+                if _norm_name(str(field)) == norm_pref:
+                    if field not in seen_fields:
+                        candidate_fields.append(field)
+                        seen_fields.add(field)
+        if seen_fields:
+            break
+    if not candidate_fields:
+        candidate_fields = ["play_id", "index", "idx", "segment_id"]
+
+    backup = plays_path.parent / f"{plays_path.name}.bak"
+    shutil.copyfile(plays_path, backup)
+
+    summary = Counter()
+    updated = 0
+    for idx, (raw, obj) in enumerate(entries):
+        if obj is None:
+            continue
+        side = match_side(obj, idx, side_by_key, side_by_row, side_by_clip, candidate_fields)
+        if side in {"offense", "defense"}:
+            obj["jenks_side"] = side
+            obj["metro_side"] = "defense" if side == "offense" else "offense"
+            updated += 1
+            summary[side] += 1
+        else:
+            obj.pop("jenks_side", None)
+            obj.pop("metro_side", None)
+            if side:
+                summary[side] += 1
+            else:
+                summary["unmatched"] += 1
+        entries[idx] = (raw, obj)
+
+    write_plays(plays_path, entries)
+    counts = {k: summary[k] for k in sorted(summary)}
+    print(f"Jenks side counts: {counts}")
+    print(f"Updated plays: {updated}")
+
+
+if __name__ == "__main__":  # pragma: no cover
     main()
