@@ -5,22 +5,6 @@ from pathlib import Path
 from collections import Counter
 from openpyxl import Workbook
 
-def _to_cell(value):
-    """Convert any non-scalar to a JSON string so Excel can ingest it."""
-    if value is None:
-        return ""
-    if isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, (bytes, bytearray)):
-        try:
-            return value.decode("utf-8", "ignore")
-        except Exception:
-            return str(value)
-    try:
-        return json.dumps(value, ensure_ascii=False)
-    except Exception:
-        return str(value)
-
 def get_out_path():
     out = os.environ.get("OUT") or (sys.argv[1] if len(sys.argv) > 1 else None)
     if not out:
@@ -88,8 +72,7 @@ def build_workbook(catalog_rows, offense_rows, defense_rows, xlsx_path: Path):
             if k not in seen: seen.add(k); all_keys.append(k)
     cols = [c for c in front if c in seen] + [k for k in all_keys if k not in front]
     ws_cat.append(cols)
-    for r in catalog_rows:
-        ws_cat.append([_to_cell(r.get(c, "")) for c in cols])
+    for r in catalog_rows: ws_cat.append([r.get(c, "") for c in cols])
 
     def write_summary_sheet(title, rows):
         ws = wb.create_sheet(title)
