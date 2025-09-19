@@ -71,12 +71,16 @@ def idx_from_src(src: str):
 
 
 def get_side(p):
+    explicit = safe_lower(p.get("jenks_side"), "")
+    if explicit:
+        return explicit
+
     preferred = side_for("jenks", p)
     pref_norm = safe_lower(preferred, "")
-    if pref_norm in ("offense", "defense"):
+    if pref_norm:
         return pref_norm
     for key in ("side", "lincoln_side_final", "lincoln_side", "lincoln_side_smoothed"):
-        v = safe_lower(p.get(key))
+        v = safe_lower(p.get(key), "")
         if v in ("offense", "defense"):
             return v
     return "unknown"
@@ -352,7 +356,20 @@ def main(out_dir: str):
 
     # ---------------- recompute analytics -----------------------------------
     def side_filter(side):
-        return [p for p in plays if get_side(p) == side and not is_special(p)]
+        filtered = []
+        for p in plays:
+            explicit = safe_lower(p.get("jenks_side"), "")
+            if explicit:
+                if explicit not in ("offense", "defense") or explicit != side:
+                    continue
+            else:
+                inferred = safe_lower(get_side(p), "")
+                if inferred not in ("offense", "defense") or inferred != side:
+                    continue
+            if is_special(p):
+                continue
+            filtered.append(p)
+        return filtered
 
     def compile_quick(rows, side_label):
         # rp + rp:dir counts
