@@ -215,8 +215,26 @@ def main():
         if is_special(p): return False
         return True
 
-    off=[p for p in plays_sorted if side_for("jenks", p)=="offense" and keep_for_analytics(p)]
-    deff=[p for p in plays_sorted if side_for("jenks", p)=="defense" and keep_for_analytics(p)]
+    valid = {"offense", "defense"}
+    off = []
+    deff = []
+    for p in plays_sorted:
+        if not keep_for_analytics(p):
+            continue
+        explicit = str(p.get("jenks_side") or "").strip().lower()
+        if explicit:
+            if explicit not in valid:
+                continue
+            side = explicit
+        else:
+            inferred = str(side_for("jenks", p) or "").strip().lower()
+            if inferred not in valid:
+                continue
+            side = inferred
+        if side == "offense":
+            off.append(p)
+        else:
+            deff.append(p)
 
     # ensure rp/dir defaults
     for p in off+deff:
