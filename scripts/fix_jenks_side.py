@@ -48,6 +48,27 @@ SIDE_VALUE_MAP = {
 CLIP_FIELDS = ("clip", "src", "name", "title", "file")
 
 
+def norm_side(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip().lower()
+    if not text:
+        return ""
+    if text == "unknown":
+        return "unknown"
+    return SIDE_VALUE_MAP.get(text, "")
+
+
+def is_special(row: Row) -> bool:
+    # Treat any non-empty st_* as special teams
+    return bool(str(row.get("st_fix") or row.get("st_auto") or "").strip())
+
+
+def is_excluded(row: Row) -> bool:
+    ex = str(row.get("exclude") or "").strip().lower()
+    return ex in {"1", "true", "yes", "y"}
+
+
 def _norm_name(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
@@ -174,7 +195,9 @@ def load_plays(plays_path: Path) -> List[Tuple[str, Optional[Play]]]:
     return entries
 
 
-def build_row_index(rows: List[Row], fieldnames: List[str]) -> Tuple[List[Dict[str, Any]], Dict[str, str], Dict[str, str], Dict[int, str]]:
+def build_row_index(
+    rows: List[Row], fieldnames: List[str]
+) -> Tuple[List[Dict[str, Any]], Dict[str, str], Dict[str, str], Dict[int, str], Dict[str, str]]:
     key_col = _preferred_column(fieldnames, ROW_KEY_PREFERENCES)
     if key_col is None:
         key_col = "row_index"
@@ -194,35 +217,59 @@ def build_row_index(rows: List[Row], fieldnames: List[str]) -> Tuple[List[Dict[s
     side_by_key: Dict[str, str] = {}
     side_by_row: Dict[str, str] = {}
     side_by_clip: Dict[int, str] = {}
+    side_map: Dict[str, str] = {}
     ordered: List[Dict[str, Any]] = []
 
     for idx, row in enumerate(rows):
-        side = determine_row_side(row, offense_cols, defense_cols, hint_cols, jenks_cols)
-        key_val = str(row.get(key_col, "")).strip()
-        if not key_val:
-            key_val = str(idx)
+        detected_side = determine_row_side(row, offense_cols, defense_cols, hint_cols, jenks_cols)
+        rid = str(row.get(key_col, "")).strip()
+        if not rid:
+            rid = str(idx)
         clip_num = None
         for field in CLIP_FIELDS:
             clip_num = _clip_number(row.get(field))
             if clip_num is not None:
                 break
+        if is_special(row):
+            side = "special"
+        elif is_excluded(row):
+            side = "excluded"
+        else:
+            fixed_side = norm_side(row.get("side_fix")) or norm_side(row.get("side_auto"))
+            if fixed_side and fixed_side != "unknown":
+                side = fixed_side
+            else:
+                side = detected_side
+            if fixed_side == "unknown" and detected_side in {"offense", "defense"}:
+                side = detected_side
+        if not side or side == "conflict":
+            side = "unknown"
         info = {
-            "key": key_val,
+            "key": rid,
             "row_index": str(idx),
             "side": side,
             "clip": clip_num,
         }
         ordered.append(info)
-        if side in {"offense", "defense"}:
-            side_by_key.setdefault(key_val, side)
-            side_by_row.setdefault(str(idx), side)
-            if clip_num is not None:
-                side_by_clip.setdefault(clip_num, side)
-    return ordered, side_by_key, side_by_row, side_by_clip
+        side_map[rid] = side
+        side_map[str(idx)] = side
+        if clip_num is not None:
+            side_map[f"clip:{clip_num}"] = side
+        side_by_key[rid] = side
+        side_by_row[str(idx)] = side
+        if clip_num is not None:
+            side_by_clip[clip_num] = side
+    return ordered, side_by_key, side_by_row, side_by_clip, side_map
 
 
-def match_side(play: Play, idx: int, key_map: Dict[str, str], row_map: Dict[str, str], clip_map: Dict[int, str],
-               candidate_fields: Sequence[str]) -> Optional[str]:
+def match_side(
+    play: Play,
+    idx: int,
+    key_map: Dict[str, str],
+    row_map: Dict[str, str],
+    clip_map: Dict[int, str],
+    candidate_fields: Sequence[str],
+) -> Tuple[Optional[str], Optional[str]]:
     for field in candidate_fields:
         if field not in play:
             continue
@@ -231,18 +278,18 @@ def match_side(play: Play, idx: int, key_map: Dict[str, str], row_map: Dict[str,
             continue
         key = str(val).strip()
         if key and key in key_map:
-            return key_map[key]
+            return key, key_map[key]
     clip_num = None
     for field in CLIP_FIELDS:
         clip_num = _clip_number(play.get(field))
         if clip_num is not None:
             break
     if clip_num is not None and clip_num in clip_map:
-        return clip_map[clip_num]
+        return f"clip:{clip_num}", clip_map[clip_num]
     row_key = str(idx)
     if row_key in row_map:
-        return row_map[row_key]
-    return None
+        return row_key, row_map[row_key]
+    return None, None
 
 
 def write_plays(plays_path: Path, entries: List[Tuple[str, Optional[Play]]]) -> None:
@@ -270,7 +317,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     if not rows:
         print("[warn] audit CSV empty; no side updates applied")
         return
-    _, side_by_key, side_by_row, side_by_clip = build_row_index(rows, fieldnames)
+    _, side_by_key, side_by_row, side_by_clip, side_map = build_row_index(rows, fieldnames)
 
     entries = load_plays(plays_path)
     candidate_fields: List[str] = []
@@ -298,19 +345,20 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     for idx, (raw, obj) in enumerate(entries):
         if obj is None:
             continue
-        side = match_side(obj, idx, side_by_key, side_by_row, side_by_clip, candidate_fields)
-        if side in {"offense", "defense"}:
-            obj["jenks_side"] = side
-            obj["metro_side"] = "defense" if side == "offense" else "offense"
+        play_key, _ = match_side(
+            obj, idx, side_by_key, side_by_row, side_by_clip, candidate_fields
+        )
+        js = side_map.get(play_key, "unknown")
+        if not js:
+            js = "unknown"
+        if js in {"offense", "defense"}:
+            obj["jenks_side"] = js
+            obj["metro_side"] = "defense" if js == "offense" else "offense"
             updated += 1
-            summary[side] += 1
         else:
-            obj.pop("jenks_side", None)
+            obj["jenks_side"] = js
             obj.pop("metro_side", None)
-            if side:
-                summary[side] += 1
-            else:
-                summary["unmatched"] += 1
+        summary[js] += 1
         entries[idx] = (raw, obj)
 
     write_plays(plays_path, entries)
