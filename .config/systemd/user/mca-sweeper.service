@@ -1,0 +1,16 @@
+[Unit]
+Description=MCA Gameday daily sweeper (rclone archival)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/mca-gameday-camera
+Environment=SWEEPER_REMOTE=archive
+Environment=SWEEPER_REMOTE_PATH=mca-gameday-camera/archive
+Environment=SWEEPER_MIN_AGE=7d
+Environment=SWEEPER_MIN_SIZE=200M
+ExecStart=%h/mca-gameday-camera/tools/maintenance/sweeper.sh --run
+
+[Install]
+WantedBy=default.target

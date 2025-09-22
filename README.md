@@ -6,6 +6,38 @@ Large video recordings (`.mp4`) are saved in the `video/` folder but individual 
 
 This project uses a single playbook at `playbooks/mca_5th_playbook.json`.
 
+## Maintenance tooling
+
+Daily capture and model training create a large number of logs, manual review
+artifacts, and raw clips. The `tools/maintenance` helpers keep the working tree
+trimmed without committing destructive actions by default:
+
+* `tools/maintenance/duplicates.sh` &mdash; reports duplicate files (dry-run). Add
+  `--resolve` to interactively delete the redundant copies after confirmation.
+* `tools/maintenance/clean_now.sh` &mdash; prunes stale logs, manual review JSON, and
+  Python caches. Pass `--run` to apply the removals, otherwise it prints what
+  would be deleted and the disk delta.
+* `tools/maintenance/sweeper.sh` &mdash; archives files that are both older than
+  seven days and at least 200&nbsp;MiB via `rclone move`. Supply `--run` once you
+  are satisfied with the dry-run report or override thresholds with
+  `--min-age/--min-size`.
+
+### Enabling the sweeper timer
+
+The repository includes a user service and timer under
+`.config/systemd/user/`. Update the `WorkingDirectory`/`ExecStart` paths if the
+repository lives somewhere other than `~/mca-gameday-camera`, then run:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now mca-sweeper.timer
+systemctl --user list-timers mca-sweeper.timer
+```
+
+The timer runs the sweeper once per day. Use
+`systemctl --user start mca-sweeper.service --wait` to trigger an immediate run
+after reviewing the dry-run output.
+
 ## First-time setup
 
 ### Field calibration (once per field)

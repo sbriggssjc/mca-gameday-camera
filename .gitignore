@@ -16,6 +16,9 @@ video/manual_uploads/*.mp4
 *.flv
 *.mov
 *.ts
+*.avi
+*.webm
+*.m3u8
 
 livestream_logs/
 output/
@@ -30,3 +33,54 @@ credentials.json
 *credentials*.json
 modular-conduit-*-*.json
 .gameday.env
+
+# Python caches and virtual environments
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+env.*/
+.python-version
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Build / tooling leftovers
+*.tmp
+*.bak
+*.swp
+*.swo
+*.orig
+*.rej
+*.DS_Store
+.idea/
+.vscode/
+
+# Generated logs and analytics
+*.log
+*.jsonl
+logs/
+output/manual_logs/
+output/**/logs/
+outputs/
+
+# Training artefacts
+training/frames/
+training/logs/
+training/dataset/
+
+# Bundled models and archives
+models_bundle/
+models_bundle.*
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tgz
+*.zip
+
+# Reports from history rewrites
+..bfg-report/
