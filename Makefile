@@ -43,3 +43,16 @@ audit-diff:
 .PHONY: snapshot
 snapshot:
 	python3 scripts/build_snapshot.py "$(OUT)"
+
+.PHONY: tidy
+tidy:
+	@echo "== duplicate scan (dry-run) =="
+	tools/maintenance/duplicates.sh --limit 10
+	@echo "== vulture check =="
+	@if command -v vulture >/dev/null 2>&1; then \
+		vulture .; \
+	else \
+		echo "vulture not installed; skipping dead-code report"; \
+	fi
+	@echo "== disk overview =="
+	df -h .

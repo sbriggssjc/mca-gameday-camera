@@ -1,0 +1,11 @@
+[Unit]
+Description=Run MCA Gameday sweeper daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=900
+Unit=mca-sweeper.service
+
+[Install]
+WantedBy=timers.target
