@@ -1,4 +1,0 @@
-[video4linux2,v4l2 @ 0xaaab0a5ec4d0] ioctl(VIDIOC_G_INPUT): Inappropriate ioctl for device
-[video4linux2,v4l2 @ 0xaaaadf5a92e0] ioctl(VIDIOC_G_INPUT): Inappropriate ioctl for device
-/dev/video1: Inappropriate ioctl for device
-/dev/video1: Inappropriate ioctl for device

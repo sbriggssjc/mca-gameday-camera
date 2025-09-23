@@ -84,3 +84,30 @@ models_bundle.*
 
 # Reports from history rewrites
 ..bfg-report/
+# generated / large
+output/
+outputs/
+video/
+logs/
+*.log
+*.bak
+__pycache__/
+# generated / large
+output/
+outputs/
+video/
+logs/
+*.log
+*.bak
+__pycache__/
+# generated / large
+output/
+outputs/
+video/
+logs/
+*.log
+*.bak
+__pycache__/
+input/
+*.MP4
+*.MOV
