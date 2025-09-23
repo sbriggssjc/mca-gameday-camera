@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+set -euo pipefail
+: "${OUT:?set OUT to a writable staging dir}"
+#!/usr/bin/env bash
 #
 # sweeper.sh - archive large, old artifacts to an rclone remote.
 # Defaults to a dry-run so you can review the plan before any bytes move.
