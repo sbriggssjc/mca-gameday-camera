@@ -17,13 +17,16 @@ for name in sorted(os.listdir(clips_dir)):
         "clip_file": name,
         "play_number": play_num,
         "label_hint": label,
-        "offense_defense": "offense",
-        "team_phase": "offense",
+
+        # Start as Jenks-vs-Bartlesville raw; we’ll flip in the next step
+        # Set these so the flip lands on Bartlesville OFF/DEF correctly.
+        "offense_defense": "defense",
+        "team_phase": "defense",
+
         "our_team": "Bartlesville",
-        "our_jersey_color": "lightblue",
-        "our_pants_color": "navy",
-        "opponent_name": "Lincoln Christian",
-        "opponent_from_this_game": False,
+        "our_jersey_color": "white",
+        "opponent_name": "Jenks Silver",
+        "opponent_from_this_game": True,
         "created_at": datetime.datetime.utcnow().isoformat()+"Z",
     })
 
