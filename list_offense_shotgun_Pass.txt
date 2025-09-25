@@ -1,0 +1,2 @@
+file /home/scott/mca-gameday-camera/output/opponent_bartlesville_jenks_20250920/_all/stable/clips/P031_reo_pitch_run.mp4
+file /home/scott/mca-gameday-camera/output/opponent_bartlesville_jenks_20250920/_all/stable/clips/P048_kickoff_special_teams.mp4

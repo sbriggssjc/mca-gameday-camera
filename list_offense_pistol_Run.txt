@@ -1,0 +1,9 @@
+file /home/scott/mca-gameday-camera/output/opponent_bartlesville_jenks_20250920/_all/stable/clips/P007_rend_dive_run.mp4
+file /home/scott/mca-gameday-camera/output/opponent_bartlesville_jenks_20250920/_all/stable/clips/P008_lend_dive_run.mp4
+file /home/scott/mca-gameday-camera/output/opponent_bartlesville_jenks_20250920/_all/stable/clips/P013_lit_power_L_run.mp4
+file /home/scott/mca-gameday-camera/output/opponent_bartlesville_jenks_20250920/_all/stable/clips/P036_quick_screen_pass.mp4
+file /home/scott/mca-gameday-camera/output/opponent_bartlesville_jenks_20250920/_all/stable/clips/P037_kick_return_special_teams.mp4
+file /home/scott/mca-gameday-camera/output/opponent_bartlesville_jenks_20250920/_all/stable/clips/P038_lend_tackle_run.mp4
+file /home/scott/mca-gameday-camera/output/opponent_bartlesville_jenks_20250920/_all/stable/clips/P039_lend_dive_run.mp4
+file /home/scott/mca-gameday-camera/output/opponent_bartlesville_jenks_20250920/_all/stable/clips/P049_power_run.mp4
+file /home/scott/mca-gameday-camera/output/opponent_bartlesville_jenks_20250920/_all/stable/clips/P058_dive_run.mp4

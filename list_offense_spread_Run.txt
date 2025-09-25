@@ -1,0 +1,2 @@
+file /home/scott/mca-gameday-camera/output/opponent_bartlesville_jenks_20250920/_all/stable/clips/P009_leo_flood_pass.mp4
+file /home/scott/mca-gameday-camera/output/opponent_bartlesville_jenks_20250920/_all/stable/clips/P021_lend_dive_run.mp4
